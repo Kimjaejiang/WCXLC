@@ -57,7 +57,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "WXPRO"
+rootProject.name = "WX2026"
 
 include(
     ":app",
