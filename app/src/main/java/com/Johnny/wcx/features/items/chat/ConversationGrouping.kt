@@ -1,6 +1,9 @@
 package com.Johnny.wcx.features.items.chat
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.widget.ListView
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.core.Animatable
@@ -143,7 +146,19 @@ object ConversationGrouping : ClickableFeature(), IResolveDex {
     @Volatile
     private var groupsCache: List<ChatGroup>? = null
 
-    private val groupMembersCache = ConcurrentHashMap<String, List<String>>()
+    private const val GROUP_MEMBERS_TTL_MS = 30_000L
+    private val groupMembersCache = ConcurrentHashMap<String, Pair<Long, List<String>>>()
+
+    // ── 消息事件 / 列表刷新节流 ──────────────────────────────────────────────
+    // 群消息刷屏时 type-3 事件会高频到达，若每条都同步查库 + 整表 reload 会造成主线程卡顿。
+    // 这里对未读判断做短 TTL 缓存，对 reload 做去抖合并。
+    private const val UNREAD_SNAPSHOT_TTL_MS = 500L
+    private const val RELOAD_DEBOUNCE_MS = 150L
+    private const val HIDDEN_CLAUSE_TTL_MS = 1000L
+    private val unreadSnapshotCache = ConcurrentHashMap<String, Pair<Long, Boolean>>()
+    private var pendingReloadScheduled = false
+    private var hiddenClauseCache: Triple<Long, Set<String>, String>? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     // Reference to the tab bar ComposeView added as a header to the conversation ListView.
     // Used by onDisable() to remove the header when the master switch is toggled off.
@@ -249,6 +264,12 @@ object ConversationGrouping : ClickableFeature(), IResolveDex {
         // Invalidate the cache so loadGroups re-reads from disk next time.
         groupsCache = null
         groupMembersCache.clear()
+        // Drop event-throttle state: pending reloads are cancelled and stale unread snapshots
+        // discarded so a re-enable starts clean.
+        mainHandler.removeCallbacksAndMessages(null)
+        pendingReloadScheduled = false
+        unreadSnapshotCache.clear()
+        hiddenClauseCache = null
         // Reload the conversation list to reflect the removed filter.
         WeConversationApi.reloadConversations()
     }
@@ -430,9 +451,9 @@ object ConversationGrouping : ClickableFeature(), IResolveDex {
             val currentGroup = activeGroup ?: return@hookBefore
 
             if (currentGroup.type == GroupType.PRESET_UNREAD) {
-                if (!isConversationUnread(talker)) {
+                if (!isConversationUnreadCached(talker)) {
                     result = null
-                    WeConversationApi.reloadConversations()
+                    scheduleReload()
                     return@hookBefore
                 }
                 return@hookBefore
@@ -449,7 +470,7 @@ object ConversationGrouping : ClickableFeature(), IResolveDex {
             GroupType.MANUAL -> group.members.contains(talker)
             GroupType.PRESET_GROUPS -> talker.endsWith("@chatroom")
             GroupType.PRESET_OFFICIALS -> talker.startsWith("gh_")
-            GroupType.PRESET_UNREAD -> isConversationUnread(talker)
+            GroupType.PRESET_UNREAD -> isConversationUnreadCached(talker)
             GroupType.SQL -> getGroupMembers(group).contains(talker)
         }
     }
@@ -470,20 +491,67 @@ object ConversationGrouping : ClickableFeature(), IResolveDex {
         }.getOrDefault(false)
     }
 
+    /**
+     * Cached variant of [isConversationUnread] for the message-event hot path. A single group
+     * message burst can deliver dozens of type-3 events back-to-back; without this, each one pays a
+     * synchronous rconversation lookup on WeChat's main thread. A short TTL is a safe trade-off:
+     * the unread row is only touched by WeChat itself, and a stale "still unread" verdict merely
+     * leaves the conversation visible for one extra list reload.
+     */
+    private fun isConversationUnreadCached(talker: String): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        unreadSnapshotCache[talker]?.let { (ts, value) ->
+            if (now - ts < UNREAD_SNAPSHOT_TTL_MS) return value
+        }
+        val value = isConversationUnread(talker)
+        // Bound the map: entries are only overwritten per-talker, so a clear() here is a rare
+        // worst-case (thousands of distinct talkers within one TTL window).
+        if (unreadSnapshotCache.size > 2048) unreadSnapshotCache.clear()
+        unreadSnapshotCache[talker] = now to value
+        return value
+    }
+
+    /**
+     * Debounces the full-list reload that follows an "unread dropped to zero" event. Back-to-back
+     * events (reading several chats, or a burst of notifications) collapse into a single reload on
+     * the main thread instead of re-running WeChat's list query once per event.
+     */
+    private fun scheduleReload() {
+        if (pendingReloadScheduled) return
+        pendingReloadScheduled = true
+        mainHandler.postDelayed({
+            pendingReloadScheduled = false
+            WeConversationApi.reloadConversations()
+        }, RELOAD_DEBOUNCE_MS)
+    }
+
+    /**
+     * HideContacts.hiddenContacts re-reads (and deserializes) the whole hidden set from prefs on
+     * every getter call, and the list query hook runs per rendered frame; cache the built NOT IN
+     * clause with a short TTL so a hide/unhide is picked up within a second instead of paying the
+     * deserialization + join cost on every query.
+     */
+    private fun cachedHiddenClause(): String {
+        if (!HideContacts.isEnabled) return ""
+        val hidden = HideContacts.hiddenContacts
+        if (hidden.isEmpty()) return ""
+        val now = SystemClock.elapsedRealtime()
+        val cached = hiddenClauseCache
+        if (cached != null && now - cached.first < HIDDEN_CLAUSE_TTL_MS && cached.second == hidden) {
+            return cached.third
+        }
+        val built = " AND rconversation.username NOT IN (" +
+                hidden.joinToString(",") { "'${it.replace("'", "''")}'" } + ")"
+        hiddenClauseCache = Triple(now, hidden, built)
+        return built
+    }
+
     // Returns the rewritten SQL, or null to leave it untouched (all non-list queries and "全部").
     private fun rewriteConversationListSql(sql: String): String? {
         val predicate = activePredicate ?: return null
         if (!looksLikeConversationListQuery(sql)) return null
 
-        val hidden = if (HideContacts.isEnabled) HideContacts.hiddenContacts else emptySet()
-        val hiddenClause = if (hidden.isEmpty()) {
-            ""
-        } else {
-            " AND rconversation.username NOT IN (" +
-                    hidden.joinToString(",") { "'${it.replace("'", "''")}'" } + ")"
-        }
-
-        return injectCondition(sql, "($predicate)$hiddenClause")
+        return injectCondition(sql, "($predicate)${cachedHiddenClause()}")
     }
 
     private fun looksLikeConversationListQuery(sql: String): Boolean {
@@ -1304,15 +1372,17 @@ object ConversationGrouping : ClickableFeature(), IResolveDex {
         if (group.type == GroupType.MANUAL) {
             return group.members
         }
-        val cached = groupMembersCache[group.id]
-        if (cached != null) return cached
+        val now = SystemClock.elapsedRealtime()
+        groupMembersCache[group.id]?.let { (ts, cached) ->
+            if (now - ts < GROUP_MEMBERS_TTL_MS) return cached
+        }
 
         if (!WeDatabaseApi.isReady) {
             return emptyList()
         }
         val resolved = resolveGroupMembers(group)
         if (resolved.isNotEmpty()) {
-            groupMembersCache[group.id] = resolved
+            groupMembersCache[group.id] = now to resolved
         }
         return resolved
     }
