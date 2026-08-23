@@ -1,0 +1,152 @@
+import org.gradle.api.DefaultTask;
+import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.provider.Property;
+import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.InputDirectory;
+import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.TaskAction;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+/**
+ * Recreates the upstream `GenerateNewFeaturesTask` which is NOT part of the public tree
+ * (see SettingsActivity's "new features" comment): collects feature files whose source
+ * entered the repo within [windowDays] days of the build's HEAD commit and emits
+ * {@code NewFeatures.kt} carrying their add timestamps. The runtime sorts them newest first.
+ */
+public abstract class GenerateNewFeaturesTask extends DefaultTask {
+
+    @InputDirectory
+    public abstract DirectoryProperty getSourceDir();
+
+    @OutputDirectory
+    public abstract DirectoryProperty getOutputDir();
+
+    @Input
+    public abstract Property<String> getNamespace();
+
+    @Input
+    public abstract Property<File> getGitRepoDir();
+
+    @Input
+    public abstract Property<Integer> getWindowDays();
+
+    @TaskAction
+    public void generate() throws IOException {
+        File srcDir = getSourceDir().get().getAsFile();
+        File gitRepo = getGitRepoDir().get();
+        File outDir = getOutputDir().get().getAsFile();
+        String namespace = getNamespace().get();
+        int windowDays = getWindowDays().get();
+
+        long headTs = Long.parseLong(runGit(gitRepo, "log", "-1", "--format=%ct").trim());
+
+        // The features/items dir was first imported wholesale (upstream squashed its history at
+        // v214); "new" features are the files added *after* that baseline commit.
+        String itemsPath = "app/src/main/java/com/Johnny/wcx/features/items";
+        String baseline = runGit(gitRepo, "log", "--diff-filter=A", "--format=%H", "--", itemsPath)
+                .trim().lines().reduce((first, second) -> second).orElse("");
+        if (baseline.isEmpty()) return;
+
+        // One git call: all files that entered features/items after the baseline, with add timestamps.
+        Map<String, Long> fileAddedTs = new LinkedHashMap<>();
+        String log = runGit(gitRepo, "log", baseline + "..HEAD", "--diff-filter=A", "--format=@%ct", "--name-only",
+                "--", itemsPath);
+        long currentTs = 0;
+        for (String line : log.split("\r?\n")) {
+            line = line.trim();
+            if (line.startsWith("@")) {
+                currentTs = Long.parseLong(line.substring(1));
+            } else if (!line.isEmpty() && line.endsWith(".kt")) {
+                // git log lists newest first; keep the earliest add ("entered the repo")
+                fileAddedTs.putIfAbsent(line, currentTs);
+            }
+        }
+
+        long cutoff = headTs - windowDays * 86400L;
+        Map<String, Long> addedAtByName = new LinkedHashMap<>();
+
+        Files.walk(srcDir.toPath())
+                .filter(p -> p.toFile().isFile() && p.toString().endsWith(".kt"))
+                .forEach(file -> {
+                    try {
+                        String content = Files.readString(file);
+                        if (!content.contains("@Feature")) return;
+
+                        String clean = content
+                                .replaceAll("//[^\n]*", "")
+                                .replaceAll("/\\*[\\s\\S]*?\\*/", "");
+                        Matcher m = Pattern.compile("@Feature\\s*\\(\\s*name\\s*=\\s*\"([^\"]+)\"").matcher(clean);
+                        if (!m.find()) return;
+                        String name = m.group(1);
+
+                        String rel = gitRepo.toPath().relativize(file).toString().replace('\\', '/');
+                        Long added = fileAddedTs.get(rel);
+                        if (added == null || added > headTs || added < cutoff) return;
+                        addedAtByName.put(name, added);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+
+        File outputFile = new File(outDir, namespace.replace(".", "/") + "/features/core/NewFeatures.kt");
+        outputFile.getParentFile().mkdirs();
+
+        String entries = addedAtByName.entrySet().stream()
+                .sorted(Map.Entry.comparingByValue())
+                .map(e -> "            \"" + e.getKey().replace("\"", "\\\"") + "\" to " + e.getValue() + "L")
+                .collect(Collectors.joining(",\n"));
+
+        String content = "package " + namespace + ".features.core\n" +
+                "\n" +
+                "/**\n" +
+                " * GENERATED by GenerateNewFeaturesTask — do not edit.\n" +
+                " * Features whose source file entered the repo within [WINDOW_DAYS] days of the\n" +
+                " * build's HEAD commit, collected at compile time, newest first at runtime.\n" +
+                " */\n" +
+                "object NewFeatures {\n" +
+                "    const val WINDOW_DAYS = " + windowDays + "\n" +
+                "    val ADDED_AT_BY_NAME: Map<String, Long> = mapOf(\n" +
+                (entries.isEmpty() ? "" : entries + ",\n") +
+                "    )\n" +
+                "}\n";
+
+        Files.writeString(outputFile.toPath(), content);
+    }
+
+    private static String runGit(File cwd, String... args) throws IOException {
+        List<String> cmd = new ArrayList<>();
+        cmd.add("git");
+        for (String a : args) cmd.add(a);
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.directory(cwd);
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        StringBuilder out = new StringBuilder();
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+            String line;
+            while ((line = r.readLine()) != null) out.append(line).append("\n");
+        }
+        try {
+            int code = p.waitFor();
+            if (code != 0) {
+                throw new IOException("git " + String.join(" ", args) + " failed (" + code + "): " + out);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(e);
+        }
+        return out.toString();
+    }
+}

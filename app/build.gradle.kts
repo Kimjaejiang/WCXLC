@@ -194,6 +194,11 @@ androidComponents {
             GenerateMethodHashesTask::getOutputDir
         )
 
+        kotlinSources.addGeneratedSourceDirectory(
+            generateNewFeatures,
+            GenerateNewFeaturesTask::getOutputDir
+        )
+
         val variantName = variant.name.replaceFirstChar { it.uppercase() }
         val embedAboutLibraries = tasks.register<EmbedAboutLibrariesTask>("embedAboutLibraries$variantName") {
             group = "wekit"
@@ -251,6 +256,16 @@ val generateMethodHashes = tasks.register<GenerateMethodHashesTask>("generateMet
     sourceDir.set(file("src/main/java"))
     outputDir.set(layout.buildDirectory.dir("generated/source/methodhashes"))
     namespace.set(libs.versions.namespace.get())
+}
+
+val generateNewFeatures = tasks.register<GenerateNewFeaturesTask>("generateNewFeatures") {
+    description = "Generate NewFeatures.kt from git add timestamps (recreates upstream private task)"
+    group = "wekit"
+    sourceDir.set(file("src/main/java"))
+    outputDir.set(layout.buildDirectory.dir("generated/source/newfeatures"))
+    namespace.set(libs.versions.namespace.get())
+    gitRepoDir.set(rootProject.projectDir)
+    windowDays.set(30)
 }
 
 // --- end tasks ---
