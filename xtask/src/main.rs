@@ -269,7 +269,7 @@ fn find_android_home(workspace_root: &Path) -> Result<String> {
 
     for line in props.lines() {
         if let Some(rest) = line.strip_prefix("sdk.dir=") {
-            let dir = rest.trim().replace("\\:", ":"); // unescape Windows paths
+            let dir = rest.trim().replace("\\:", ":").replace("\\\\", "\\"); // unescape Windows paths
             if !dir.is_empty() {
                 return Ok(dir);
             }
@@ -349,13 +349,16 @@ fn host_prebuilt_tag() -> Result<&'static str> {
 fn task_configure() -> Result<()> {
     let root = workspace_root();
     let android_home = find_android_home(&root)?;
-    let ndk_bin_dir = find_ndk_bin_dir(&android_home)?;
+    let ndk_bin_dir = find_ndk_bin_dir(&android_home)?.replace('\\', "/");
 
     // Derive the NDK sysroot from the bin dir (e.g. .../bin → .../sysroot).
     let ndk_sysroot = Path::new(&ndk_bin_dir)
         .parent()
         .unwrap()
-        .join("sysroot");
+        .join("sysroot")
+        .display()
+        .to_string()
+        .replace('\\', "/");
 
     // On Windows the NDK ships `.cmd` wrappers for the clang binaries.
     let ext = if cfg!(target_os = "windows") {
@@ -382,7 +385,7 @@ fn task_configure() -> Result<()> {
     for spec in ABI_TABLE {
         let cc = format!("{ndk_bin_dir}/{}{MIN_SDK}-clang{ext}", spec.clang_prefix);
         let cxx = format!("{ndk_bin_dir}/{}{MIN_SDK}-clang++{ext}", spec.clang_prefix);
-        let bindgen_args = format!("--sysroot={}", ndk_sysroot.display());
+        let bindgen_args = format!("--sysroot={}", ndk_sysroot);
         out.push_str(&format!("CC_{k} = \"{cc}\"\n", k = spec.env_key));
         out.push_str(&format!("CXX_{k} = \"{cxx}\"\n", k = spec.env_key));
         out.push_str(&format!("AR_{k} = \"{ar}\"\n", k = spec.env_key));
