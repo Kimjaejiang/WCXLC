@@ -4,6 +4,16 @@ const LAME_DIR: &str = "lame-3.100";
 
 #[cfg(unix)]
 fn build() {
+    let mp3_target = std::env::var("TARGET").expect("To have env:TARGET");
+    if mp3_target.contains("android") {
+        build_with_cc();
+    } else {
+        build_with_autotools();
+    }
+}
+
+#[cfg(unix)]
+fn build_with_autotools() {
     let mut config = autotools::Config::new(LAME_DIR);
 
     #[cfg(feature = "decoder")]
@@ -63,6 +73,9 @@ fn build() {
 //On unix targets we just rely on autotools to figure shit out
 #[cfg(windows)]
 fn build() {
+    build_with_cc();
+}
+fn build_with_cc() {
     const INCLUDE_MSVC: &str = ".include_msvc";
 
     //fucking cargo and its annoying treatment of file modifications of crate
