@@ -134,6 +134,17 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 "$u" 2>/dev/null || echo "FAIL")
             echo "::error::NET $u -> $code"
           done
+      - name: Pre-download Gradle distribution
+        run: |
+          DIST_VER=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed 's/.*gradle-\([0-9.]*\)-bin.zip/\1/')
+          ZIP_URL="https://services.gradle.org/distributions/gradle-${DIST_VER}-bin.zip"
+          HASH=$(printf '%s' "$ZIP_URL" | md5sum | cut -d' ' -f1)
+          DEST="$HOME/.gradle/wrapper/dists/gradle-${DIST_VER}-bin/$HASH"
+          if [ ! -f "$DEST/gradle-${DIST_VER}-bin.zip" ]; then
+            mkdir -p "$DEST"
+            curl -fL --retry 3 -o "$DEST/gradle-${DIST_VER}-bin.zip" "$ZIP_URL" || { echo "::error::gradle dist download failed"; exit 1; }
+          fi
+          echo "Gradle dist ready: $(du -h "$DEST/gradle-${DIST_VER}-bin.zip" | cut -f1)"
       - name: Prepare keystore
         if: github.event_name != 'pull_request'
         run: |
@@ -208,6 +219,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WEKIT_KEYSTORE_FILE: ${{ runner.temp }}/wekit-keystore.jks
+          GRADLE_OPTS: -Djava.net.preferIPv4Stack=true
         run: |
           source "$RUNNER_TEMP/keystore-creds.env"
           export WEKIT_KEYSTORE_PASSWORD="$KS_PASS"
