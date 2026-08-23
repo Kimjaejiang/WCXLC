@@ -98,6 +98,11 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      - name: Install Android NDK
+        run: |
+          yes | sdkmanager --install "ndk;29.0.13113456" --sdk_root="${ANDROID_HOME}" >/dev/null 2>&1 || echo "sdkmanager install returned non-zero"
+          ls "${ANDROID_HOME}/ndk/" 2>/dev/null || echo "no ndk dir"
+          echo "ANDROID_HOME=${ANDROID_HOME}"
       - name: Install system dependencies
         run: |
           sudo dpkg --add-architecture i386
