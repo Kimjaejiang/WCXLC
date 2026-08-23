@@ -101,10 +101,18 @@ jobs:
       - name: Install Android NDK
         run: |
           echo "ANDROID_HOME=${ANDROID_HOME}"
-          command -v sdkmanager || { echo "sdkmanager not in PATH"; exit 1; }
-          ls "${ANDROID_HOME}/ndk/" 2>/dev/null || echo "no ndk dir yet"
-          yes | sdkmanager --install "ndk;29.0.13113456" --sdk_root="${ANDROID_HOME}" 2>&1 | tail -5 || { echo "sdkmanager install failed"; exit 1; }
-          ls "${ANDROID_HOME}/ndk/" || { echo "ndk install failed - no ndk dir"; exit 1; }
+          NDK_DIR="${ANDROID_HOME}/ndk/29.0.13113456"
+          if [ -d "$NDK_DIR" ]; then
+            echo "NDK already present"
+          else
+            echo "Downloading NDK r29..."
+            curl -fL -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-r29-linux.zip" || { echo "::error::NDK download failed"; exit 1; }
+            mkdir -p /tmp/ndk-extract "${ANDROID_HOME}/ndk"
+            unzip -q /tmp/ndk.zip -d /tmp/ndk-extract || { echo "::error::NDK unzip failed"; exit 1; }
+            mv /tmp/ndk-extract/android-ndk-r29* "$NDK_DIR" || { echo "::error::NDK move failed"; exit 1; }
+          fi
+          ls "${ANDROID_HOME}/ndk/"
+          echo "NDK installed: ${NDK_DIR}"
       - name: Install system dependencies
         run: |
           sudo dpkg --add-architecture i386
