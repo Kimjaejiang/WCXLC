@@ -64,5 +64,5 @@ default-features = false
 [target."cfg(unix)".build-dependencies.autotools]
 version = "0.2.6"
 
-[target."cfg(windows)".build-dependencies.cc]
+[build-dependencies.cc]
 version = "1.0.77"
