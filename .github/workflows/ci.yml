@@ -101,10 +101,10 @@ jobs:
       - name: Install Android NDK
         run: |
           echo "ANDROID_HOME=${ANDROID_HOME}"
-          command -v sdkmanager || echo "sdkmanager not in PATH"
+          command -v sdkmanager || { echo "sdkmanager not in PATH"; exit 1; }
           ls "${ANDROID_HOME}/ndk/" 2>/dev/null || echo "no ndk dir yet"
-          yes | sdkmanager --install "ndk;29.0.13113456" --sdk_root="${ANDROID_HOME}" >/dev/null 2>&1 || echo "sdkmanager install returned non-zero"
-          ls "${ANDROID_HOME}/ndk/" 2>/dev/null || echo "ndk install failed"
+          yes | sdkmanager --install "ndk;29.0.13113456" --sdk_root="${ANDROID_HOME}" 2>&1 | tail -5 || { echo "sdkmanager install failed"; exit 1; }
+          ls "${ANDROID_HOME}/ndk/" || { echo "ndk install failed - no ndk dir"; exit 1; }
       - name: Install system dependencies
         run: |
           sudo dpkg --add-architecture i386
