@@ -163,6 +163,7 @@ android {
     @Suppress("UnstableApiUsage")
     androidResources {
         localeFilters += setOf("zh")
+        additionalParameters += listOf("--package-id", "0x80")
     }
 
     buildFeatures {

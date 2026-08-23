@@ -2775,6 +2775,11 @@ object WeMomentsApi : ApiFeature(), IResolveDex {
             ?: 0
     }
 
+    fun isAd(snsInfo: Any?): Boolean {
+        if (snsInfo == null) return false
+        return snsInfo.javaClass.name == "com.tencent.mm.plugin.sns.storage.ADInfo"
+    }
+
     private fun buildSnsTableId(snsInfo: Any): String? {
         val snsId = snsInfo.reflekt().firstFieldOrNull { name = "field_snsId"; superclass() }?.get()?.let { it as? Number }?.toLong() ?: return null
         if (snsId == 0L) return null

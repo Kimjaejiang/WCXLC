@@ -10,14 +10,13 @@ import android.widget.ImageView
 import com.tencent.mm.ui.LauncherUI
 import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.reflekt.reflekt
-import com.Johnny.wcx.dexkit.abc.IResolveDex
-import com.Johnny.wcx.dexkit.dsl.dexMethod
 import com.Johnny.wcx.features.api.ui.WeHomeScreenPopupMenuApi
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.features.core.SwitchFeature
 import com.Johnny.wcx.preferences.WePrefs
 import com.Johnny.wcx.ui.utils.InjectedUiTheme
-import com.Johnny.wcx.utils.WeLogger
+import com.Johnny.wcx.utils.WeLogger
+import com.Johnny.wcx.utils.HookParam
 import com.Johnny.wcx.utils.android.runOnUiThread
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
@@ -73,37 +72,18 @@ object MiniProgramIcon : Drawable() {
 }
 
 @Feature(name = "禁止主页下滑进入最近页面", categories = ["小程序"], description = "禁止主页下滑进入最近页面，支持通过加号菜单和标题栏图标唤起小程序面板")
-object DisableMainPagePullDown : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsProvider, IResolveDex {
+object DisableMainPagePullDown : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsProvider {
 
     // 两个独立开关
     private var showInPlusMenu by WePrefs.prefOption("disable_main_page_pull_down_show_in_menu", true)
     private var showInTitleBar by WePrefs.prefOption("disable_main_page_pull_down_show_in_title_bar", false)
 
-    // DexKit 方法：查找 LauncherUI 中处理下拉手势的方法
-    private val methodOnTouchEvent by dexMethod(allowFailure = true) {
-        searchPackages("com.tencent.mm.ui")
-        matcher {
-            usingEqStrings("MicroMsg.LauncherUI", "onTouchEvent")
-        }
-    }
-
-    // DexKit 方法：查找打开小程序面板的方法
-    private val methodOpenMiniProgramPanel by dexMethod(allowFailure = true) {
-        searchPackages("com.tencent.mm")
-        matcher {
-            usingEqStrings("MicroMsg.LauncherUI", "openTaskList")
-        }
-    }
-
     private var titleBarIconView: View? = null
 
     override fun onEnable() {
         try {
-            // 注册到首页右上角菜单
-            if (showInPlusMenu) {
-                WeHomeScreenPopupMenuApi.addProvider(this)
-            }
-            WeLogger.i(TAG, "enabled, showInPlusMenu=$showInPlusMenu, showInTitleBar=$showInTitleBar")
+            // 回退状态：不做任何 hook，保证主页布局正常；下滑功能暂停开发
+            WeLogger.i(TAG, "enabled (no hooks), showInPlusMenu=$showInPlusMenu, showInTitleBar=$showInTitleBar")
         } catch (e: Exception) {
             WeLogger.e(TAG, "failed to enable", e)
         }
@@ -119,7 +99,7 @@ object DisableMainPagePullDown : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenu
         }
     }
 
-    override fun getMenuItems(param: XC_MethodHook.MethodHookParam): List<WeHomeScreenPopupMenuApi.MenuItem> {
+    override fun getMenuItems(param: HookParam): List<WeHomeScreenPopupMenuApi.MenuItem> {
         if (!showInPlusMenu) return emptyList()
         return listOf(
             WeHomeScreenPopupMenuApi.MenuItem(
@@ -155,17 +135,6 @@ object DisableMainPagePullDown : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenu
                 return
             } catch (e: NoSuchMethodException) {
                 WeLogger.d(TAG, "openTaskList method not found, trying alternative")
-            }
-
-            // 方式2：尝试通过 DexKit 解析的方法
-            try {
-                if (!methodOpenMiniProgramPanel.isPlaceholder) {
-                    methodOpenMiniProgramPanel.method.invoke(launcherUI)
-                    WeLogger.i(TAG, "triggered via dexMethod")
-                    return
-                }
-            } catch (e: Exception) {
-                WeLogger.d(TAG, "dexMethod trigger failed", e)
             }
 
             // 方式3：模拟 dispatchTouchEvent 发送下拉手势
