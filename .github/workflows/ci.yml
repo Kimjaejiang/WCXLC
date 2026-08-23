@@ -222,6 +222,7 @@ jobs:
           WEKIT_KEYSTORE_FILE: ${{ runner.temp }}/wekit-keystore.jks
           GRADLE_OPTS: -Djava.net.preferIPv4Stack=true
         run: |
+          export JAVA_TOOL_OPTIONS="-Djava.net.preferIPv4Stack=true"
           source "$RUNNER_TEMP/keystore-creds.env"
           export WEKIT_KEYSTORE_PASSWORD="$KS_PASS"
           export WEKIT_KEY_ALIAS="$KEY_ALIAS"
