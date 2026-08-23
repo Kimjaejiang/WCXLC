@@ -123,8 +123,10 @@ jobs:
         run: |
             export LIBCLANG_PATH="$(find "${ANDROID_HOME}/ndk" -path '*llvm/prebuilt/linux-x86_64/lib*' -name 'libclang.so*' 2>/dev/null | head -n1 | xargs -r dirname)"
             echo "LIBCLANG_PATH=${LIBCLANG_PATH}"
-            cargo xtask configure
-            cargo xtask build --native-only
+            cargo xtask configure > /tmp/cfg.log 2>&1 || { echo "::error::configure failed:"; tail -20 /tmp/cfg.log | while IFS= read -r line; do echo "::error::$line"; done; exit 1; }
+            echo "configure OK"
+            cargo xtask build --native-only > /tmp/nb.log 2>&1 || { echo "::error::native build failed:"; tail -40 /tmp/nb.log | while IFS= read -r line; do echo "::error::$line"; done; exit 1; }
+            echo "native build OK"
 
       - name: Prepare keystore
         if: github.event_name != 'pull_request'
