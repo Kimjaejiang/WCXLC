@@ -312,7 +312,7 @@ object ApiServer : ClickableFeature() {
                 name = "wechat-mcp-server",
                 version = BuildConfig.VERSION_NAME,
                 title = "WeChat MCP Server (powered by WeKit)",
-                websiteUrl = "https://github.com/Kimjaejiang/WCXLC"
+                websiteUrl = "https://github.com/Ujhhgtg/WeKit"
             ),
             options = ServerOptions(
                 capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(true))
