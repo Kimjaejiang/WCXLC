@@ -1,6 +1,7 @@
 name: CI
 
 # Trigger CI rebuild for v125 returnType fixes
+# Release trigger: push to master builds and auto-creates GitHub Release (see release job)
 on:
   push:
     branches:
