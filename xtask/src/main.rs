@@ -385,7 +385,29 @@ fn task_configure() -> Result<()> {
     for spec in ABI_TABLE {
         let cc = format!("{ndk_bin_dir}/{}{MIN_SDK}-clang{ext}", spec.clang_prefix);
         let cxx = format!("{ndk_bin_dir}/{}{MIN_SDK}-clang++{ext}", spec.clang_prefix);
-        let bindgen_args = format!("--sysroot={}", ndk_sysroot);
+// libclang's builtin headers (float.h, stddef.h, ...) live under
+        // <host>/lib/clang/<version>/include. bindgen's libclang sometimes
+        // fails to infer the resource dir, so pass it explicitly.
+        let clang_resource_include = std::fs::read_dir(
+            Path::new(&ndk_bin_dir).parent().unwrap().join("lib/clang"),
+        )
+        .ok()
+        .and_then(|mut rd| rd.next())
+        .map(|e| {
+            e.unwrap()
+                .path()
+                .join("include")
+                .display()
+                .to_string()
+                .replace('\\', "/")
+        });
+let bindgen_args = match &clang_resource_include {
+            Some(inc) => format!(
+                "--sysroot={} --target={}{MIN_SDK} -isystem {}",
+                ndk_sysroot, spec.clang_prefix, inc
+            ),
+            None => format!("--sysroot={} --target={}{MIN_SDK}", ndk_sysroot, spec.clang_prefix),
+};
         out.push_str(&format!("CC_{k} = \"{cc}\"\n", k = spec.env_key));
         out.push_str(&format!("CXX_{k} = \"{cxx}\"\n", k = spec.env_key));
         out.push_str(&format!("AR_{k} = \"{ar}\"\n", k = spec.env_key));
