@@ -61,7 +61,7 @@ jobs:
           if [ -z "$ALL_TAGS" ]; then
             NEXT=226
           else
-            MAX=$(git tag -l "v*" | sed 's/v//' | sort -n | tail -n1)
+            MAX=$(git tag -l "v*" | sed 's/v//' | cut -d. -f1 | sort -n | tail -n1)
             NEXT=$((MAX + 1))
           fi
           echo "VER=v${NEXT}" >> $GITHUB_ENV
@@ -252,7 +252,7 @@ jobs:
           if [ -z "$ALL_TAGS" ]; then
             NEXT=226
           else
-            MAX=$(git tag -l "v*" | sed 's/v//' | sort -n | tail -n1)
+            MAX=$(git tag -l "v*" | sed 's/v//' | cut -d. -f1 | sort -n | tail -n1)
             NEXT=$((MAX + 1))
           fi
           VERSION_CODE=${NEXT}
