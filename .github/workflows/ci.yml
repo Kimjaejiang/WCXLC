@@ -125,7 +125,7 @@ jobs:
             echo "LIBCLANG_PATH=${LIBCLANG_PATH}"
             cargo xtask configure > /tmp/cfg.log 2>&1 || { echo "::error::configure failed:"; tail -20 /tmp/cfg.log | while IFS= read -r line; do echo "::error::$line"; done; exit 1; }
             echo "configure OK"
-            cargo xtask build --native-only > /tmp/nb.log 2>&1 || { echo "::error::native build failed:"; tail -40 /tmp/nb.log | while IFS= read -r line; do echo "::error::$line"; done; exit 1; }
+            cargo xtask build --native-only > /tmp/nb.log 2>&1 || { echo "::error::native build failed (err lines):"; grep -nE "error|panicked|failed|fatal|not found|No such|warning: unused" /tmp/nb.log | tail -6 | while IFS= read -r line; do echo "::error::$line"; done; exit 1; }
             echo "native build OK"
 
       - name: Prepare keystore
