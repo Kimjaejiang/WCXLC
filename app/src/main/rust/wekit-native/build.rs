@@ -158,10 +158,13 @@ fn configure_android_libvpx(source: &Path, build: &Path) {
     let (cc, cxx, toolchain) = {
         let cc = target_tool("CC", &rust_target);
         let cxx = target_tool("CXX", &rust_target);
-        let toolchain = cc.parent().expect("Android compiler has no parent directory");
+        let toolchain = cc.parent().expect("Android compiler has no parent directory").to_path_buf();
         (cc, cxx, toolchain)
     };
+    #[cfg(windows)]
     let ar = toolchain.join("llvm-ar.exe");
+    #[cfg(not(windows))]
+    let ar = toolchain.join("llvm-ar");
     // MSYS `sh`/`dash` treat backslashes as escapes, so pass POSIX-style
     // tool paths to libvpx configure (it writes them verbatim into *.mk).
     #[cfg(windows)]
