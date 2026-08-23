@@ -29,7 +29,7 @@ android {
     val gitHash = getGitHash()
 
     // 版本号从环境变量 VER 读取（CI 用 v* tag 最大 +1 计算），本地构建默认 v244.1
-    val verTag = System.getenv("VER") ?: "v244.1"
+    val verTag = System.getenv("VER") ?: "v244.12"
     // "v244.1" -> 244001；"v244.100" -> 244100；"v245" -> 245000；"v245.1" -> 245001。
     // 主号 *1000 + 次号（单段版本补 *1000），保证 V244.1~V244.100 序列递增且不与后续主号撞号。
     val verCodeParts = verTag.removePrefix("v").split(".")
