@@ -128,6 +128,12 @@ jobs:
             cargo xtask build --native-only > /tmp/nb.log 2>&1 || { echo "::error::native build failed (err lines):"; grep -nE "error|panicked|failed|fatal|not found|No such|warning: unused" /tmp/nb.log | tail -6 | while IFS= read -r line; do echo "::error::$line"; done; exit 1; }
             echo "native build OK"
 
+      - name: Test network to repos
+        run: |
+          for u in "https://services.gradle.org" "https://repo.maven.apache.org" "https://jitpack.io" "https://api.xposed.info" "https://maven.pkg.github.com" "https://dl.google.com"; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 "$u" 2>/dev/null || echo "FAIL")
+            echo "::error::NET $u -> $code"
+          done
       - name: Prepare keystore
         if: github.event_name != 'pull_request'
         run: |
