@@ -37,3 +37,17 @@ local.properties
 /app/src/main/java/com/Johnny/wcx/features/items/debug/LoadWeChatXDex.kt
 /app/src/main/java/com/Johnny/wcx/features/items/debug/MTH7851.kt
 dist/
+
+# 构建产物 APK（不入库）
+*.apk
+
+# 构建日志（不入库）
+build_*.log
+
+# 临时备份与截图（不入库）
+*.bak/
+screen*.png
+
+# 调试临时文件（不入库）
+tmp_dex/
+ui_dump.xml
