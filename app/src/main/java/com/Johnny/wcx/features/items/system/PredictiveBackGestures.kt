@@ -77,7 +77,7 @@ object PredictiveBackGestures : ClickableFeature() {
             .firstConstructor {
                 parameters(ApplicationInfo::class.java)
             }.hookAfter {
-                val info = args[0] as ApplicationInfo
+                val info = args[0] as? ApplicationInfo ?: return@hookAfter
                 val field =
                     info.reflekt().firstField { name = "privateFlagsExt" }
                 var flags = field.get() as Int
@@ -88,7 +88,7 @@ object PredictiveBackGestures : ClickableFeature() {
         ActivityInfo::class.reflekt()
             .firstConstructor()
             .hookAfter {
-                val info = thisObject as ActivityInfo
+                val info = thisObject as? ActivityInfo ?: return@hookAfter
                 if (!info.name.startsWith(PackageNames.MODULE)) return@hookAfter
                 applyFlag(info)
             }
@@ -96,10 +96,10 @@ object PredictiveBackGestures : ClickableFeature() {
         ActivityThread::class.reflekt()
             .firstMethod { name = "handleLaunchActivity" }
             .hookBefore {
-                val record = args[0]!!
+                val record = args[0] ?: return@hookBefore
                 val infoField =
                     record.reflekt().firstField { name = "activityInfo" }
-                val info = infoField.get() as ActivityInfo
+                val info = infoField.get() as? ActivityInfo ?: return@hookBefore
                 if (!info.name.startsWith(PackageNames.MODULE)) return@hookBefore
                 applyFlag(info)
             }
