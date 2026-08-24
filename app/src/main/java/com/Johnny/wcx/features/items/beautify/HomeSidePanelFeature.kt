@@ -1067,39 +1067,48 @@ private fun isHomeTabClass(className: String): Boolean {
             colors = CardDefaults.cardColors(containerColor = cs.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
         ) {
-            Column(Modifier.padding(16.dp)) {
-                // 城市+天气描述+更新时间
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(w?.city ?: weatherCity.ifBlank { weatherFallbackCity }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = cs.onSurface)
-                            if (!w?.weather.isNullOrBlank()) {
-                                Spacer(Modifier.width(6.dp))
-                                Text(w?.weather ?: "", style = MaterialTheme.typography.bodySmall, color = cs.primary)
+            Column(Modifier.padding(14.dp)) {
+                if (w == null) {
+                    // 加载占位：紧凑单行，避免 "--" 大字占位撑高卡片
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(weatherCity.ifBlank { weatherFallbackCity }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.width(8.dp))
+                        Text("天气加载中…", style = MaterialTheme.typography.bodySmall, color = cs.primary)
+                    }
+                } else {
+                    // 城市+天气描述+更新时间
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(w.city, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (!w.weather.isNullOrBlank()) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(w.weather, style = MaterialTheme.typography.bodySmall, color = cs.primary, maxLines = 1)
+                                }
+                            }
+                            Text(w.updateTime, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1)
+                        }
+                        Text(w.weatherIcon?.takeIf { it.isNotBlank() } ?: "☁", fontSize = 26.sp)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    // 温度区：温度大字 + 高低/体感，右侧湿度/风速（窄面板下保持两列，不换行挤压）
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(cs.primaryContainer.copy(alpha = 0.6f), RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(w.temperature, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = cs.onPrimaryContainer)
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("${w.tempHigh} / ${w.tempLow}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = cs.onPrimaryContainer, maxLines = 1)
+                            if (!w.feelsLike.isNullOrBlank()) {
+                                Text("体感 ${w.feelsLike}", style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer.copy(alpha = 0.7f), maxLines = 1)
                             }
                         }
-                        Text(w?.updateTime ?: "暂无更新", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                    }
-                    Text(w?.weatherIcon?.takeIf { it.isNotBlank() } ?: "☁", fontSize = 32.sp)
-                }
-                Spacer(Modifier.height(10.dp))
-                // 温度显眼区域（primaryContainer 底色）
-                Row(
-                    modifier = Modifier.fillMaxWidth().background(cs.primaryContainer.copy(alpha = 0.6f), RoundedCornerShape(16.dp)).padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(w?.temperature ?: "--", fontSize = 48.sp, fontWeight = FontWeight.Bold, color = cs.onPrimaryContainer)
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text("${w?.tempHigh ?: "--"} / ${w?.tempLow ?: "--"}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = cs.onPrimaryContainer)
-                        if (!w?.feelsLike.isNullOrBlank()) {
-                            Text("体感 ${w?.feelsLike}", style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer.copy(alpha = 0.7f))
+                        Spacer(Modifier.weight(1f))
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("湿度 ${formatHumidity(w.humidity)}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1)
+                            Text("风速 ${formatWindSpeed(w.windSpeed)}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1)
                         }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("湿度 ${w?.humidity ?: "--"}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                        Text("风速 ${w?.windSpeed ?: "--"}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                     }
                 }
             }
@@ -1794,6 +1803,18 @@ private fun isHomeTabClass(className: String): Boolean {
 
     private fun omTemp(v: Double): String =
         if (v.isNaN()) "--" else (Math.round(v)).toString() + "\u00b0"
+
+    /** 湿度补全百分号（"--"/空值原样返回） */
+    private fun formatHumidity(v: String?): String {
+        if (v.isNullOrBlank() || v == "--") return "--"
+        return if (v.endsWith("%")) v else "$v%"
+    }
+
+    /** 风速补全单位（"--"/空值原样返回） */
+    private fun formatWindSpeed(v: String?): String {
+        if (v.isNullOrBlank() || v == "--") return "--"
+        return if (v.contains("km/h")) v else "$v km/h"
+    }
 
     private fun openMeteoDesc(code: Int): String = when (code) {
         0 -> "\u6674\u6717"
