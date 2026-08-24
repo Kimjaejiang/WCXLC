@@ -830,6 +830,14 @@ object ConversationAggregation : ClickableFeature(),
         }
     }
 
+    private val methodConversationWithCacheAdapterGetView by dexMethod(allowFailure = true) {
+        searchPackages("com.tencent.mm.ui.conversation")
+        matcher {
+            name = "getView"
+            usingEqStrings("MicroMsg.ConversationWithCacheAdapter", "Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d")
+        }
+    }
+
     private val methodMvvmConversationAdapterGetView by dexMethod(allowFailure = true) {
         matcher {
             declaredClass {
@@ -841,10 +849,17 @@ object ConversationAggregation : ClickableFeature(),
 
     /** tint the "someone @ me" label green (WeChat native is orange) */
     private fun hookMentionTint() {
-        if (methodMvvmConversationAdapterGetView.isPlaceholder) return
-        methodMvvmConversationAdapterGetView.hookAfter {
-            val root = result as? ViewGroup ?: return@hookAfter
-            tintMentionLabels(root)
+        if (!methodMvvmConversationAdapterGetView.isPlaceholder) {
+            methodMvvmConversationAdapterGetView.hookAfter {
+                val root = result as? ViewGroup ?: return@hookAfter
+                tintMentionLabels(root)
+            }
+        }
+        if (!methodConversationWithCacheAdapterGetView.isPlaceholder) {
+            methodConversationWithCacheAdapterGetView.hookAfter {
+                val root = result as? ViewGroup ?: return@hookAfter
+                tintMentionLabels(root)
+            }
         }
     }
 
@@ -1354,7 +1369,7 @@ object ConversationAggregation : ClickableFeature(),
                         state.latest = MemberSummaryRow(
                             digest = prefixWithConversationName(
                                 displayName.takeIf { it.isNotBlank() && it != username },
-                                cursor.getStringOrEmpty(ConversationTable.DIGEST)
+                                stripWxidPrefix(cursor.getStringOrEmpty(ConversationTable.DIGEST))
                             ),
                             digestUser = cursor.getStringOrEmpty(ConversationTable.DIGEST_USER),
                             isSend = cursor.getIntOrZero(ConversationTable.IS_SEND),
@@ -1378,7 +1393,7 @@ object ConversationAggregation : ClickableFeature(),
                 )
             } else {
                 FolderSummary(
-                    digest = latest.digest,
+                    digest = if (state.atMeCount > 0) "\u6709\u4eba@\u6211" else latest.digest,
                     digestUser = latest.digestUser,
                     isSend = latest.isSend,
                     status = latest.status,
@@ -1401,6 +1416,14 @@ object ConversationAggregation : ClickableFeature(),
      * source is ambiguous once several chats are aggregated. Returns the digest untouched
      * when it is blank or the name can't be resolved, to avoid a dangling "name: " prefix.
      */
+    private val WXID_PREFIX_REGEX = Regex("^wxid_[A-Za-z0-9_]+:\\s*")
+
+    private fun stripWxidPrefix(digest: String): String {
+        if (digest.isBlank()) return digest
+        val m = WXID_PREFIX_REGEX.find(digest) ?: return digest
+        return digest.substring(m.value.length)
+    }
+
     private fun prefixWithConversationName(displayName: String?, digest: String): String {
         if (digest.isBlank() || displayName.isNullOrBlank()) return digest
         val name = displayName.take(MAX_DIGEST_NAME_LEN) +
