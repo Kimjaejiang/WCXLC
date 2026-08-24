@@ -1,4 +1,4 @@
-package com.Johnny.wcx.utils.reflection
+﻿package com.Johnny.wcx.utils.reflection
 
 import com.Johnny.wcx.utils.HostInfo
 import com.Johnny.wcx.utils.WeLogger
@@ -31,6 +31,12 @@ private object DexKitHolder {
     private var activeLeaseCount = 0
     private var idleCloseJob: Job? = null
     private var idleCloseGeneration = 0L
+
+    /** Direct bridge access without lease accounting. */
+    fun peek(): DexKitBridge = synchronized(lock) {
+        cancelIdleCloseLocked()
+        bridge ?: DexKitBridge.create(HostInfo.appInfo.sourceDir).also { bridge = it }
+    }
 
     fun acquire(): DexKitBridge = synchronized(lock) {
         cancelIdleCloseLocked()
@@ -107,3 +113,9 @@ suspend fun <T> withDexKitSuspending(block: suspend (DexKitBridge) -> T): T {
         DexKitHolder.release()
     }
 }
+
+/**
+ * Direct bridge access without lease accounting; the bridge self-closes after the idle
+ * timeout. Used by one-shot scan paths that pass the bridge around (e.g. DexResolver).
+ */
+val DexKit: DexKitBridge get() = DexKitHolder.peek()

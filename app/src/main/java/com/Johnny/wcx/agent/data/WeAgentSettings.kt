@@ -45,6 +45,9 @@ object WeAgentSettings {
         }.onFailure { WeLogger.e(TAG, "load failed", it) }
     }
 
+    /** True while the floating ball hides when WeChat is backgrounded. */
+    suspend fun overlayForegroundOnly(): Boolean = get(KEY_OVERLAY_FOREGROUND_ONLY)?.toBoolean() ?: false
+
     private suspend fun get(key: String): String? = cache[key] ?: db.settingDao().getValue(key)?.also { cache[key] = it }
 
     suspend fun set(key: String, value: String) {

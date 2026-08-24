@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -16,12 +15,13 @@ fun DefaultColumn(
     scrollable: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val finalModifier = if (scrollable) {
+        modifier.verticalScroll(rememberScrollState())
+    } else {
+        modifier
+    }
     Column(
-        modifier = if (scrollable) {
-            modifier.verticalScroll(rememberScrollState())
-        } else {
-            modifier
-        },
+        modifier = finalModifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
         content = content
     )

@@ -95,6 +95,10 @@ object WeAgentOverlayController {
         reconcile()
     }
 
+    /** Xposed-style toggle used by the agent home screen. */
+    fun setForegroundOnly(enabled: Boolean) =
+        setMode(if (enabled) OverlayMode.FOREGROUND_ONLY else OverlayMode.ALWAYS)
+
     private fun wireForegroundTracker() {
         WeChatForegroundTracker.onChanged = { reconcile() }
         WeChatForegroundTracker.ensureRegistered()

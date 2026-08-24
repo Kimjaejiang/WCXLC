@@ -13,6 +13,9 @@ typealias HookHandle = IHookBridge.MemberUnhookHandle
 
 typealias HookAction = HookParam.() -> Unit
 
+/** Xposed-style alias so `method` resolves inside [HookParam] receiver lambdas. */
+val HookParam.method: java.lang.reflect.Member get() = member
+
 abstract class HookCallback(val priority: Int = 50) : IHookBridge.IMemberHookCallback {
     protected open fun beforeHookedMethod(param: HookParam) {}
 

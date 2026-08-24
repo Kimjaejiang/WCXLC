@@ -155,6 +155,9 @@ object WeAgentRepository : ToolPermissionSource {
     suspend fun getModelProvider(id: String): ModelProviderEntity? =
         db.modelProviderDao().getById(id)
 
+    /** Xposed-style alias kept for parity with the upstream UI (nothing is encrypted). */
+    suspend fun getDecryptedModelProvider(id: String): ModelProviderEntity? = getModelProvider(id)
+
     // ---------------------------------------------------------------------------
     // Sessions & messages (Phase 7)
     // ---------------------------------------------------------------------------

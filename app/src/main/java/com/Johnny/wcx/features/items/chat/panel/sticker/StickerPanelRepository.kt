@@ -34,6 +34,10 @@ import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
 object StickerPanelRepository {
+    private val supportedExtensions = setOf("gif", "png", "webp", "wxgf", "jpg", "jpeg")
+
+    fun supportsFileName(fileName: String): Boolean =
+        fileName.substringAfterLast('.', "").lowercase() in supportedExtensions
     private val recentsFile get() = PanelPaths.stickerPanelDir / "recents.json"
     private val onlineRecentsFile get() = PanelPaths.stickerPanelDir / ".online_recents.json"
     private val statsFile get() = PanelPaths.stickerPanelDir / ".stats.json"
