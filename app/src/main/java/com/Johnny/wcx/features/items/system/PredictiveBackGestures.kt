@@ -78,18 +78,20 @@ object PredictiveBackGestures : ClickableFeature() {
                 parameters(ApplicationInfo::class.java)
             }.hookAfter {
                 val info = args[0] as? ApplicationInfo ?: return@hookAfter
-                val field =
-                    info.reflekt().firstField { name = "privateFlagsExt" }
-                var flags = field.get() as Int
-                flags = flags or PRIVATE_FLAG_EXT_ENABLE_ON_BACK_INVOKED_CALLBACK
-                field.set(flags)
+                runCatching {
+                    val field =
+                        info.reflekt().firstField { name = "privateFlagsExt" }
+                    var flags = field.get() as Int
+                    flags = flags or PRIVATE_FLAG_EXT_ENABLE_ON_BACK_INVOKED_CALLBACK
+                    field.set(flags)
+                }
             }
 
         ActivityInfo::class.reflekt()
             .firstConstructor()
             .hookAfter {
                 val info = thisObject as? ActivityInfo ?: return@hookAfter
-                if (!info.name.startsWith(PackageNames.MODULE)) return@hookAfter
+                if (info.name?.startsWith(PackageNames.MODULE) != true) return@hookAfter
                 applyFlag(info)
             }
 
@@ -167,11 +169,13 @@ object PredictiveBackGestures : ClickableFeature() {
 //    }
 
     private fun applyFlag(info: ActivityInfo) {
-        val field = info.reflekt().firstField { name = "privateFlags" }
-        var flags = field.get() as Int
-        flags = flags or PRIVATE_FLAG_ENABLE_ON_BACK_INVOKED_CALLBACK
-        flags = flags and PRIVATE_FLAG_DISABLE_ON_BACK_INVOKED_CALLBACK.inv()
-        field.set(flags)
+        runCatching {
+            val field = info.reflekt().firstField { name = "privateFlags" }
+            var flags = field.get() as Int
+            flags = flags or PRIVATE_FLAG_ENABLE_ON_BACK_INVOKED_CALLBACK
+            flags = flags and PRIVATE_FLAG_DISABLE_ON_BACK_INVOKED_CALLBACK.inv()
+            field.set(flags)
+        }
     }
 
     override fun onClick(context: ComponentActivity) {
