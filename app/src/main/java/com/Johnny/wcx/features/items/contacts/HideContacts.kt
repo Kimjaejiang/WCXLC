@@ -655,7 +655,7 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
      * `AddressLiveList.e(List snapshotList)` — the 通讯录 MvvmList preprocessor.
      * See hidecontacts/HideContactsLists.kt for why this is the right cut point.
      */
-    internal val methodAddressMvvmListPreprocessList by dexMethod {
+    internal val methodAddressMvvmListPreprocessList by dexMethod(allowFailure = true) {
         matcher {
             declaredClass = "com.tencent.mm.ui.contact.address.AddressLiveList"
             usingEqStrings("snapshotList")
@@ -850,7 +850,7 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
      * struct for every Moments renderer. See hidecontacts/HideContactsMoments.kt for why this is
      * the right chokepoint for a hidden contact's inline likes/comments on someone else's post.
      */
-    internal val methodSnsInfoToSnsStruct by dexMethod {
+    internal val methodSnsInfoToSnsStruct by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("snsInfoToSnsStruct", "com.tencent.mm.plugin.sns.data.SnsUtil", "mSnsInfo is null, why?")
         }
@@ -875,7 +875,7 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
      * method shape — `static void (c3, SnsObject)` — is identical on both trees, so the hook body
      * needs no per-version branching.
      */
-    internal val methodSnsSyncUpdateRedDotCache by dexMethod {
+    internal val methodSnsSyncUpdateRedDotCache by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("updateSyncDataCache", "com.tencent.mm.plugin.sns.model.NetSceneSnsSync")
         }
@@ -885,7 +885,7 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
     // See hidecontacts/HideContactsVoip.kt for how these fit together.
 
     /** `ZIDL_ibmKH7hbMB.ZIDL_FBV(long, int, int, long, long, byte[] username, byte[][], boolean)` */
-    internal val methodVoipMpLaunchIncomingCard by dexMethod {
+    internal val methodVoipMpLaunchIncomingCard by dexMethod(allowFailure = true) {
         matcher {
             // 8.0.76 changed from "launchInComingCardAsync: " to "[volume report] launchInComingCardAsync: "
             usingStrings("MicroMsg.VoIPMP.CoreV2", "launchInComingCardAsync: ")
@@ -897,7 +897,7 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
      * banner/notification/ringtone dispatcher. q2 declares exactly one 8-parameter method, so the
      * class anchor plus the parameter count is unambiguous.
      */
-    internal val methodVoipMpLaunchBanner by dexMethod {
+    internal val methodVoipMpLaunchBanner by dexMethod(allowFailure = true) {
         matcher {
             declaredClass {
                 usingEqStrings("MicroMsg.VoIPMP.Launcher", "closeReceiverBanner")
@@ -921,21 +921,21 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
      * ringtone. NB: this is NOT the old `MicroMsg.RingPlayer` / "playSound, type: ..." match, which
      * resolved to the call-ENDED tone and therefore never silenced anything.
      */
-    internal val methodVoipMpStartRing by dexMethod {
+    internal val methodVoipMpStartRing by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.VoIPMPRingtoneController", "startRing() called with: username = ")
         }
     }
 
     /** `xp5.b.d(String username, boolean, boolean, boolean)` — starts the VoIP foreground service. */
-    internal val methodVoipMpStartFgs by dexMethod {
+    internal val methodVoipMpStartFgs by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.VoIPMPVoIPNotificationHelper", "startFGS isBindVoIPForegroundService ")
         }
     }
 
     /** `mp5.q2.Ii(String toUser, ...)` — VoIPMP call-record insertion (未接听 / 已取消 / duration). */
-    internal val methodVoipMpInsertMsg by dexMethod {
+    internal val methodVoipMpInsertMsg by dexMethod(allowFailure = true) {
         matcher {
             // 8.0.77: VoIPMP 通话记录插入移入 ZIDL 层, 不再打 Launcher tag;
             // toUser 是第 2 个参数 (UTF-8 字节数组)。
@@ -975,7 +975,7 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
     // ── legacy v2protocal stack (only reached when the peer downgrades) ───────────────────────
 
     /** `nr4.y.x(...)` — the incoming float card. Shared by both stacks, so live on 8.0.76 as well. */
-    internal val methodVoipShowFloatingCard by dexMethod {
+    internal val methodVoipShowFloatingCard by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings(".ui.voip.VoipFloatView")
             paramCount = 8
@@ -997,31 +997,31 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
             paramCount = 2
         }
     }
-    internal val methodVoipAcceptIncomingCall by dexMethod {
+    internal val methodVoipAcceptIncomingCall by dexMethod(allowFailure = true) {
         searchPackages("com.tencent.mm.plugin.voip")
         matcher {
             usingEqStrings("MicroMsg.VoipIncomingCallManager", "acceptIncomingCal, roomInfo:")
         }
     }
-    internal val methodVoipStartAcceptVoip by dexMethod {
+    internal val methodVoipStartAcceptVoip by dexMethod(allowFailure = true) {
         searchPackages("com.tencent.mm.plugin.voip")
         matcher {
             usingEqStrings("MicroMsg.VoipIncomingCallManager", "startAcceptVoIP, roomInfo:")
         }
     }
-    internal val methodVoipServiceExSetInviteContent by dexMethod {
+    internal val methodVoipServiceExSetInviteContent by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.Voip.VoipServiceEx", "Failed to setInviteContent during calling, status =")
         }
     }
-    internal val methodVoipServiceExReject by dexMethod {
+    internal val methodVoipServiceExReject by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.Voip.VoipServiceEx", "Failed to reject with calling, status =")
         }
     }
 
     /** `j0.j(String content, a65.j4 addMsg)` — server-pushed `<voipmsg>` bubble (msg type 50). */
-    internal val methodVoipBubbleHandle by dexMethod {
+    internal val methodVoipBubbleHandle by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.VoIPBubbleHelper", "handlerBubbleMsg: parse bubble info error")
         }

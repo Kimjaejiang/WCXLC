@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.graphics.toColorInt
 import com.tencent.mm.pluginsdk.ui.chat.ChatFooter
 import dev.ujhhgtg.reflekt.reflekt
+import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.dexkit.abc.IResolveDex
 import com.Johnny.wcx.dexkit.dsl.dexClass
 import com.Johnny.wcx.dexkit.dsl.dexMethod
@@ -576,16 +577,20 @@ object SwipeMessageOperations : ClickableFeature(), IResolveDex,
     // ── swipe actions ──────────────────────────────────────────────────────────
 
     private fun onSwipeQuote(originalView: View, chattingContext: Any) {
-        val apiMan = chattingContext.reflekt()
-            .firstField { type = WeServiceApi.apiManagerClass }
-            .get()!!
-        val api = WeServiceApi.getApiByClass(apiMan, classChattingUiFootComponent.clazz)
-        val chatFooter = api.reflekt()
-            .firstField { type = "com.tencent.mm.pluginsdk.ui.chat.ChatFooter" }
-            .get()!! as ChatFooter
-        val chatHolder = originalView.tag.reflekt().getField("chatHolder", true)!!
-        val msgInfo = methodGetMsgInfo.method.invoke(null, chatHolder, chattingContext)!!
-        WeMessageApi.setReferringMessage(chatFooter, msgInfo)
+        runCatching {
+            val apiMan = chattingContext.reflekt()
+                .firstField { type = WeServiceApi.apiManagerClass }
+                .get()!!
+            val api = WeServiceApi.getApiByClass(apiMan, classChattingUiFootComponent.clazz)
+            val chatFooter = api.reflekt()
+                .firstField { type = "com.tencent.mm.pluginsdk.ui.chat.ChatFooter" }
+                .get()!! as ChatFooter
+            val chatHolder = originalView.tag.reflekt().getField("chatHolder", true)!!
+            val msgInfo = methodGetMsgInfo.method.invoke(null, chatHolder, chattingContext)!!
+            WeMessageApi.setReferringMessage(chatFooter, msgInfo)
+        }.onFailure { e ->
+            WeLogger.w("SwipeMessageOperations", "onSwipeQuote failed", e)
+        }
     }
 
     private fun onSwipeRepeat(view: View, s: SwipeState) {

@@ -1,0 +1,840 @@
+﻿features\api\core\WeAppMsgApi.kt	14	False	private val methodParseXml by dexMethod()    // op0.q.u(String)	"<appmsg appid=\"", "parse amessage xml failed" | "MicroMsg.AppMsgLogic", "summerbig sendAppMsg attachFilePath"
+features\api\core\WeAppMsgApi.kt	15	False	private val methodSendAppMsg by dexMethod()  // k0.J(...)	"<appmsg appid=\"", "parse amessage xml failed" | "MicroMsg.AppMsgLogic", "summerbig sendAppMsg attachFilePath"
+features\api\core\WeAuthApi.kt	21	False	val classNetSceneJSLogin by dexClass {	"MicroMsg.webview.NetSceneJSLogin", "/cgi-bin/mmbiz-bin/js-login"
+features\api\core\WeContactApi.kt	68	False	private val ctorNetSceneVerifyUser by dexConstructor {	"MicroMsg.NetSceneVerifyUser.dkverify", "getLabelIdList, %s" | pkg:com.tencent.mm.pluginsdk.model
+features\api\core\WeContactLabelApi.kt	23	False	private val classNetSceneModifyContactLabelList by dexClass {	"/cgi-bin/micromsg-bin/modifycontactlabellist"
+features\api\core\WeContactLabelApi.kt	38	False	private val classNetSceneAddContactLabel by dexClass {	"/cgi-bin/micromsg-bin/addcontactlabel"
+features\api\core\WeContactLabelApi.kt	150	False	private val classContactLabelPb by dexClass()	"UserLabelInfoList"
+features\api\core\WeConversationApi.kt	32	False	internal val classConversationStorage by dexClass {	"rconversation", "PRAGMA table_info( rconversation | "MicroMsg.ConversationStorage", "updateUnreadByTalker %s" | pkg:com.tencent.mm.storage
+features\api\core\WeConversationApi.kt	38	False	private val methodUpdateUnreadByTalker by dexMethod {	"MicroMsg.ConversationStorage", "updateUnreadByTalker %s" | "MicroMsg.ConversationStorage", "delChatContact username:"
+features\api\core\WeConversationApi.kt	48	True	private val methodDelChatContact by dexMethod {	"MicroMsg.ConversationStorage", "delChatContact username:"
+features\api\core\WeConversationApi.kt	58	True	//    private val methodClearConvRedHintsOnMarkRead by dexMethod(allowFailure = true) {	
+//                "MicroMsg.ConvRedHintStorage",
+//                "markReadRemoveRedHint remove red hints"
+//            
+features\api\core\WeConversationApi.kt	70	True	//    private val methodClearEcsGiftRedLabel by dexMethod(allowFailure = true) {	
+//                "MicroMsg.EcsGiftMsgService",
+//                "clearEcsGiftRedLabel, talker is empty",
+//                "clearEcsGiftRedLabel error"
+//             | "Update rconversation set parentRef = '", "' where 1 != 1 "
+features\api\core\WeConversationApi.kt	82	False	private val methodHiddenConvParent by dexMethod {	"Update rconversation set parentRef = '", "' where 1 != 1 " | "MicroMsg.ConversationStorage", "get null with username:"
+features\api\core\WeConversationApi.kt	89	False	//    private val methodGetConvByName by dexMethod {	"MicroMsg.ConversationStorage", "get null with username:" | "MicroMsg.ChatroomStorage", "[getMemberCount] cost:%sms" | pkg:com.tencent.mm.storage
+features\api\core\WeConversationApi.kt	95	False	//    private val methodUpdateConversationByObject by dexMethod {	"MicroMsg.ChatroomStorage", "[getMemberCount] cost:%sms" | "MicroMsg.ChatRoomMember", "service is null" | pkg:com.tencent.mm.storage
+features\api\core\WeConversationApi.kt	102	False	private val methodChatroomStorageGetMemberCount by dexMethod {	"MicroMsg.ChatroomStorage", "[getMemberCount] cost:%sms" | "MicroMsg.ChatRoomMember", "service is null" | "MicroMsg.OpenImOpLogLogic", "OpenImOpLogLogic OpenIMModContactMuteOplog username:%s switch add" | pkg:com.tencent.mm.storage
+features\api\core\WeConversationApi.kt	108	False	private val classChatroomMember by dexClass {	"MicroMsg.ChatRoomMember", "service is null" | "MicroMsg.OpenImOpLogLogic", "OpenImOpLogLogic OpenIMModContactMuteOplog username:%s switch add" | "MicroMsg.OpenImOpLogLogic", "OpenImOpLogLogic OpenIMModContactMuteOplog username:%s switch cancel" | pkg:com.tencent.mm.storage
+features\api\core\WeConversationApi.kt	114	True	private val methodSetDnd by dexMethod {	"MicroMsg.OpenImOpLogLogic", "OpenImOpLogLogic OpenIMModContactMuteOplog username:%s switch add" | "MicroMsg.OpenImOpLogLogic", "OpenImOpLogLogic OpenIMModContactMuteOplog username:%s switch cancel" | "MicroMsg.RoomServiceFactory", "get NotNullChatRoom %s"
+features\api\core\WeConversationApi.kt	119	True	private val methodSetNoDnd by dexMethod {	"MicroMsg.OpenImOpLogLogic", "OpenImOpLogLogic OpenIMModContactMuteOplog username:%s switch cancel" | "MicroMsg.RoomServiceFactory", "get NotNullChatRoom %s"
+features\api\core\WeConversationApi.kt	128	True	private val methodGetRoomService by dexMethod(allowFailure = true) {	"MicroMsg.RoomServiceFactory", "get NotNullChatRoom %s" | "MicroMsg.RoomCallbackFactory", "request oplog"
+features\api\core\WeConversationApi.kt	137	True	private val methodRoomOpLogRequest by dexMethod(allowFailure = true) {	"MicroMsg.RoomCallbackFactory", "request oplog" | "MicroMsg.ConversationStorage", "isPlacedTop failed"
+features\api\core\WeConversationApi.kt	146	True	private val methodIsPlacedTop by dexMethod(allowFailure = true) {	"MicroMsg.ConversationStorage", "isPlacedTop failed" | "MicroMsg.ConversationStorage", "setPlacedTop conversation failed"
+features\api\core\WeConversationApi.kt	158	True	private val methodSetPlacedTop by dexMethod(allowFailure = true) {	"MicroMsg.ConversationStorage", "setPlacedTop conversation failed" | "MicroMsg.ConversationStorage", "unSetPlacedTop conversation failed"
+features\api\core\WeConversationApi.kt	169	True	private val methodUnSetPlacedTop by dexMethod(allowFailure = true) {	"MicroMsg.ConversationStorage", "unSetPlacedTop conversation failed"
+features\api\core\WeConversationApi.kt	182	True	private val methodBuildModContactOplog by dexMethod {	
+                "MicroMsg.ContactStorageLogic",
+                "oplog modContact user:%s remark:%s BitVal:%d BitValue2:%s isInConvBox:%s isTop:%s isMute:%s"
+            
+features\api\core\WeConversationApi.kt	190	True	val methodNotifyConversationChanged by dexMethod(allowFailure = true) {	"MicroMsg.ConversationStorage", "get null with username:"
+features\api\core\WeConversationApi.kt	201	True	private val methodGetConversationByTalker by dexMethod(allowFailure = true) {	"MicroMsg.ConversationStorage", "get null with username:" | pkg:com.tencent.mm.ui.conversation
+features\api\core\WeConversationApi.kt	216	False	private val methodDoDeleteConversation by dexMethod {	"MicroMsg.ConvDelLogic", "oplog modContact user:%s" | pkg:com.tencent.mm.ui.conversation
+features\api\core\WeDatabaseApi.kt	35	False	private val classMmKernel by dexClass {	"MicroMsg.MMKernel", "Kernel not null, has initialized." | "mCoreStorage not initialized!"
+features\api\core\WeDatabaseApi.kt	40	False	private val methodGetStorage by dexMethod {	"mCoreStorage not initialized!" | 
+                "MMKernel.CoreStorage",
+                "CheckData path[%s] blocksize:%s blockcount:%s availcount:%s"
+            
+features\api\core\WeDatabaseApi.kt	48	False	private val classCoreStorage by dexClass {	
+                "MMKernel.CoreStorage",
+                "CheckData path[%s] blocksize:%s blockcount:%s availcount:%s"
+             | "MicroMsg.ConfigStorage", "shouldProcessEvent db is close :%s" | "MicroMsg.SqliteDB", "sql is null " | pkg:com.tencent.mm.storage
+features\api\core\WeDatabaseApi.kt	56	False	private val classConfigStorage by dexClass {	"MicroMsg.ConfigStorage", "shouldProcessEvent db is close :%s" | "MicroMsg.SqliteDB", "sql is null " | pkg:com.tencent.mm.storage
+features\api\core\WeDatabaseApi.kt	62	False	private val classSqliteDbWrapper by dexClass {	"MicroMsg.SqliteDB", "sql is null "
+features\api\core\WeGroupApi.kt	18	False	private val ctorAddMember by dexConstructor {	"MicroMsg.NetSceneAddChatRoomMember" | "/cgi-bin/micromsg-bin/delchatroommember"
+features\api\core\WeGroupApi.kt	32	False	private val ctorDelMember by dexConstructor {	"/cgi-bin/micromsg-bin/delchatroommember" | "MicroMsg.NetSceneInviteChatRoomMember"
+features\api\core\WeGroupApi.kt	45	False	private val ctorInviteMember by dexConstructor {	"MicroMsg.NetSceneInviteChatRoomMember"
+features\api\core\WeMessageApi.kt	90	False	val classNetSceneSendMsg by dexClass {	"MicroMsg.NetSceneSendMsg", "markMsgFailed for id:%d" | "worker thread has not been se", "MicroMsg.NetSceneQueue" | pkg:com.tencent.mm.modelbase
+features\api\core\WeMessageApi.kt	100	False	private val classNetSceneQueue by dexClass {	"worker thread has not been se", "MicroMsg.NetSceneQueue" | "scene security verification not passed, type=" | pkg:com.tencent.mm.modelbase
+features\api\core\WeMessageApi.kt	111	False	val classNetSceneBase by dexClass {	"scene security verification not passed, type=" | "MicroMsg.Mvvm.NetSceneObserverOwner"
+features\api\core\WeMessageApi.kt	116	False	private val classNetSceneObserverOwner by dexClass {	"MicroMsg.Mvvm.NetSceneObserverOwner"
+features\api\core\WeMessageApi.kt	128	False	val methodGetSendMsgObject by dexMethod(allowMultiple = true) {	pkg:com.tencent.mm.modelbase
+features\api\core\WeMessageApi.kt	135	False	private val methodPostToQueue by dexMethod {	"MicroMsg.PatMsgExtension", "insert pat msg %d %s %s" | pkg:com.tencent.mm.modelbase
+features\api\core\WeMessageApi.kt	145	False	private val classPatMsgExtension by dexClass {	"MicroMsg.PatMsgExtension", "insert pat msg %d %s %s" | "MicroMsg.NetSceneSendPat" | "MicroMsg.NetSceneRevokeMsg" | pkg:com.tencent.mm.modelsimple
+features\api\core\WeMessageApi.kt	150	False	private val ctorNetSceneSendPat by dexConstructor {	"MicroMsg.NetSceneSendPat" | "MicroMsg.NetSceneRevokeMsg" | "MicroMsg.NetSceneSendMsg", "[mergeMsgSource] rawSource:%s args is null:%s flag:%s" | pkg:com.tencent.mm.modelsimple
+features\api\core\WeMessageApi.kt	156	False	private val ctorNetSceneRevokeMsg by dexConstructor {	"MicroMsg.NetSceneRevokeMsg" | "MicroMsg.NetSceneSendMsg", "[mergeMsgSource] rawSource:%s args is null:%s flag:%s" | "MicroMsg.GetVideoMetadata", "get video file name, dataString " | pkg:com.tencent.mm.modelsimple
+features\api\core\WeMessageApi.kt	163	False	private val ctorNetSceneSendMsgLocation by dexConstructor {	"MicroMsg.NetSceneSendMsg", "[mergeMsgSource] rawSource:%s args is null:%s flag:%s" | "MicroMsg.GetVideoMetadata", "get video file name, dataString " | "MicroMsg.AppMessage", "parse amessage xml failed" | pkg:com.tencent.mm.pluginsdk.model.app
+features\api\core\WeMessageApi.kt	168	False	private val classImportMultiVideo by dexClass {	"MicroMsg.GetVideoMetadata", "get video file name, dataString " | "MicroMsg.AppMessage", "parse amessage xml failed" | "MicroMsg.AppMsgLogic", "summerbig sendAppMsg attachFilePath[%s], content[%s]" | pkg:com.tencent.mm.pluginsdk.model.app
+features\api\core\WeMessageApi.kt	173	False	private val classAppMessage by dexClass {	"MicroMsg.AppMessage", "parse amessage xml failed" | "MicroMsg.AppMsgLogic", "summerbig sendAppMsg attachFilePath[%s], content[%s]" | pkg:com.tencent.mm.pluginsdk.model.app
+features\api\core\WeMessageApi.kt	178	False	val methodSendAppMsg by dexMethod {	"MicroMsg.AppMsgLogic", "summerbig sendAppMsg attachFilePath[%s], content[%s]" | pkg:com.tencent.mm.pluginsdk.model.app
+features\api\core\WeMessageApi.kt	184	False	private val methodShareFile by dexMethod {	"MicroMsg.MsgInfo", "[parseNewXmlSysMsg]" | pkg:com.tencent.mm.storage
+features\api\core\WeMessageApi.kt	196	False	val classMsgInfo by dexClass {	"MicroMsg.MsgInfo", "[parseNewXmlSysMsg]" | "MicroMsg.MsgInfoStorage", "deleted dirty msg ,count is %d" | "MicroMsg.MsgInfoStorage", "protect:c2c msg should not here" | pkg:com.tencent.mm.storage
+features\api\core\WeMessageApi.kt	202	False	val classMsgInfoStorage by dexClass {	"MicroMsg.MsgInfoStorage", "deleted dirty msg ,count is %d" | "MicroMsg.MsgInfoStorage", "protect:c2c msg should not here" | "MsgInfo processAddMsg insert db error" | pkg:com.tencent.mm.storage
+features\api\core\WeMessageApi.kt	208	False	val methodMsgInfoHandleApiInsertMessage by dexMethod {	"MicroMsg.MsgInfoStorage", "protect:c2c msg should not here" | "MsgInfo processAddMsg insert db error" | "MicroMsg.ChattingContext", "[notifyDataSetChange]" | pkg:com.tencent.mm.storage
+features\api\core\WeMessageApi.kt	214	True	val methodMsgInfoStorageInsertMessage by dexMethod {	"MsgInfo processAddMsg insert db error" | "MicroMsg.ChattingContext", "[notifyDataSetChange]" | 
+                "MicroMsg.ChattingDataAdapterV3",
+                "[handleMsgChange] isLockNotify:"
+            
+features\api\core\WeMessageApi.kt	220	True	val classChattingContext by dexClass {	"MicroMsg.ChattingContext", "[notifyDataSetChange]" | 
+                "MicroMsg.ChattingDataAdapterV3",
+                "[handleMsgChange] isLockNotify:"
+             | "MicroMsg.TransformComponent", "[onChattingPause]" | pkg:com.tencent.mm.ui.chatting.component
+features\api\core\WeMessageApi.kt	225	True	val classChattingDataAdapter by dexClass(allowFailure = true) {	
+                "MicroMsg.ChattingDataAdapterV3",
+                "[handleMsgChange] isLockNotify:"
+             | "MicroMsg.TransformComponent", "[onChattingPause]" | pkg:com.tencent.mm.ui.chatting.component
+features\api\core\WeMessageApi.kt	233	False	val classTransformChattingComponent by dexClass {	"MicroMsg.TransformComponent", "[onChattingPause]" | pkg:com.tencent.mm.ui.chatting.component
+features\api\core\WeMessageApi.kt	239	False	val methodGetIsTransformed by dexMethod {	(no strings)
+features\api\core\WeMessageApi.kt	255	True	private val classMvvmBase by dexClass {	
+                "MicroMsg.Mvvm.MvvmPlugin",
+                "onAccountInitialized start"
+             | "msg_raw_img_send"
+features\api\core\WeMessageApi.kt	263	True	private val classImageSender by dexClass()	"msg_raw_img_send" | 
+                "MicroMsg.ConfigStorageLogic",
+                "get userinfo fail"
+             | "MicroMsg.ImgUpload.MsgImgFeatureService"
+features\api\core\WeMessageApi.kt	264	True	private val classImageTask by dexClass(allowFailure = true) {	"msg_raw_img_send" | 
+                "MicroMsg.ConfigStorageLogic",
+                "get userinfo fail"
+             | "MicroMsg.ImgUpload.MsgImgFeatureService"
+features\api\core\WeMessageApi.kt	267	True	private val classConfigLogic by dexClass {	
+                "MicroMsg.ConfigStorageLogic",
+                "get userinfo fail"
+             | "MicroMsg.ImgUpload.MsgImgFeatureService"
+features\api\core\WeMessageApi.kt	275	True	private val classImageServiceImpl by dexClass(allowFailure = true) {	"MicroMsg.ImgUpload.MsgImgFeatureService" | "toUserName", "fileName", "send_voice_msg"
+features\api\core\WeMessageApi.kt	281	True	private val methodImageSendEntry by dexMethod()	"toUserName", "fileName", "send_voice_msg" | "MicroMsg.VoiceLogic", "startRecord insert voicestg success"
+features\api\core\WeMessageApi.kt	286	True	private val classVoiceParams by dexClass {	"toUserName", "fileName", "send_voice_msg" | "MicroMsg.VoiceLogic", "startRecord insert voicestg success" | "MicroMsg.VFSFileOp", "Cannot resolve path or URI" | pkg:com.tencent.mm.sdk.platformtools
+features\api\core\WeMessageApi.kt	291	True	private val classVoiceNameGen by dexClass(allowFailure = true) {	"MicroMsg.VoiceLogic", "startRecord insert voicestg success" | "MicroMsg.VFSFileOp", "Cannot resolve path or URI" | pkg:com.tencent.mm.sdk.platformtools
+features\api\core\WeMessageApi.kt	296	False	private val classVfs by dexClass {	"MicroMsg.VFSFileOp", "Cannot resolve path or URI" | pkg:com.tencent.mm.sdk.platformtools
+features\api\core\WeMessageApi.kt	301	False	private val classPathUtil by dexClass {	pkg:com.tencent.mm.sdk.platformtools
+features\api\core\WeMessageApi.kt	319	False	private val classMmKernel by dexClass {	"MicroMsg.MMKernel", "Initialize skeleton" | "mCoreStorage not initialized!" | "MicroMsg.VoiceLogic", "startRecord insert voicestg success"
+features\api\core\WeMessageApi.kt	324	False	private val methodMmKernelGetStorage by dexMethod(allowMultiple = true) {	"mCoreStorage not initialized!" | "MicroMsg.VoiceLogic", "startRecord insert voicestg success" | "getAmrFullPath cost: "
+features\api\core\WeMessageApi.kt	332	False	private val classVoiceLogic by dexClass {	"MicroMsg.VoiceLogic", "startRecord insert voicestg success" | "getAmrFullPath cost: " | "MicroMsg.SceneVoiceService", "Start Recv[%s] :%s", "Start Send :"
+features\api\core\WeMessageApi.kt	337	False	private val methodGetAmrFullPath by dexMethod {	"getAmrFullPath cost: " | "MicroMsg.SceneVoiceService", "Start Recv[%s] :%s", "Start Send :" | "MicroMsg.SceneVoiceService", "//voicetrymore", "getVoiceService %s"
+features\api\core\WeMessageApi.kt	342	True	private val methodStartRecvAndSend by dexMethod {	"MicroMsg.SceneVoiceService", "Start Recv[%s] :%s", "Start Send :" | "MicroMsg.SceneVoiceService", "//voicetrymore", "getVoiceService %s" | "MicroMsg.SceneVoiceService", "run(
+features\api\core\WeMessageApi.kt	347	True	private val classSceneVoiceService by dexClass {	"MicroMsg.SceneVoiceService", "//voicetrymore", "getVoiceService %s" | "MicroMsg.SceneVoiceService", "run(
+features\api\core\WeMessageApi.kt	355	True	private val methodRunVoiceService by dexMethod(allowFailure = true) {	"MicroMsg.SceneVoiceService", "run( | 
+                "MicroMsg.VoiceMsgAsyncSendFSC",
+                "sendAsync only support BaseSendMsgTask Type"
+            
+features\api\core\WeMessageApi.kt	362	False	private val classVoiceServiceInterface by dexClass()	
+                "MicroMsg.VoiceMsgAsyncSendFSC",
+                "sendAsync only support BaseSendMsgTask Type"
+            
+features\api\core\WeMessageApi.kt	364	False	private val classVoiceServiceImpl by dexClass {	
+                "MicroMsg.VoiceMsgAsyncSendFSC",
+                "sendAsync only support BaseSendMsgTask Type"
+            
+features\api\core\WeMessageApi.kt	372	False	//    private val methodSendVoice by dexMethod(allowMultiple = true) {	(no strings)
+features\api\core\WeMessageApi.kt	584	False	private val methodGetMsgInfoByTalkerAndSvrId by dexMethod {	"MicroMsg.MsgInfoStorage", "build new index last %d" | "msgSvrId=?"
+features\api\core\WeMessageApi.kt	1116	False	private val methodImgUploadFeatureServiceSendImage by dexMethod()	(no strings)
+features\api\core\WeMessageApi.kt	1117	False	private val methodAppInfoSetAppId by dexMethod()	(no strings)
+features\api\core\WeMessageApi.kt	1118	False	private val ctorNetSceneUploadMsgImg by dexConstructor()	(no strings)
+features\api\core\WeMessageApi.kt	1679	False	private val classEmojiFileEncryptMgr by dexClass {	
+                        "MicroMsg.emoji.EmojiFileEncryptMgr",
+                        "decode emoji file failed. path is no exist :%s "
+                    
+features\api\core\WeMessageApi.kt	1695	False	private val classAppAttachAutoDownload by dexClass {	"MicroMsg.AppMessageExtension", "autoDownloadFile2 %s %s" | pkg:com.tencent.mm.pluginsdk.model.app
+features\api\core\WePaymentApi.kt	15	False	private val ctorNetSceneTransferOperation by dexConstructor {	"Micromsg.NetSceneTenpayRemittanceConfirm", "/cgi-bin/mmpay-bin/transferoperation" | "account click info , key is %s, value is %s" | pkg:com.tencent.mm.plugin.remittance.model
+features\api\core\WeServiceApi.kt	20	False	private val methodServiceManagerGetService by dexMethod {	"calling getService(... | "MicroMsg.EmojiFeatureService", "[onAccountInitialized]" | pkg:com.tencent.mm.feature.emoji
+features\api\core\WeServiceApi.kt	27	False	private val classEmojiFeatureService by dexClass {	"MicroMsg.EmojiFeatureService", "[onAccountInitialized]" | "PRAGMA table_info( contact_ext  | pkg:com.tencent.mm.feature.emoji | pkg:com.tencent.mm.plugin.messenger.foundation
+features\api\core\WeServiceApi.kt	37	False	private val classStorageFeatureService by dexClass {	"PRAGMA table_info( contact_ext  | "MicroMsg.MsgInfoStorage", "deleted dirty msg ,count is %d" | "PRAGMA table_info( rconversation | pkg:com.tencent.mm.plugin.messenger.foundation
+features\api\core\WeServiceApi.kt	57	False	private val classChatroomService by dexClass {	"MicroMsg.ChatroomService", "[isEnableRoomManager]" | "MicroMsg.ChatroomStorage", "[getMemberCount] init field_memberCount! username:%s count:%s" | "MicroMsg.ImgInfoStorage", "generateMd5: %s, %s"
+features\api\core\WeServiceApi.kt	62	False	private val methodChatroomStorageGetMemberCount by dexMethod {	"MicroMsg.ChatroomStorage", "[getMemberCount] init field_memberCount! username:%s count:%s" | "MicroMsg.ImgInfoStorage", "generateMd5: %s, %s" | "ModelImage.DownloadImgService", "] add failed, task already done"
+features\api\core\WeServiceApi.kt	67	False	val classImageInfoStorage by dexClass {	"MicroMsg.ImgInfoStorage", "generateMd5: %s, %s" | "ModelImage.DownloadImgService", "] add failed, task already done"
+features\api\core\WeServiceApi.kt	72	False	val methodDownloadImageServiceDownloadImage by dexMethod {	"ModelImage.DownloadImgService", "] add failed, task already done" | "[get] ", " is not a interface!" | pkg:com.tencent.mm.ui.chatting.manager
+features\api\core\WeServiceApi.kt	77	False	val classImageFeatureService by dexClass {	"[get] ", " is not a interface!" | "MicroMsg.VideoService", "MicroMsg.SubCoreVideo", "quitVideoSendThread" | pkg:com.tencent.mm.ui.chatting.manager
+features\api\core\WeServiceApi.kt	83	False	private val methodApiManagerGetApi by dexMethod {	"[get] ", " is not a interface!" | "MicroMsg.VideoService", "MicroMsg.SubCoreVideo", "quitVideoSendThread" | "MicroMsg.emoji.EmojiMgrImpl", "sendEmoji: context is null" | pkg:com.tencent.mm.ui.chatting.manager
+features\api\core\WeServiceApi.kt	89	False	private val methodMmKernelGetServiceImpl by dexMethod()	"MicroMsg.VideoService", "MicroMsg.SubCoreVideo", "quitVideoSendThread" | "MicroMsg.emoji.EmojiMgrImpl", "sendEmoji: context is null" | "MicroMsg.emoji.EmojiInfoStorage", "md5 is null or invalue. md5:%s"
+features\api\core\WeServiceApi.kt	90	False	private val methodVideoPathFeatureServiceRestoreMp4Path by dexMethod() // formerly VideoInfoStorage	"MicroMsg.VideoService", "MicroMsg.SubCoreVideo", "quitVideoSendThread" | "MicroMsg.emoji.EmojiMgrImpl", "sendEmoji: context is null" | "MicroMsg.emoji.EmojiInfoStorage", "md5 is null or invalue. md5:%s"
+features\api\core\WeServiceApi.kt	91	False	val classVideoService by dexClass {	"MicroMsg.VideoService", "MicroMsg.SubCoreVideo", "quitVideoSendThread" | "MicroMsg.emoji.EmojiMgrImpl", "sendEmoji: context is null" | "MicroMsg.emoji.EmojiInfoStorage", "md5 is null or invalue. md5:%s" | pkg:com.tencent.mm.storage
+features\api\core\WeServiceApi.kt	96	False	val classEmojiMgrImpl by dexClass {	"MicroMsg.emoji.EmojiMgrImpl", "sendEmoji: context is null" | "MicroMsg.emoji.EmojiInfoStorage", "md5 is null or invalue. md5:%s" | "MicroMsg.emoji.EmojiStorageMgr", "EmojiStorageMgr: %s" | pkg:com.tencent.mm.storage
+features\api\core\WeServiceApi.kt	101	False	val classEmojiInfoStorage by dexClass {	"MicroMsg.emoji.EmojiInfoStorage", "md5 is null or invalue. md5:%s" | "MicroMsg.emoji.EmojiStorageMgr", "EmojiStorageMgr: %s" | "save emoji thumb error" | pkg:com.tencent.mm.storage
+features\api\core\WeServiceApi.kt	106	False	private val classEmojiStorageMgr by dexClass {	"MicroMsg.emoji.EmojiStorageMgr", "EmojiStorageMgr: %s" | "save emoji thumb error" | pkg:com.tencent.mm.storage
+features\api\core\WeServiceApi.kt	112	False	val methodSaveEmojiThumb by dexMethod {	"save emoji thumb error"
+features\api\core\WeXmlParserApi.kt	30	False	private val methodXmlParser by dexMethod {	"MicroMsg.SDK.XmlParser", "[ %s ]" | pkg:com.tencent.mm.sdk.platformtools
+features\api\net\WeNetSceneApi.kt	21	False	val classMmKernel by dexClass {	"MicroMsg.MMKernel", "Kernel not null, has initialized." | "MicroMsg.NetSceneQueue", "forbid in waiting: type=", "forbid in running: type="
+features\api\net\WeNetSceneApi.kt	27	False	val methodAddNetSceneToQueue by dexMethod {	"MicroMsg.NetSceneQueue", "forbid in waiting: type=", "forbid in running: type="
+features\api\net\WePacketHelper.kt	38	False	private val classProtoBase by dexClass {	"Cannot use this method"
+features\api\net\WePacketHelper.kt	49	False	private val classRawReq by dexClass {	(no strings)
+features\api\net\WePacketHelper.kt	86	False	private val classGenericResp by dexClass {	(no strings)
+features\api\net\WePacketHelper.kt	110	False	private val classConfigBuilder by dexClass {	pkg:com.tencent.mm.modelbase
+features\api\net\WePacketHelper.kt	124	False	private val classNewSendMsgReq by dexClass()	"MicroMsg.NetSceneBase"
+features\api\net\WePacketHelper.kt	125	False	val classOplogReq by dexClass()	"MicroMsg.NetSceneBase"
+features\api\net\WePacketHelper.kt	128	False	val classNetSceneBase by dexClass {	"MicroMsg.NetSceneBase"
+features\api\net\WePacketHelper.kt	137	False	val classNetScenePat by dexClass {	"/cgi-bin/micromsg-bin/sendpat" | "MicroMsg.NetSceneQueue", "waiting2running waitingQueue_size ="
+features\api\net\WePacketHelper.kt	151	False	private val classNetQueue by dexClass {	"MicroMsg.NetSceneQueue", "waiting2running waitingQueue_size =" | ":appbrand0", ":appbrand1", ":appbrand2"
+features\api\net\WePacketHelper.kt	156	False	private val classMmKernel by dexClass {	":appbrand0", ":appbrand1", ":appbrand2"
+features\api\net\WePacketHelper.kt	167	False	private val classNetDispatcher by dexClass()	(no strings)
+features\api\net\WePacketHelper.kt	168	False	private val classIOnSceneEnd by dexClass {	(no strings)
+features\api\net\WePacketHelper.kt	184	False	private val classCallbackIface by dexClass {	(no strings)
+features\api\net\WePacketHelper.kt	196	False	private val classReqResp by dexClass()	(no strings)
+features\api\net\WePacketHelper.kt	199	False	private val methodGetNetQueue by dexMethod {	(no strings)
+features\api\net\WePacketHelper.kt	208	False	//    private val methodNetDispatch by dexMethod()	(no strings)
+features\api\net\WeTransferApi.kt	28	False	val classNetSceneTenpayRemittanceGen by dexClass {	
+                "Micromsg.NetSceneTenpayRemittanceGen",
+                "payScene: %s, channel: %s dynamicCodeUrl: %s mch_name: %s nickname: %s receiver_true_name %s placeorder_reserves: %s unpayType: %s cancel_outtradeno:%s cancel_reason:%s placeorderAttach:%s"
+             | pkg:com.tencent.mm.plugin.remittance.model
+features\api\net\listener\WePacketDispatcher.kt	26	False	private val classOnGYNetEnd by dexClass {	pkg:com.tencent.mm.network
+features\api\ui\WeAlertDialogApi.kt	14	False	private val classMmAlert by dexClass {	"MicroMsg.MMAlert"
+features\api\ui\WeChatInputBarMenuApi.kt	65	False	val methodSendMessage by dexMethod {	"MicroMsg.ChatFooter", "send msg onClick" | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\api\ui\WeChatMessageContextMenuApi.kt	96	False	private val methodCreateMenu by dexMethod {	"MicroMsg.ChattingItem", "msg is null!" | "MicroMsg.ChattingItem", "context item select failed, null dataTag" | pkg:com.tencent.mm.ui.chatting.viewitems | pkg:com.tencent.mm.ui.chatting.component
+features\api\ui\WeChatMessageContextMenuApi.kt	102	False	private val methodSelectMenuItem by dexMethod {	"MicroMsg.ChattingItem", "context item select failed, null dataTag" | "com.tencent.mm", "com.tencent.wemeet.app" | pkg:com.tencent.mm.ui.chatting.viewitems | pkg:com.tencent.mm.ui.chatting.component
+features\api\ui\WeChatMessageContextMenuApi.kt	109	False	private val methodMultiCreateMenu by dexMethod {	"com.tencent.mm", "com.tencent.wemeet.app" | "MicroMsg.ChattingForwardMultiMsgLogic", "sendMultiMsg fromTalker:" | pkg:com.tencent.mm.ui.chatting.component
+features\api\ui\WeChatMessageContextMenuApi.kt	119	False	private val methodMultiSelectMenuItem by dexMethod {	"MicroMsg.ChattingForwardMultiMsgLogic", "sendMultiMsg fromTalker:" | pkg:com.tencent.mm.ui.chatting.component
+features\api\ui\WeChatMessageViewApi.kt	42	False	private val methodChatItemOnBindView by dexMethod {	
+                "MicroMsg.MvvmChattingItem",
+                "[onBindView]"
+            
+features\api\ui\WeConversationContextMenuApi.kt	56	False	private val methodOnCreateMenu by dexMethod {	
+                "MicroMsg.ConversationLongClickListener",
+                "onCreateContextMenu, contact is null"
+             | pkg:com.tencent.mm.ui.conversation
+features\api\ui\WeConversationContextMenuApi.kt	67	False	private val methodOnItemSelected by dexMethod {	
+                "yuanbao_set_top",
+                "yuanbao_set_read",
+                "yuanbao_set_no_display"
+             | pkg:com.tencent.mm.ui.conversation
+features\api\ui\WeHomeScreenPopupMenuApi.kt	58	False	private val methodAddItem by dexMethod {	
+                "MicroMsg.PlusSubMenuHelper",
+                "dyna plus config is null, we use default one"
+             | "MicroMsg.PlusSubMenuHelper", "processOnItemClick" | pkg:com.tencent.mm.ui
+features\api\ui\WeHomeScreenPopupMenuApi.kt	67	False	private val methodHandleItemClick by dexMethod {	"MicroMsg.PlusSubMenuHelper", "processOnItemClick" | pkg:com.tencent.mm.ui
+features\api\ui\WeHomeScreenPopupMenuApi.kt	73	False	private val classMenuItemData by dexClass {	"" | pkg:com.tencent.mm.ui
+features\api\ui\WeHomeScreenPopupMenuApi.kt	89	False	private val classMenuItemWrapper by dexClass {	pkg:com.tencent.mm.ui
+features\api\ui\WeMainActivityBeautifyApi.kt	11	False	val methodDoOnCreate by dexMethod {	"MicroMsg.LauncherUI.MainTabUI", "doOnCreate"
+features\api\ui\WeMomentsApi.kt	89	False	private val classSnsService by dexClass {	
+                "MicroMsg.SnsService",
+                "can not add Comment"
+             | "ImproveInfo(name=" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	101	False	val classImproveSnsInfo by dexClass {	"ImproveInfo(name=" | "MicroMsg.Improve.InteractionLayout"
+features\api\ui\WeMomentsApi.kt	107	True	val classImproveInteractionLayout by dexClass {	"MicroMsg.Improve.InteractionLayout"
+features\api\ui\WeMomentsApi.kt	113	True	val fieldInteractionSnsInfo by dexField {	(no strings)
+features\api\ui\WeMomentsApi.kt	121	True	private val methodSendLike by dexMethod(allowFailure = true) {	(no strings)
+features\api\ui\WeMomentsApi.kt	128	False	private val methodCancelLike by dexMethod {	
+                "getByLocalId",
+                "select *,rowid from SnsInfo  where SnsInfo.rowid="
+            
+features\api\ui\WeMomentsApi.kt	136	False	private val methodGetSnsInfoByLocalId by dexMethod {	
+                "getByLocalId",
+                "select *,rowid from SnsInfo  where SnsInfo.rowid="
+             | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	146	False	private val methodGetSnsInfoStorage by dexMethod {	
+                "com.tencent.mm.plugin.sns.model.SnsCore",
+                "getSnsInfoStorage"
+             | pkg:com.tencent.mm.plugin.sns.model | declaredClassOf:method
+features\api\ui\WeMomentsApi.kt	158	False	private val methodGetSnsInfoBySnsId by dexMethod {	"select *,rowid from SnsInfo  where SnsInfo.snsId=" | declaredClassOf:method
+features\api\ui\WeMomentsApi.kt	182	False	val classUploadPackHelper by dexClass {	"MicroMsg.UploadPackHelper", "commit sns info ret %d, typeFlag %d sightMd5 %s" | "MicroMsg.snsMediaStorage", "convertImg2WxamWithoutZip origPath:%s OutOfMemoryError! rollback" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	189	False	val classSnsMediaObj by dexClass {	"MicroMsg.snsMediaStorage", "convertImg2WxamWithoutZip origPath:%s OutOfMemoryError! rollback" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	195	False	val ctorUploadPackHelper by dexConstructor {	"commit", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	203	False	val methodCommit by dexMethod {	"commit", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | "setContentDes", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	211	False	val methodSetContentDes by dexMethod {	"setContentDes", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | "setSdkId", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	219	False	val methodSetSdkId by dexMethod {	"setSdkId", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | "setSdkAppName", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	227	False	val methodSetSdkAppName by dexMethod {	"setSdkAppName", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | "setUploadList", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	235	False	val methodSetUploadList by dexMethod {	"setUploadList", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | "addImageMediaObjByPath", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	243	False	val methodAddImageMediaObjByPath by dexMethod {	"addImageMediaObjByPath", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	254	False	val methodAddSightObjectByPath by dexMethod {	"addSightObjectByPath", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | "MicroMsg.SnsUploadElment", "path:%s model:%s" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	266	False	val classSnsUploadElement by dexClass {	"MicroMsg.SnsUploadElment", "path:%s model:%s"
+features\api\ui\WeMomentsApi.kt	278	False	val ctorSnsUploadElement by dexConstructor {	"MicroMsg.SnsUtil", "getSnsBigName"
+features\api\ui\WeMomentsApi.kt	286	False	val classSnsUtil by dexClass {	"MicroMsg.SnsUtil", "getSnsBigName" | "getSnsBigName" | "getSnsThumbName"
+features\api\ui\WeMomentsApi.kt	292	False	val methodGetSnsBigName by dexMethod {	"getSnsBigName" | "getSnsThumbName" | "getImageFilePath", "com.tencent.mm.plugin.sns.model.SnsPathHelper"
+features\api\ui\WeMomentsApi.kt	299	False	val methodGetSnsThumbName by dexMethod {	"getSnsThumbName" | "getImageFilePath", "com.tencent.mm.plugin.sns.model.SnsPathHelper" | "getMediaFilePath"
+features\api\ui\WeMomentsApi.kt	306	False	val classSnsPathHelper by dexClass {	"getImageFilePath", "com.tencent.mm.plugin.sns.model.SnsPathHelper" | "getMediaFilePath" | "MicroMsg.SnsVideoLogic", "getSnsVideoPath", "com.tencent.mm.plugin.sns.model.SnsVideoLogic"
+features\api\ui\WeMomentsApi.kt	312	False	val methodGetMediaFilePath by dexMethod {	"getMediaFilePath" | "MicroMsg.SnsVideoLogic", "getSnsVideoPath", "com.tencent.mm.plugin.sns.model.SnsVideoLogic" | "getSnsVideoPath"
+features\api\ui\WeMomentsApi.kt	319	True	val classSnsVideoLogic by dexClass {	"MicroMsg.SnsVideoLogic", "getSnsVideoPath", "com.tencent.mm.plugin.sns.model.SnsVideoLogic" | "getSnsVideoPath"
+features\api\ui\WeMomentsApi.kt	325	True	val methodGetSnsVideoPath by dexMethod {	"getSnsVideoPath" | "genCdnMediaId"
+features\api\ui\WeMomentsApi.kt	332	True	val methodGenCdnMediaId by dexMethod(allowFailure = true) {	"genCdnMediaId"
+features\api\ui\WeMomentsApi.kt	343	False	val methodGetSnsVideoFullPath by dexMethod {	
+                "getSnsVideoFullPath",
+                "getSnsVideoFullPath have flag %s, %s >>"
+            
+features\api\ui\WeMomentsApi.kt	357	False	val methodIsSnsVideoDownloadFinished by dexMethod {	
+                "isDownloadFinish",
+                "it don't download video[%s] finish. file[%b], return null."
+            
+features\api\ui\WeMomentsApi.kt	371	False	val methodGetSnsVideoThumbImagePath by dexMethod {	"getSnsVideoThumbImagePath" | "com.tencent.mm.plugin.sns.model.SnsCore", "getSnsInfoStorage"
+features\api\ui\WeMomentsApi.kt	378	False	val classSnsCore by dexClass {	"com.tencent.mm.plugin.sns.model.SnsCore", "getSnsInfoStorage" | "getAccSnsPath", "com.tencent.mm.plugin.sns.model.SnsCore"
+features\api\ui\WeMomentsApi.kt	384	False	val methodGetAccSnsPath by dexMethod {	"getAccSnsPath", "com.tencent.mm.plugin.sns.model.SnsCore" | "getSnsVideoService", "com.tencent.mm.plugin.sns.model.SnsCore"
+features\api\ui\WeMomentsApi.kt	394	False	val methodGetSnsVideoService by dexMethod {	"getSnsVideoService", "com.tencent.mm.plugin.sns.model.SnsCore" | "addSnsVideoTask", "com.tencent.mm.plugin.sns.model.SnsVideoService"
+features\api\ui\WeMomentsApi.kt	403	False	val methodDownloadVideo by dexMethod {	"addSnsVideoTask", "com.tencent.mm.plugin.sns.model.SnsVideoService" | "MicroMsg.DownloadManager", "addBatchDownloadSns do not need download." | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	415	False	val classSnsDownloadManager by dexClass {	"MicroMsg.DownloadManager", "addBatchDownloadSns do not need download." | "getSnsDownManager", "com.tencent.mm.plugin.sns.model.SnsCore" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	423	False	val methodGetSnsDownManager by dexMethod {	"getSnsDownManager", "com.tencent.mm.plugin.sns.model.SnsCore" | "addDownLoadSns", "com.tencent.mm.plugin.sns.model.DownloadManager" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	433	False	val methodAddDownLoadSns by dexMethod {	"addDownLoadSns", "com.tencent.mm.plugin.sns.model.DownloadManager" | "timeline", "album_friend", "album_self", "album_stranger", "comment_detail" | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsApi.kt	444	False	val classSnsSourceScene by dexClass {	"timeline", "album_friend", "album_self", "album_stranger", "comment_detail" | "singerName", "albumName", "musicOperationUrl", "albumCoverUrl"
+features\api\ui\WeMomentsApi.kt	453	False	val classXs4 by dexClass {	"singerName", "albumName", "musicOperationUrl", "albumCoverUrl" | "<musicShareItem>", "</musicShareItem>", "<mvObjectId>", "<mvNonceId>", "<mid>"
+features\api\ui\WeMomentsApi.kt	463	False	val methodSerializeMusicShareXml by dexMethod {	"<musicShareItem>", "</musicShareItem>", "<mvObjectId>", "<mvNonceId>", "<mid>"
+features\api\ui\WeMomentsApi.kt	472	False	val methodSerializeFinderFeed by dexMethod {	
+                "<finderFeed>",
+                "</finderFeed>",
+                "<authIconType>",
+                "<fullClipInset>",
+                "<fullCoverUrl>"
+            
+features\api\ui\WeMomentsApi.kt	487	False	private val methodExportVideoToAlbum by dexMethod {	"[+] Called exportVideo, src: %s", "exportVideoImpl fail" | "[+] Called exportImage, src: %s", "exportImageImpl"
+features\api\ui\WeMomentsApi.kt	497	False	private val methodExportImageToAlbum by dexMethod {	"[+] Called exportImage, src: %s", "exportImageImpl" | "MicroMsg.GalleryEntryUI", "query souce: ", "doRedirect %s"
+features\api\ui\WeMomentsApi.kt	507	False	private val classGalleryEntryUi by dexClass {	"MicroMsg.GalleryEntryUI", "query souce: ", "doRedirect %s" | "MicroMsg.SnsUploadUI", "customizeInputView", "initView"
+features\api\ui\WeMomentsApi.kt	513	False	private val classSnsUploadUi by dexClass {	"MicroMsg.SnsUploadUI", "customizeInputView", "initView" | 
+                "MicroMsg.SnsActivity",
+                "onAcvityResult requestCode:",
+                "KTouchCameraTime"
+            
+features\api\ui\WeMomentsApi.kt	519	False	private val classSnsUiAction by dexClass {	
+                "MicroMsg.SnsActivity",
+                "onAcvityResult requestCode:",
+                "KTouchCameraTime"
+             | "onActivityResult", "com.tencent.mm.plugin.sns.ui.SnsUIAction"
+features\api\ui\WeMomentsApi.kt	529	False	private val methodSnsUiActionOnActivityResult by dexMethod {	"onActivityResult", "com.tencent.mm.plugin.sns.ui.SnsUIAction" | "onCreate", "com.tencent.mm.plugin.sns.ui.SnsUploadUI"
+features\api\ui\WeMomentsApi.kt	539	False	private val methodSnsUploadOnCreate by dexMethod {	"onCreate", "com.tencent.mm.plugin.sns.ui.SnsUploadUI" | "MicroMsg.VFSFileOp", "readFileAsString(\"%s\" failed: %s" | pkg:com.tencent.mm.vfs
+features\api\ui\WeMomentsApi.kt	549	False	val classVfs by dexClass {	"MicroMsg.VFSFileOp", "readFileAsString(\"%s\" failed: %s" | pkg:com.tencent.mm.vfs
+features\api\ui\WeMomentsApi.kt	610	False	private val classGalleryLivePhotoMediaItem by dexClass {	(no strings)
+features\api\ui\WeMomentsContextMenuApi.kt	53	False	private val methodOnCreateMenu by dexMethod {	
+                "MicroMsg.TimelineOnCreateContextMenuListener",
+                "onMMCreateContextMenu error"
+             | 
+                "delete comment fail!!! snsInfo is null",
+                "send photo fail, mediaObj is null",
+                "mediaObj is null, send failed!"
+             | pkg:com.tencent.mm.plugin.sns.ui.listener
+features\api\ui\WeMomentsContextMenuApi.kt	62	True	private val methodOnItemSelected by dexMethod {	
+                "delete comment fail!!! snsInfo is null",
+                "send photo fail, mediaObj is null",
+                "mediaObj is null, send failed!"
+             | pkg:com.tencent.mm.plugin.sns.ui.listener | pkg:com.tencent.mm.plugin.sns.ui.improve.item.click
+features\api\ui\WeMomentsContextMenuApi.kt	72	True	private val methodImproveOnItemSelectedRegister2 by dexMethod(allowFailure = true) {	
+                "onMMMenuItemSelected",
+                "com.tencent.mm.plugin.sns.ui.improve.item.click.BaseImproveClick${'$'}register${'$'}2"
+             | pkg:com.tencent.mm.plugin.sns.ui.improve.item.click
+features\api\ui\WeMomentsContextMenuApi.kt	84	True	private val methodImproveOnItemSelectedRegister3 by dexMethod(allowFailure = true) {	
+                "onMMMenuItemSelected",
+                "com.tencent.mm.plugin.sns.ui.improve.item.click.BaseImproveClick${'$'}register${'$'}3"
+             | pkg:com.tencent.mm.plugin.sns.ui.improve.item.click
+features\api\ui\WeMomentsContextMenuApi.kt	96	True	private val methodImproveMultiPhotoOnItemSelected by dexMethod(allowFailure = true) {	
+                "onMMMenuItemSelected",
+                "com.tencent.mm.plugin.sns.ui.improve.item.click.ImproveMultiPhotoClick${'$'}register${'$'}1${'$'}1${'$'}1"
+             | pkg:com.tencent.mm.plugin.sns.ui.improve.item.click
+features\api\ui\WeMomentsContextMenuApi.kt	108	False	private val methodSnsInfoStorage by dexMethod {	
+                "getByLocalId",
+                "com.tencent.mm.plugin.sns.storage.SnsInfoStorage"
+             | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeMomentsContextMenuApi.kt	119	False	private val methodGetSnsInfoStorage by dexMethod {	
+                "com.tencent.mm.plugin.sns.model.SnsCore",
+                "getSnsInfoStorage"
+             | pkg:com.tencent.mm.plugin.sns.model
+features\api\ui\WeSettingsInjector.kt	40	True	private val methodSetKey by dexMethod()	"Repairer_Setting" | "type"
+features\api\ui\WeSettingsInjector.kt	41	True	private val methodSetTitle by dexMethod()	"Repairer_Setting" | "type" | "", "activity", "context", "intent"
+features\api\ui\WeSettingsInjector.kt	42	True	private val methodGetKey by dexMethod()	"Repairer_Setting" | "type" | "", "activity", "context", "intent"
+features\api\ui\WeSettingsInjector.kt	43	True	private val methodAddPref by dexMethod()	"Repairer_Setting" | "type" | "", "activity", "context", "intent"
+features\api\ui\WeSettingsInjector.kt	46	True	private val classSettingItemClassesProvider by dexClass(allowFailure = true) {	"Repairer_Setting" | "type" | "", "activity", "context", "intent"
+features\api\ui\WeSettingsInjector.kt	55	True	private val classBaseSettingItem by dexClass(allowFailure = true) {	"", "activity", "context", "intent" | "activity", "context", "itemView", "1", "0"
+features\api\ui\WeSettingsInjector.kt	69	True	private val classBaseSettingSwitchItem by dexClass(allowFailure = true) {	"activity", "context", "itemView", "1", "0" | "activity"
+features\api\ui\WeSettingsInjector.kt	89	True	private val classSettingLocation by dexClass(allowFailure = true) {	"SettingLocation(parentGroup=", ", frontItem=" | "SettingGroup_Main_AccountInfo"
+features\api\ui\WeSettingsInjector.kt	94	True	private val methodSettingGroupAccountInfoGetStringId by dexMethod(allowFailure = true) {	"SettingGroup_Main_AccountInfo"
+features\api\ui\WeSettingsInjector.kt	101	True	private val methodSettingGroupAccountInfoReturns1 by dexMethod(allowFailure = true) {	"MicroMsg.ResourceHelper", "get string, resId %d, but context is null"
+features\api\ui\WeSettingsInjector.kt	108	True	private val methodSettingGroupPersonalInfoGetGroupNameResId by dexMethod(allowFailure = true) {	"MicroMsg.ResourceHelper", "get string, resId %d, but context is null" | "MicroMsg.PluginHelper", "start activity, need try load plugin[%B], entry:%s", "start activity error, context is null"
+features\api\ui\WeSettingsInjector.kt	114	True	private val methodResourceHelperGetStringById by dexMethod(allowFailure = true) {	"MicroMsg.ResourceHelper", "get string, resId %d, but context is null" | "MicroMsg.PluginHelper", "start activity, need try load plugin[%B], entry:%s", "start activity error, context is null" | "activity" | pkg:com.tencent.mm.plugin.setting.ui.setting_new.uic
+features\api\ui\WeSettingsInjector.kt	119	True	//    private val methodPluginHelperLaunchIntent by dexMethod(allowFailure = true) {	"MicroMsg.PluginHelper", "start activity, need try load plugin[%B], entry:%s", "start activity error, context is null" | "activity" | pkg:com.tencent.mm.plugin.setting.ui.setting_new.uic
+features\api\ui\WeSettingsInjector.kt	125	True	//    private val classIntentAction by dexClass(allowFailure = true, allowMultiple = true, multipleIndex = 1) {	"activity" | pkg:com.tencent.mm.plugin.setting.ui.setting_new.uic
+features\api\ui\WeShortVideosShareMenuApi.kt	37	False	private val methodCreateMenu1 by dexMethod {	"pos is error " | "[getMoreMenuItemSelectedListener] feed " | pkg:com.tencent.mm.plugin.finder.feed
+features\api\ui\WeShortVideosShareMenuApi.kt	44	False	private val methodOnSelectMenuItem1 by dexMethod {	"[getMoreMenuItemSelectedListener] feed " | "feed", "menu", "sheet", "holder", "KEY_FINDER_SELF_FLAG" | pkg:com.tencent.mm.plugin.finder.feed
+features\api\ui\WeShortVideosShareMenuApi.kt	51	False	private val methodCreateMenu2 by dexMethod {	"feed", "menu", "sheet", "holder", "KEY_FINDER_SELF_FLAG" | "Finder.FinderLoaderFeedUIContract.Presenter" | "getMoreMenuItemSelectedListener feed " | pkg:com.tencent.mm.plugin.finder.feed
+features\api\ui\WeShortVideosShareMenuApi.kt	57	False	private val methodOnSelectMenuItem2 by dexMethod {	"Finder.FinderLoaderFeedUIContract.Presenter" | "getMoreMenuItemSelectedListener feed " | "getCreateSecondMoreMenuListener: username=" | pkg:com.tencent.mm.plugin.finder.feed
+features\api\ui\WeShortVideosShareMenuApi.kt	67	False	private val methodCreateMenu3 by dexMethod {	"getCreateSecondMoreMenuListener: username=" | "button_speedplay", "ref_eid" | pkg:com.tencent.mm.plugin.finder.feed
+features\api\ui\WeShortVideosShareMenuApi.kt	74	False	private val methodOnSelectMenuItem3 by dexMethod {	"button_speedplay", "ref_eid" | pkg:com.tencent.mm.plugin.finder.feed
+features\api\ui\WeWebViewApi.kt	58	False	private val xwebOnPageFinished by dexMethod {	
+                    "MicroMsg.AppBrandWebView",
+                    "onReceivedHttpError, WebResourceRequest url = %s, ErrWebResourceResponse mimeType = %s, status = %d"
+                 | pkg:com.tencent.mm.plugin.appbrand.page
+features\api\ui\WeWebViewApi.kt	74	False	private val androidOnPageFinished by dexMethod {	pkg:com.tencent.mm.plugin.appbrand.page
+features\items\beautify\ApplyDialogBackgroundBlur.kt	41	False	private val classMmAlertDialog by dexClass {	"MicroMsg.MMAlertDialog", "dialog dismiss error!" | $$"com/tencent/mm/ui/widget/dialog/MMProgressDialog$Builder", "show"
+features\items\beautify\ApplyDialogBackgroundBlur.kt	46	False	private val classMmProgressDialog by dexClass {	$$"com/tencent/mm/ui/widget/dialog/MMProgressDialog$Builder", "show"
+features\items\beautify\ApplyDialogBackgroundBlur.kt	51	False	private val classMmQuickDialog by dexClass {	(no strings)
+features\items\beautify\ApplyGlobalBackground.kt	66	False	private val methodInitImageView by dexMethod {	(no strings)
+features\items\beautify\CenterProfileCard.kt	101	False	private val methodBindAccountInfo by dexMethod {	(no strings)
+features\items\beautify\HideConversationListDividers.kt	15	True	private val methodConversationWithCacheAdapterGetView by dexMethod(allowFailure = true) {	"MicroMsg.ConversationWithCacheAdapter", "Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d" | "MicroMsg.ConversationAdapter.MvvmConversationAdapter", "Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d" | pkg:com.tencent.mm.ui.conversation
+features\items\beautify\HideConversationListDividers.kt	23	True	private val methodMvvmConversationAdapterGetView by dexMethod(allowFailure = true) {	"MicroMsg.ConversationAdapter.MvvmConversationAdapter", "Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d"
+features\items\beautify\HideMeTabPageItems.kt	45	False	private val methodOnViewCreated by dexMethod {	(no strings)
+features\items\beautify\HideOtherDevicesBanner.kt	15	False	private val methodSetOtherOnlineBannerVisibility by dexMethod {	
+                "com/tencent/mm/ui/conversation/banner/OtherOnlineBanner",
+                "setVisibility"
+             | pkg:com.tencent.mm.ui.conversation.banner
+features\items\beautify\ReplaceNavigationBar.kt	988	False	private val methodUpdateTabUnread by dexMethod {	"MicroMsg.LauncherUITabView", "updateMainTabUnread %d" | 
+                "change tab to %d, cur tab %d, has init tab %B, tab cache size %d"
+            
+features\items\beautify\ReplaceNavigationBar.kt	995	False	private val methodChangeTab by dexMethod {	
+                "change tab to %d, cur tab %d, has init tab %B, tab cache size %d"
+             | "[updateFriendTabUnread] unread : "
+features\items\beautify\ReplaceNavigationBar.kt	1004	False	private val methodUpdateFriendTabUnread by dexMethod {	"[updateFriendTabUnread] unread : " | "[showFriendPoint] show : "
+features\items\beautify\ReplaceNavigationBar.kt	1011	False	private val methodShowFriendPoint by dexMethod {	"[showFriendPoint] show : " | "[updateContactTabUnread] unread : "
+features\items\beautify\ReplaceNavigationBar.kt	1018	False	private val methodUpdateContactTabUnread by dexMethod {	"[updateContactTabUnread] unread : "
+features\items\beautify\Theme.kt	388	False	//    private val methodChattingBackgroundComponentInitBg by dexMethod {	"MicroMsg.ChattingUI.ChattingBackgroundComponent", "initBackground:"
+features\items\chat\AutoViewOriginalMedia.kt	15	False	private val methodSetImageHdImgBtnVisibility by dexMethod()	"setHdImageActionDownloadable" | "setImageHdImgBtnVisibility"
+features\items\chat\AutoViewOriginalMedia.kt	16	False	private val methodCheckNeedShowOriginVideoBtn by dexMethod()	"setHdImageActionDownloadable" | "setImageHdImgBtnVisibility"
+features\items\chat\BlockAbnormalSizeStickers.kt	39	False	private val ctorMmWxgfDrawable by dexConstructor {	"MicroMsg.GIF.MMWXGFDrawable", "Cpan WXGF get option failed. result:%d" | pkg:com.tencent.mm.plugin.gif
+features\items\chat\ChatFooterHooks.kt	19	False	private val methodInitSmileyBtn by dexMethod {	"initSmileyBtn" | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\ChatInputBarEnhancements.kt	46	False	val methodSendMessage by dexMethod {	"MicroMsg.ChatFooter", "send msg onClick" | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\ChatToolbar.kt	168	False	private val methodAppPanelInitAppGrid by dexMethod {	"MicroMsg.AppPanel", "initAppGrid( | 
+                "MicroMsg.AppPanel",
+                "onMeasure width: %d, heigth:%d, isMeasured:%b, gridWidth:%d, gridHeight:%d"
+             | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\ChatToolbar.kt	174	False	private val methodAppPanelOnMeasure by dexMethod {	
+                "MicroMsg.AppPanel",
+                "onMeasure width: %d, heigth:%d, isMeasured:%b, gridWidth:%d, gridHeight:%d"
+             | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\ConversationAggregation.kt	113	True	private val methodSqliteWrapperRawQuery by dexMethod(allowFailure = true) {	"sql is null ", "DB IS CLOSED ! {%s}" | 
+                "select * from rconversation where ",
+                " order by flag desc, conversationTime desc"
+            
+features\items\chat\ConversationAggregation.kt	121	True	private val methodConversationStorageQueryByParent by dexMethod(allowFailure = true) {	
+                "select * from rconversation where ",
+                " order by flag desc, conversationTime desc"
+            
+features\items\chat\ConversationAggregation.kt	137	True	private val methodSelectConversationDoClickUser by dexMethod(allowFailure = true) {	"MicroMsg.SelectConversationUI", "doClickUser=%s" | "MicroMsg.SelectContactMainRecycleViewUIC", "onItemClickListener data.type"
+features\items\chat\ConversationAggregation.kt	151	False	private val methodMvvmMainListItemClick by dexMethod {	"MicroMsg.SelectContactMainRecycleViewUIC", "onItemClickListener data.type" | "MicroMsg.SelectContactSearchMvvmListUIC", "onItemClick: isAlwaysCheck="
+features\items\chat\ConversationAggregation.kt	156	True	private val methodMvvmSearchItemClick by dexMethod {	"MicroMsg.SelectContactSearchMvvmListUIC", "onItemClick: isAlwaysCheck="
+features\items\chat\ConversationAggregation.kt	171	True	private val methodConversationStorageUpdateUnreadByTalker by dexMethod(allowFailure = true) {	"MicroMsg.ConversationStorage", "updateUnreadByTalker %s", "update conversation failed" | "MicroMsg.MMPopupMenu"
+features\items\chat\ConversationAggregation.kt	182	True	private val methodShowPopupMenu by dexMethod(allowFailure = true) {	"MicroMsg.MMPopupMenu"
+features\items\chat\ConversationGrouping.kt	331	True	private val methodOnTabCreate by dexMethod {	"MicroMsg.MainUI", "onTabCreate, %d" | "sql is null ", "DB IS CLOSED ! {%s}"
+features\items\chat\ConversationGrouping.kt	340	True	private val methodSqliteWrapperRawQuery by dexMethod(allowFailure = true) {	"sql is null ", "DB IS CLOSED ! {%s}"
+features\items\chat\CustomChatInputBarPlaceholderText.kt	66	False	private val methodChatFooterCanSend by dexMethod {	"MicroMsg.ChatFooter", "canSend true ! sendBtn is visible"
+features\items\chat\DisableMessageCollapsing.kt	12	False	private val methodFoldMsg by dexMethod {	".msgsource.sec_msg_node.clip-len"
+features\items\chat\DisablePat.kt	11	False	private val methodAvatarDoubleClick by dexMethod {	"MicroMsg.AvatarDoubleClickListener", "onDoubleClick: %s"
+features\items\chat\DisablePinnedChatsCollapsing.kt	12	False	private val methodAddCollapseChatItem by dexMethod {	"MicroMsg.FolderHelper", "fold item exist" | "MicroMsg.FolderHelper", "checkIfShowFoldItem, ifShow:" | pkg:com.tencent.mm.ui.conversation
+features\items\chat\DisablePinnedChatsCollapsing.kt	18	False	private val methodIfShouldAddCollapseChatItem by dexMethod {	"MicroMsg.FolderHelper", "checkIfShowFoldItem, ifShow:" | pkg:com.tencent.mm.ui.conversation
+features\items\chat\DisableTypingStatusUploading.kt	12	True	private val classMmTypingSendReq by dexClass()	pkg:com.tencent.mm.modelsimple
+features\items\chat\DisplayGroupMemberRoles.kt	48	False	private val methodGetChatroomData by dexMethod {	"MicroMsg.ChatRoomMember", "getChatroomData hashMap is null!"
+features\items\chat\EmojiGameControl.kt	75	False	private val methodRandom by dexMethod {	"MicroMsg.EmojiPanelClickListener" | pkg:com.tencent.mm.sdk.platformtools
+features\items\chat\EmojiGameControl.kt	87	False	private val methodPanelClick by dexMethod {	"MicroMsg.EmojiPanelClickListener"
+features\items\chat\FakeVoiceDuration.kt	24	False	private val methodVoiceRecorderGetLength by dexMethod {	"MicroMsg.SceneVoice.Recorder", "Stop file success: "
+features\items\chat\FloatingChatFooter.kt	117	False	private val methodRefreshBottomHeight by dexMethod {	"MicroMsg.ChatFooter", "[refreshBottomHeight] keyborPx:%d" | "MicroMsg.ChatFooter", "switchPanel: %s, %s" | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\FloatingChatFooter.kt	128	False	private val methodSwitchPanel by dexMethod {	"MicroMsg.ChatFooter", "switchPanel: %s, %s" | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\FloatingChatFooter.kt	139	False	private val methodScrollContentTo by dexMethod {	
+                "MicroMsg.ChattingScrollLayout",
+                "scrollContentTo: y:%s, targetScroll:%s, alwaysScroll:%s"
+             | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\FloatingChatFooter.kt	154	False	private val methodConfigPanel by dexMethod {	"MicroMsg.ChatFooter", "configPanel: %s, %s, %s, %s, %s" | "MicroMsg.ChatFooter", "isScrolling!! pass this event!" | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\FloatingChatFooter.kt	165	False	private val methodEnterKeyboardState by dexMethod {	"MicroMsg.ChatFooter", "isScrolling!! pass this event!" | "updateFullScreenEdtLayoutHeight:" | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\FloatingChatFooter.kt	176	False	private val methodUpdateFullScreenEditHeight by dexMethod {	"updateFullScreenEdtLayoutHeight:" | "MicroMsg.EmojiPanelDragIndicator", "determineExtent: parentHeight=" | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\FloatingChatFooter.kt	187	False	private val methodDetermineExtent by dexMethod {	"MicroMsg.EmojiPanelDragIndicator", "determineExtent: parentHeight="
+features\items\chat\ForceEnableAllTools.kt	20	False	private val classAppPanelConfig by dexClass()	(no strings)
+features\items\chat\ForceEnableAllTools.kt	21	False	private val fieldAppPanelConfig by dexField()	(no strings)
+features\items\chat\ForceEnableAllTools.kt	22	False	private val fieldFirstFlag by dexField()	(no strings)
+features\items\chat\ForceEnableAllTools.kt	23	False	private val fieldFlagEnabled by dexField()	(no strings)
+features\items\chat\ForceEnableAllTools.kt	24	False	private val methodRefreshAppPanel by dexMethod()	(no strings)
+features\items\chat\MarkdownRendering.kt	561	True	private val classItemFactory by dexClass(allowFailure = true) {	"MicroMsg.ItemFactoryNew", "initChattingItemConfig" | 
+                "MicroMsg.ChattingItemMarkdownMvvm",
+                "[STREAM_TRACE] preDealData: msgId=%d, msgSvrId=%d, contentLen=%d, isStreaming=%b"
+            
+features\items\chat\MarkdownRendering.kt	567	True	private val methodMarkdownPreprocess by dexMethod(allowFailure = true) {	
+                "MicroMsg.ChattingItemMarkdownMvvm",
+                "[STREAM_TRACE] preDealData: msgId=%d, msgSvrId=%d, contentLen=%d, isStreaming=%b"
+             | "other", "null cannot be cast to non-null type com.tencent.mm.storage.MsgInfo"
+features\items\chat\MarkdownRendering.kt	576	False	private val classMsgInfoWrapper by dexClass {	"other", "null cannot be cast to non-null type com.tencent.mm.storage.MsgInfo"
+features\items\chat\MonitorGroupMemberOperations.kt	48	False	private val methodHandleSpanClick by dexMethod {	"MicroMsg.URISpanHandlerSet", "LuckyMoneyUriSpanHandler handleSpanClick(
+features\items\chat\QuickRemoveQuote.kt	14	False	private val methodSupportAutoCompleteOnKey by dexMethod {	"ChatFooterKtHelper", "supportAutoComplete err" | "" | pkg:com.tencent.mm.pluginsdk.ui.chat
+features\items\chat\QuickRemoveQuote.kt	21	False	private val methodShowMsgQuoteContainer by dexMethod {	""
+features\items\chat\QuotedMessageDirectJump.kt	14	False	private val methodClickEvent by dexMethod {	
+                "MicroMsg.msgquote.QuoteMsgSourceClickLogic",
+                "handleItemClickEvent,quotedMsg is null!"
+             | 
+                "MicroMsg.msgquote.QuoteMsgSourceClickLogic",
+                "handleItemClickToPositionEvent,quotedMsg is null!"
+             | pkg:com.tencent.mm.ui.chatting.viewitems | declaredClassOf:method
+features\items\chat\QuotedMessageDirectJump.kt	23	False	private val methodClickToPositionEvent by dexMethod {	
+                "MicroMsg.msgquote.QuoteMsgSourceClickLogic",
+                "handleItemClickToPositionEvent,quotedMsg is null!"
+             | 
+                "MicroMsg.msgquote.QuoteMsgSourceClickLogic",
+                "%s msgId:%s msgSvrId:%s"
+             | declaredClassOf:method
+features\items\chat\QuotedMessageDirectJump.kt	32	True	private val methodGetQuoteMessageInfo by dexMethod {	
+                "MicroMsg.msgquote.QuoteMsgSourceClickLogic",
+                "%s msgId:%s msgSvrId:%s"
+             | "QuoteLongClickFromQuoteView", "QuoteClickFromTextPreviewLocateView" | "MicroMsg.ChattingContext", "[notifyDataSetChange]" | declaredClassOf:method
+features\items\chat\QuotedMessageDirectJump.kt	41	True	private val classEnumQuoteJumpToPositionSource by dexClass(allowFailure = true) {	"QuoteLongClickFromQuoteView", "QuoteClickFromTextPreviewLocateView" | "MicroMsg.ChattingContext", "[notifyDataSetChange]" | "getTalker returns null."
+features\items\chat\QuotedMessageDirectJump.kt	46	False	private val classChattingContext by dexClass {	"MicroMsg.ChattingContext", "[notifyDataSetChange]" | "getTalker returns null."
+features\items\chat\QuotedMessageDirectJump.kt	51	False	private val methodChattingContextGetTalker by dexMethod {	"getTalker returns null."
+features\items\chat\RedirectDownloadPath.kt	117	False	private val methodDownloadFile by dexMethod {	"VFS.VFSStrategy", "Found wrong moving file: ", "accountSalt" | pkg:com.tencent.mm.vfs | pkg:com.tencent.mm.pluginsdk.model.app
+features\items\chat\RedirectDownloadPath.kt	128	False	private val methodInitDownloadAttach by dexMethod {	
+                    "MicroMsg.AppMsgLogic",
+                    "summerbig initDownloadAttach msgLocalId[%d], msgXml[%s], downloadPath[%s]",
+                    "summerbig initDownloadAttach ret[%b], rowid[%d], field_totalLen[%d], type[%d], isLargeFile[%d], destFile[%s], msgLocalId[%s], stack[%s]"
+                 | pkg:com.tencent.mm.pluginsdk.model.app
+features\items\chat\RedirectDownloadPath.kt	143	False	private val methodInsertDownloadAttach by dexMethod {	
+                    "MicroMsg.AppMsgLogic",
+                    "summerbig initDownloadAttach ret[%b], rowid[%d], field_totalLen[%d], type[%d], isLargeFile[%d], destFile[%s], msgLocalId[%s], stack[%s]"
+                 | pkg:com.tencent.mm.pluginsdk.model.app
+features\items\chat\RemoveChatMessageContextMenuItems.kt	30	False	private val methodCreateMenu by dexMethod {	"MicroMsg.ChattingItem", "msg is null!" | pkg:com.tencent.mm.ui.chatting.viewitems
+features\items\chat\RemoveCustomStickersLimit.kt	19	False	private val methodGetCustomEmojiMaxSize by dexMethod {	"CustomEmojiMaxSize" | "MicroMsg.EmojiStorageState", "normal_custom_size"
+features\items\chat\RemoveCustomStickersLimit.kt	28	False	private val methodComputeEmojiStorageState by dexMethod {	"MicroMsg.EmojiStorageState", "normal_custom_size" | "MicroMsg.MultiProcessMMKV", "getMMKV name is illegal"
+features\items\chat\RemoveCustomStickersLimit.kt	36	False	private val classMmkv by dexClass {	"MicroMsg.MultiProcessMMKV", "getMMKV name is illegal" | "CgiBack{errType="
+features\items\chat\RemoveCustomStickersLimit.kt	42	False	private val methodGetMmkv by dexMethod {	"MicroMsg.MultiProcessMMKV", "getMMKV name is illegal" | "CgiBack{errType="
+features\items\chat\RemoveCustomStickersLimit.kt	49	False	private val classCgiBack by dexClass {	"CgiBack{errType="
+features\items\chat\RemoveCustomStickersLimit.kt	55	False	private val methodCreateCgiBack by dexMethod {	"CgiBackupEmojiOperate onResult: errType="
+features\items\chat\RemoveCustomStickersLimit.kt	64	False	private val methodAddEmojiOnSceneEnd by dexMethod {	"CgiBackupEmojiOperate onResult: errType=" | "MicroMsg.emoji.NetSceneBackupEmojiOperate", "errType:%d, errCode:%d" | "addToCustom. over max size."
+features\items\chat\RemoveCustomStickersLimit.kt	70	False	private val methodNetSceneBackupEmojiOperateOnGYNetEnd by dexMethod {	"MicroMsg.emoji.NetSceneBackupEmojiOperate", "errType:%d, errCode:%d" | "addToCustom. over max size." | "uninstallEmoticon Failed to send net scene: "
+features\items\chat\RemoveCustomStickersLimit.kt	77	False	private val methodChattingUiEmoji by dexMethod {	"addToCustom. over max size." | "uninstallEmoticon Failed to send net scene: " | "custom_full"
+features\items\chat\RemoveCustomStickersLimit.kt	83	False	private val methodConditionallyShowDialog by dexMethod {	"uninstallEmoticon Failed to send net scene: " | "custom_full"
+features\items\chat\RemoveMessageSelectionLimit.kt	30	True	private val methodToggleMessageSelection by dexMethod(allowFailure = true) {	(no strings)
+features\items\chat\RemoveMessageSelectionLimit.kt	39	True	private val methodGetSelectedMessageCount by dexMethod(allowFailure = true) {	pkg:${PackageNames.WECHAT}.ui.chatting.component
+features\items\chat\RemoveMessageSelectionLimit.kt	50	True	private val classChatItemQuickSelect by dexClass {	
+                "MicroMsg.ChatItemQuickSelectComponent",
+                "initViews: chattingQuickSelectRootUp="
+             | pkg:${PackageNames.WECHAT}.ui.chatting.component
+features\items\chat\RemoveMessageSelectionLimit.kt	60	True	private val methodSetQuickSelectViewEnabled1 by dexMethod(	(no strings)
+features\items\chat\RemoveMessageSelectionLimit.kt	73	True	private val methodSetQuickSelectViewEnabled2 by dexMethod(	(no strings)
+features\items\chat\StickerPanel.kt	72	False	private val methodLoadEmojiFile by dexMethod {	"MicroMsg.EmojiLoader", "load emoji file "
+features\items\chat\StickersSync.kt	220	False	private val methodGetEmojiGroupInfo by dexMethod {	"MicroMsg.emoji.EmojiGroupInfoStorage", "get Panel EmojiGroupInfo." | "data" | "checkScrollToPosition: " | "emojiInfo", "sosDocId"
+features\items\chat\StickersSync.kt	226	False	private val methodAddAllGroupItems by dexMethod {	"data" | "checkScrollToPosition: " | "emojiInfo", "sosDocId"
+features\items\chat\StickersSync.kt	234	False	private val ctorGroupItemInfo by dexConstructor {	"emojiInfo", "sosDocId" | ""
+features\items\chat\StickersSync.kt	239	False	private val ctorResourceLoadOptions by dexConstructor {	""
+features\items\chat\StickersSync.kt	255	False	private val methodDownloadImage by dexMethod {	"MicroMsg.Loader.DefaultImageDownloader.HttpClientFactory", "dz[httpURLConnectionGet 300]"
+features\items\chat\SuperConversationPinning.kt	61	True	//    private val methodSqliteWrapperRawQuery by dexMethod(allowFailure = true) {	"sql is null ", "DB IS CLOSED ! {%s}" | "MicroMsg.SQLiteWrapper", "Query failed."
+features\items\chat\SuperConversationPinning.kt	69	True	//    private val methodSqliteWrapperQuery by dexMethod(allowFailure = true) {	"MicroMsg.SQLiteWrapper", "Query failed."
+features\items\chat\SuperConversationPinning.kt	182	False	private val classConversation by dexClass {	"MicroMsg.Conversation", "[%s}]get mmkv editmsg is [%s],get conv editmsg is [%s]" | "null cannot be cast to non-null type T of com.tencent.mm.plugin.mvvmlist.BaseMvvmListItem"
+features\items\chat\SuperConversationPinning.kt	188	False	private val classMvvmConversationAdapter by dexClass {	"null cannot be cast to non-null type T of com.tencent.mm.plugin.mvvmlist.BaseMvvmListItem"
+features\items\chat\SwipeConversationOperations.kt	192	True	private val classConversationAdapter by dexClass(allowFailure = true) {	
+                "MicroMsg.ConversationWithCacheAdapter",
+                "[getView] position="
+             | "MicroMsg.ConversationAdapter.MvvmConversationAdapter" | pkg:com.tencent.mm.ui.conversation
+features\items\chat\SwipeConversationOperations.kt	202	True	private val classMvvmConversationAdapter by dexClass(allowFailure = true) {	"MicroMsg.ConversationAdapter.MvvmConversationAdapter"
+features\items\chat\SwipeMessageOperations.kt	95	False	private val classChattingItemContainer by dexClass {	
+                "MicroMsg.ChattingItemContainer",
+                "warn!!! cacheSize:%s sysSize:%s"
+             | pkg:com.tencent.mm.ui.chatting.viewitems
+features\items\chat\SwipeMessageOperations.kt	608	False	private val classChattingUiFootComponent by dexClass {	
+                "MicroMsg.ChattingUI.FootComponent",
+                "onNotifyChange event %s talker %s"
+             | "ItemDataTag", "getCurrentMsg2 err" | pkg:com.tencent.mm.ui.chatting.component | pkg:com.tencent.mm.ui.chatting.viewitems
+features\items\chat\SwipeMessageOperations.kt	618	False	private val methodGetMsgInfo by dexMethod {	"ItemDataTag", "getCurrentMsg2 err" | pkg:com.tencent.mm.ui.chatting.viewitems
+features\items\contacts\AutoAcceptFriendRequests.kt	111	True	private val methodVerifyAccept by dexMethod(allowFailure = true) {	
+                "This NetSceneVerifyUser init MUST use opcode == MM_VERIFYUSER_VERIFYOK"
+             | "This NetSceneVerifyUser init MUST use opcode == MM_VERIFYUSER_VERIFYOK" | pkg:com.tencent.mm.pluginsdk.model
+features\items\contacts\AutoAcceptFriendRequests.kt	121	True	private val ctorVerifyUserAccept by dexConstructor {	"This NetSceneVerifyUser init MUST use opcode == MM_VERIFYUSER_VERIFYOK" | 
+                "MicroMsg.VerifyUserUtil",
+                "verify ok clicked"
+             | pkg:com.tencent.mm.pluginsdk.model
+features\items\contacts\AutoAcceptFriendRequests.kt	130	True	private val methodVerifyOkClick by dexMethod(allowFailure = true) {	
+                "MicroMsg.VerifyUserUtil",
+                "verify ok clicked"
+             | 
+                    "This NetSceneVerifyUser init MUST use opcode == MM_VERIFYUSER_VERIFYOK"
+                
+features\items\contacts\AutoAddNearbyFriends.kt	18	False	private val methodCreateMenu by dexMethod {	"NearbyPersonUIC", "showLiveBottomSheet create menu." | "com.tencent.mm.plugin.nearby.ui.NearbySayHiListUI"
+features\items\contacts\AutoAddNearbyFriends.kt	24	False	private val methodMenuOnClick by dexMethod {	"com.tencent.mm.plugin.nearby.ui.NearbySayHiListUI"
+features\items\contacts\CustomLocalFriendAvatars.kt	100	True	private val methodMvvmLoadAvatar1 by dexMethod(allowFailure = true) {	"MicroMsg.AvatarGetContactServiceHelper", "put stack into pool: "
+features\items\contacts\CustomLocalFriendAvatars.kt	114	True	private val methodMvvmLoadAvatar2 by dexMethod(allowFailure = true) {	"MicroMsg.AvatarGetContactServiceHelper", "put stack into pool: " | "imageView"
+features\items\contacts\CustomLocalFriendAvatars.kt	130	False	private val classAvatarDrawable by dexClass(allowMultiple = true) {	"MicroMsg.AvatarDrawable", "imageView is null"
+features\items\contacts\CustomLocalFriendAvatars.kt	149	True	private val methodFeatureAvatarSimple1 by dexMethod(allowFailure = true) {	(no strings)
+features\items\contacts\CustomLocalFriendAvatars.kt	167	True	private val methodPluginsdkLoadAvatar by dexMethod(allowFailure = true) {	"MicroMsg.AvatarDrawable" | pkg:com.tencent.mm.pluginsdk.ui
+features\items\contacts\CustomLocalFriendAvatars.kt	179	True	private val methodHdGallerySetUsername by dexMethod(allowFailure = true) {	"MicroMsg.BitmapUtil", "getRoundedCornerBitmap in bitmap is null" | pkg:com.tencent.mm.sdk.platformtools
+features\items\contacts\CustomLocalFriendAvatars.kt	188	True	private val methodRoundBitmap by dexMethod(allowFailure = true) {	"MicroMsg.BitmapUtil", "getRoundedCornerBitmap in bitmap is null" | "MicroMsg.AvatarDrawable", "imageView is null" | pkg:com.tencent.mm.sdk.platformtools | pkg:com.tencent.mm.pluginsdk.ui
+features\items\contacts\CustomLocalFriendAvatars.kt	201	True	private val methodConversationAvatar by dexMethod(allowFailure = true) {	"MicroMsg.AvatarDrawable", "imageView is null" | pkg:com.tencent.mm.pluginsdk.ui
+features\items\contacts\HideContacts.kt	640	True	//    private val methodMainAdapterPerformSearch by dexMethod()	"sql is null ", "DB IS CLOSED ! {%s}"
+features\items\contacts\HideContacts.kt	646	True	internal val methodSqliteWrapperRawQuery by dexMethod(allowFailure = true) {	"sql is null ", "DB IS CLOSED ! {%s}" | "snapshotList"
+features\items\contacts\HideContacts.kt	658	False	internal val methodAddressMvvmListPreprocessList by dexMethod {	"snapshotList"
+features\items\contacts\HideContacts.kt	677	True	internal val methodAtSomeoneMvvmListPreprocessList by dexMethod(allowFailure = true) {	"snapshotList"
+features\items\contacts\HideContacts.kt	691	True	internal val methodSeeRoomMemberSetMemberList by dexMethod(allowFailure = true) {	"MicroMsg.SeeRoomMemberUI"
+features\items\contacts\HideContacts.kt	709	True	internal val methodSelectMemberUiGetMemberList by dexMethod(allowFailure = true) {	(no strings)
+features\items\contacts\HideContacts.kt	726	True	internal val methodFavoriteAdapterSetDataList by dexMethod(allowFailure = true) {	"MicroMsg.FavoriteAdapter"
+features\items\contacts\HideContacts.kt	746	True	internal val methodFinderLikeDrawerRefresh by dexMethod(allowFailure = true) {	
+                "Finder.DrawerPresenter",
+                "[refreshData] Cost=",
+                "com/tencent/mm/plugin/finder/view/builder/FinderLikeDrawerBuilder"
+            
+features\items\contacts\HideContacts.kt	767	True	internal val methodFinderLikeDrawerLoadMore by dexMethod(allowFailure = true) {	"Finder.DrawerPresenter", "[loadMoreData] empty!"
+features\items\contacts\HideContacts.kt	785	True	internal val methodFtsSearchChatroomMemberTask by dexMethod(allowFailure = true) {	"SearchChatroomMemberTask"
+features\items\contacts\HideContacts.kt	804	True	internal val methodFtsSearchCommonChatroomUserTask by dexMethod(allowFailure = true) {	"SearchCommonChatroomUserTask"
+features\items\contacts\HideContacts.kt	824	True	internal val methodNormalContactCount by dexMethod(allowFailure = true) {	
+                "MicroMsg.ContactStorage",
+                "getNormalContactCount, sql:%s, result:%d, includeBlack:%s, time:%d"
+            
+features\items\contacts\HideContacts.kt	841	True	internal val methodPatMsgInsert by dexMethod(allowFailure = true) {	"MicroMsg.PatMsgExtension", "insert pat msg %d %s %s" | "snsInfoToSnsStruct", "com.tencent.mm.plugin.sns.data.SnsUtil", "mSnsInfo is null, why?"
+features\items\contacts\HideContacts.kt	853	False	internal val methodSnsInfoToSnsStruct by dexMethod {	"snsInfoToSnsStruct", "com.tencent.mm.plugin.sns.data.SnsUtil", "mSnsInfo is null, why?"
+features\items\contacts\HideContacts.kt	878	False	internal val methodSnsSyncUpdateRedDotCache by dexMethod {	"updateSyncDataCache", "com.tencent.mm.plugin.sns.model.NetSceneSnsSync" | "MicroMsg.VoIPMP.CoreV2", "launchInComingCardAsync: "
+features\items\contacts\HideContacts.kt	888	False	internal val methodVoipMpLaunchIncomingCard by dexMethod {	"MicroMsg.VoIPMP.CoreV2", "launchInComingCardAsync: " | "MicroMsg.VoIPMP.Launcher", "closeReceiverBanner"
+features\items\contacts\HideContacts.kt	900	True	internal val methodVoipMpLaunchBanner by dexMethod {	"MicroMsg.VoIPMP.Launcher", "closeReceiverBanner" | "MicroMsg.VoIPMP.CoreV2", "rejectByShortCut"
+features\items\contacts\HideContacts.kt	911	True	internal val methodVoipMpReject by dexMethod(allowFailure = true) {	"MicroMsg.VoIPMP.CoreV2", "rejectByShortCut" | "MicroMsg.VoIPMPRingtoneController", "startRing(
+features\items\contacts\HideContacts.kt	924	False	internal val methodVoipMpStartRing by dexMethod {	"MicroMsg.VoIPMPRingtoneController", "startRing( | "MicroMsg.VoIPMPVoIPNotificationHelper", "startFGS isBindVoIPForegroundService "
+features\items\contacts\HideContacts.kt	931	False	internal val methodVoipMpStartFgs by dexMethod {	"MicroMsg.VoIPMPVoIPNotificationHelper", "startFGS isBindVoIPForegroundService " | "insertMsg(
+features\items\contacts\HideContacts.kt	938	True	internal val methodVoipMpInsertMsg by dexMethod {	"insertMsg( | 
+                "MicroMsg.MT.MultiTalkManager",
+                "onInviteMultiTalk All Var Value:\n isMute: %b isHandsFree: %b isCameraFace: %b multiTalkStatus: %s groupIsNull: %b"
+            
+features\items\contacts\HideContacts.kt	949	True	internal val methodMultiTalkOnInvite by dexMethod(allowFailure = true) {	
+                "MicroMsg.MT.MultiTalkManager",
+                "onInviteMultiTalk All Var Value:\n isMute: %b isHandsFree: %b isCameraFace: %b multiTalkStatus: %s groupIsNull: %b"
+            
+features\items\contacts\HideContacts.kt	969	True	internal val methodExitMultiTalk by dexMethod(allowFailure = true) {	"exitCurrentMultiTalk: isReject %b isMissCall %b isPhoneCall %b isNetworkError %b" | ".ui.voip.VoipFloatView"
+features\items\contacts\HideContacts.kt	978	True	internal val methodVoipShowFloatingCard by dexMethod {	".ui.voip.VoipFloatView"
+features\items\contacts\HideContacts.kt	994	True	internal val methodVoipShowFinishCard by dexMethod(allowFailure = true) {	"showFinishCard", "(Landroid/content/Context;Ljava/lang/String; | "MicroMsg.VoipIncomingCallManager", "acceptIncomingCal, roomInfo:" | "MicroMsg.VoipIncomingCallManager", "startAcceptVoIP, roomInfo:" | pkg:com.tencent.mm.plugin.voip
+features\items\contacts\HideContacts.kt	1000	False	internal val methodVoipAcceptIncomingCall by dexMethod {	"MicroMsg.VoipIncomingCallManager", "acceptIncomingCal, roomInfo:" | "MicroMsg.VoipIncomingCallManager", "startAcceptVoIP, roomInfo:" | "MicroMsg.Voip.VoipServiceEx", "Failed to setInviteContent during calling, status =" | pkg:com.tencent.mm.plugin.voip
+features\items\contacts\HideContacts.kt	1006	False	internal val methodVoipStartAcceptVoip by dexMethod {	"MicroMsg.VoipIncomingCallManager", "startAcceptVoIP, roomInfo:" | "MicroMsg.Voip.VoipServiceEx", "Failed to setInviteContent during calling, status =" | "MicroMsg.Voip.VoipServiceEx", "Failed to reject with calling, status =" | pkg:com.tencent.mm.plugin.voip
+features\items\contacts\HideContacts.kt	1012	False	internal val methodVoipServiceExSetInviteContent by dexMethod {	"MicroMsg.Voip.VoipServiceEx", "Failed to setInviteContent during calling, status =" | "MicroMsg.Voip.VoipServiceEx", "Failed to reject with calling, status =" | "MicroMsg.VoIPBubbleHelper", "handlerBubbleMsg: parse bubble info error"
+features\items\contacts\HideContacts.kt	1017	False	internal val methodVoipServiceExReject by dexMethod {	"MicroMsg.Voip.VoipServiceEx", "Failed to reject with calling, status =" | "MicroMsg.VoIPBubbleHelper", "handlerBubbleMsg: parse bubble info error"
+features\items\contacts\HideContacts.kt	1024	True	internal val methodVoipBubbleHandle by dexMethod {	"MicroMsg.VoIPBubbleHelper", "handlerBubbleMsg: parse bubble info error"
+features\items\contacts\HideContacts.kt	1039	True	internal val methodVoipLegacyInsertMsg by dexMethod(allowFailure = true) {	"MicroMsg.VoipPluginManager", "weixin://voip/callagain/?username="
+features\items\contacts\HideContacts.kt	1049	False	//    private val classVoipService by dexClass()	(no strings)
+features\items\contacts\HideContacts.kt	1050	False	//    private val classVoipManager by dexClass()	(no strings)
+features\items\contacts\HideContacts.kt	1051	False	//    private val classIncomingVoipInvite by dexClass()	(no strings)
+features\items\contacts\HideContacts.kt	1052	False	//    private val classIncomingVoipILinkInvite by dexClass()	(no strings)
+features\items\contacts\HideContacts.kt	1053	False	//    private val classMultiTalkInvite by dexClass()	(no strings)
+features\items\contacts\HideContacts.kt	1054	False	//    private val classVoipFloatCard by dexClass()	(no strings)
+features\items\contacts\HideContacts.kt	1055	False	//    private val classRecentForwardInfoHelperV3 by dexClass()	(no strings)
+features\items\contacts\HideContacts.kt	1056	False	//    private val classContactRecommendHelperV3 by dexClass()	(no strings)
+features\items\contacts\RoundAvatars.kt	32	False	private val methodLoadAvatar by dexMethod {	"MicroMsg.AvatarDrawable" | "workerScope", "username"
+features\items\contacts\RoundAvatars.kt	43	False	private val ctorAvatarCreate by dexConstructor {	"workerScope", "username"
+features\items\contacts\RoundAvatars.kt	48	False	private val methodAvatarModify by dexMethod()	(no strings)
+features\items\contacts\SplitGroupCall.kt	76	True	private val classSubCoreMultiTalk by dexClass(allowFailure = true) {	"MicroMsg.SubCoreMultiTalk", "add , is running , forbid add" | "exitCurrentMultiTalk: isReject %b isMissCall %b isPhoneCall %b isNetworkError %b"
+features\items\contacts\SplitGroupCall.kt	83	True	private val methodExitMultiTalk by dexMethod(allowFailure = true) {	"exitCurrentMultiTalk: isReject %b isMissCall %b isPhoneCall %b isNetworkError %b" | "steve: initsession : mIsInitedEngine :%b mIsInitingEngine %b mCurrentStatus %d mIsJoiningRoom %b"
+features\items\contacts\SplitGroupCall.kt	92	True	private val classILinkService by dexClass(allowFailure = true) {	"steve: initsession : mIsInitedEngine :%b mIsInitingEngine %b mCurrentStatus %d mIsJoiningRoom %b" | "ILinkMember{memberId=" | "enter inviteSync. %s, %s, %d, %b"
+features\items\contacts\SplitGroupCall.kt	99	True	private val classILinkMember by dexClass(allowFailure = true) {	"ILinkMember{memberId=" | "enter inviteSync. %s, %s, %d, %b"
+features\items\contacts\SplitGroupCall.kt	106	True	private val classInviteTask by dexClass(allowFailure = true) {	"enter inviteSync. %s, %s, %d, %b"
+features\items\contacts\SplitGroupCall.kt	113	True	private val methodGetMultiTalkManager by dexMethod(allowFailure = true) {	"onChangeMultiTalkStatus is %s"
+features\items\contacts\SplitGroupCall.kt	122	True	private val methodSetStatus by dexMethod(allowFailure = true) {	"onChangeMultiTalkStatus is %s" | "setCurrentMTSDKMode groupid:%s, mode:%d"
+features\items\contacts\SplitGroupCall.kt	131	True	private val methodSetMtSdkMode by dexMethod(allowFailure = true) {	"setCurrentMTSDKMode groupid:%s, mode:%d" | "set name=%s, uin=%d"
+features\items\contacts\SplitGroupCall.kt	140	True	private val methodSetName by dexMethod(allowFailure = true) {	"set name=%s, uin=%d"
+features\items\contacts\SplitGroupCall.kt	149	True	private val methodPostTask by dexMethod(allowFailure = true) {	(no strings)
+features\items\contacts\SplitGroupCall.kt	158	False	private val ctorInviteTask by dexConstructor(throwOnFailure = false) {	"Hangup ret:"
+features\items\contacts\SplitGroupCall.kt	171	True	private val ctorHangupTask by dexConstructor(throwOnFailure = false) {	"Hangup ret:"
+features\items\contacts\SplitGroupCall.kt	182	True	private val fieldILinkInstance by dexField(allowFailure = true) {	(no strings)
+features\items\contacts\SplitGroupCall.kt	196	True	private val fieldRoomId by dexField()	"enterTalkRoom %s scene %d"
+features\items\contacts\SplitGroupCall.kt	199	True	private val methodEnterTalkRoom by dexMethod(allowFailure = true) {	"enterTalkRoom %s scene %d" | "exitTalkRoom", "exitTalkRoom: has exited"
+features\items\contacts\SplitGroupCall.kt	210	True	private val methodExitTalkRoom by dexMethod(allowFailure = true) {	"exitTalkRoom", "exitTalkRoom: has exited"
+features\items\contacts\SplitGroupCall.kt	220	True	private val methodGetTalkRoomServer by dexMethod(allowFailure = true) {	declaredClassOf:method
+features\items\contacts\SplitGroupCall.kt	229	True	private val fieldCurrentTalkRoom by dexField(allowFailure = true) {	"start audio device failed" | declaredClassOf:method
+features\items\contacts\hidecontacts\HideContactsNotifications.kt	79	False	private val methodDealNotify by dexMethod {	"jacks dealNotify, talker:%s, msgtype:%d, tipsFlag:%d, isRevokeMesasge:%B content:%s" | pkg:com.tencent.mm.booter.notification
+features\items\contacts\hidecontacts\HideContactsNotifications.kt	114	True	private val methodNotifyForLightPush by dexMethod(allowFailure = true) {	"notifyForLightPush push:isShake: %B, isSound: %B ctrlFlag:%s" | pkg:com.tencent.mm.booter.notification
+features\items\debug\CopyWeChatDebugInfo.kt	54	False	private val methodOnClick by dexMethod {	"com/tencent/mm/plugin/setting/ui/setting/SettingsAboutMMHeaderPreference$1", $$"android/view/View$OnClickListener", "onClick" | pkg:com.tencent.mm.plugin.setting.ui.setting
+features\items\debug\LaunchInternalUrls.kt	60	False	private val methodOpenUrl by dexMethod {	"MicroMsg.MMURIJumpHandler", "openSpecificUI, context is null" | pkg:com.tencent.mm.app.plugin
+features\items\miniapps\ErudaConsole.kt	32	False	private val xwebOnPageFinished by dexMethod {	
+                    "MicroMsg.AppBrandWebView",
+                    "onReceivedHttpError, WebResourceRequest url = %s, ErrWebResourceResponse mimeType = %s, status = %d"
+                 | pkg:com.tencent.mm.plugin.appbrand.page
+features\items\miniapps\ErudaConsole.kt	48	False	private val androidOnPageFinished by dexMethod {	pkg:com.tencent.mm.plugin.appbrand.page
+features\items\miniapps\RemoveEmbeddedAds.kt	16	False	private val ctorNetSceneJSOperateWxData by dexConstructor {	"MicroMsg.NetSceneJSOperateWxData", "doScene hash=%d, funcid=%d" | "MicroMsg.BaseTransferRequest"
+features\items\miniapps\RemoveEmbeddedAds.kt	23	False	private val methodBaseTransferRequestOnLoad by dexMethod {	"MicroMsg.BaseTransferRequest"
+features\items\miniapps\RemoveMenuLimits.kt	36	False	private val methodGetMenuItemVisibility1 by dexMethod {	pkg:com.tencent.mm.plugin.appbrand.menu
+features\items\miniapps\RemoveMenuLimits.kt	54	False	private val methodGetMenuItemVisibility2 by dexMethod {	pkg:com.tencent.mm.plugin.appbrand.menu
+features\items\miniapps\RemoveSplashAds.kt	14	False	private val methodIsAdContact by dexMethod {	"MicroMsg.AppBrandAdUtils[AppBrandSplashAd]", "isAdContact, appId:%s, canShowAd:%s" | 
+                "MicroMsg.AppBrand.JsApiAdOperateWXData[AppBrandSplashAd]", "cgi callback, callbackId:%s, service not running or preloaded"
+             | "MicroMsg.AppBrandAdUtils[AppBrandSplashAd]", "checkCanShowAd, show ad (splash ad debug mode open | pkg:com.tencent.mm.plugin.appbrand.jsapi.auth | pkg:com.tencent.mm.plugin.appbrand
+features\items\miniapps\RemoveSplashAds.kt	19	False	private val methodAdDataCallback by dexMethod {	
+                "MicroMsg.AppBrand.JsApiAdOperateWXData[AppBrandSplashAd]", "cgi callback, callbackId:%s, service not running or preloaded"
+             | "MicroMsg.AppBrandAdUtils[AppBrandSplashAd]", "checkCanShowAd, show ad (splash ad debug mode open | pkg:com.tencent.mm.plugin.appbrand.jsapi.auth | pkg:com.tencent.mm.plugin.appbrand
+features\items\miniapps\RemoveSplashAds.kt	27	False	private val methodCheckCanShowAd by dexMethod {	"MicroMsg.AppBrandAdUtils[AppBrandSplashAd]", "checkCanShowAd, show ad (splash ad debug mode open | pkg:com.tencent.mm.plugin.appbrand
+features\items\miniapps\SkipSplash.kt	12	False	private val methodShowSplash by dexMethod {	
+                "public:prepare",
+                "Loading椤靛睍绀?,
+                "MicroMsg.AppBrandRuntime",
+                "showSplash[AppBrandSplashAd], appId:%s, splash:%s"
+             | pkg:com.tencent.mm.plugin.appbrand
+features\items\miniapps\SpoofHostVersion.kt	17	False	private val ctorCgiLaunchWxaAppFunc1122 by dexConstructor {	
+                "MicroMsg.AppBrand.CgiLaunchWxaApp|func:1122",
+                "<init> cgiHash[%d], username[%s] appId[%s] sync[%b] sessionId[%s] instanceId[%s] libVersion[%d], source:%s, launchMode:%d, migrate:%b, fallback:%b"
+            
+features\items\moments\AlwaysShowInteractionEntry.kt	44	False	private val methodShowNotifyBar by dexMethod {	
+                "invokeSuspend",
+                $$"com.tencent.mm.plugin.sns.ui.improve.component.header.ImproveHeaderUIC$onNotifyChange$1$1"
+             | 
+                "invokeSuspend",
+                $$"com.tencent.mm.plugin.sns.ui.improve.component.header.ImproveHeaderUIC$onNotifyChange$1$4"
+            
+features\items\moments\AlwaysShowInteractionEntry.kt	54	False	private val methodHideNotifyBar by dexMethod {	
+                "invokeSuspend",
+                $$"com.tencent.mm.plugin.sns.ui.improve.component.header.ImproveHeaderUIC$onNotifyChange$1$4"
+             | $$"access$getMsgNotifyLayout", HEADER_UIC | $$"access$getMsgNotifyContent", HEADER_UIC
+features\items\moments\AlwaysShowInteractionEntry.kt	63	False	private val methodGetNotifyLayout by dexMethod {	$$"access$getMsgNotifyLayout", HEADER_UIC | $$"access$getMsgNotifyContent", HEADER_UIC | $$"access$getMsgNotifyImg", HEADER_UIC
+features\items\moments\AlwaysShowInteractionEntry.kt	67	False	private val methodGetNotifyContent by dexMethod {	$$"access$getMsgNotifyContent", HEADER_UIC | $$"access$getMsgNotifyImg", HEADER_UIC | "gotoNotifyMsgUI", HEADER_UIC
+features\items\moments\AlwaysShowInteractionEntry.kt	71	False	private val methodGetNotifyImg by dexMethod {	$$"access$getMsgNotifyImg", HEADER_UIC | "gotoNotifyMsgUI", HEADER_UIC
+features\items\moments\AlwaysShowInteractionEntry.kt	76	False	private val methodGotoNotifyMsgUI by dexMethod {	"gotoNotifyMsgUI", HEADER_UIC
+features\items\moments\AntiMomentCommentsDelete.kt	37	True	private val methodSnsSqliteDbExecSql1 by dexMethod {	"com.tencent.mm.plugin.sns.storage.SnsSqliteDB", "execSQL" | "deleteComment", "com.tencent.mm.plugin.sns.storage.SnsCommentStorage"
+features\items\moments\AntiMomentCommentsDelete.kt	43	True	private val methodSnsSqliteDbExecSql2 by dexMethod(allowFailure = true) {	"com.tencent.mm.plugin.sns.storage.SnsSqliteDB", "execSQL" | "deleteComment", "com.tencent.mm.plugin.sns.storage.SnsCommentStorage"
+features\items\moments\AntiMomentCommentsDelete.kt	51	False	private val methodSnsCommentStorageDeleteComment by dexMethod {	"deleteComment", "com.tencent.mm.plugin.sns.storage.SnsCommentStorage" | "deleteBySnsId", "com.tencent.mm.plugin.sns.storage.SnsCommentStorage" | "setCommentDelFlag", "com.tencent.mm.plugin.sns.storage.SnsComment"
+features\items\moments\AntiMomentCommentsDelete.kt	58	False	private val methodSnsCommentStorageDeleteCommentBySnsId by dexMethod {	"deleteBySnsId", "com.tencent.mm.plugin.sns.storage.SnsCommentStorage" | "setCommentDelFlag", "com.tencent.mm.plugin.sns.storage.SnsComment" | "convertFrom", "com.tencent.mm.plugin.sns.storage.SnsComment"
+features\items\moments\AntiMomentCommentsDelete.kt	65	False	private val methodSnsCommentSetCommentDelFlag by dexMethod {	"setCommentDelFlag", "com.tencent.mm.plugin.sns.storage.SnsComment" | "convertFrom", "com.tencent.mm.plugin.sns.storage.SnsComment"
+features\items\moments\AntiMomentCommentsDelete.kt	72	False	private val methodSnsCommentConvertFromCursor by dexMethod {	"convertFrom", "com.tencent.mm.plugin.sns.storage.SnsComment"
+features\items\moments\AutoRefresh.kt	63	False	private val methodGetSnsCore by dexMethod {	"getCore", "com.tencent.mm.plugin.sns.model.SnsCore" | "doFpList", $$"com.tencent.mm.plugin.sns.model.SnsLogic$SnsServer"
+features\items\moments\AutoRefresh.kt	69	False	private val methodDoFpList by dexMethod {	"doFpList", $$"com.tencent.mm.plugin.sns.model.SnsLogic$SnsServer"
+features\items\moments\CustomSourceApp.kt	41	False	private val methodCommitSnsInfo by dexMethod {	"MicroMsg.UploadPackHelper", "commit sns info ret %d, typeFlag %d sightMd5 %s" | "setSdkId", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | "setSdkAppName", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | pkg:com.tencent.mm.plugin.sns.model
+features\items\moments\CustomSourceApp.kt	47	False	private val methodSetSdkAppId by dexMethod {	"setSdkId", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | "setSdkAppName", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | pkg:com.tencent.mm.plugin.sns.model
+features\items\moments\CustomSourceApp.kt	54	False	private val methodSetSdkAppName by dexMethod {	"setSdkAppName", "com.tencent.mm.plugin.sns.model.UploadPackHelper" | "initView", "customizeInputView", "com.tencent.mm.plugin.sns.ui.SnsUploadUI" | pkg:com.tencent.mm.plugin.sns.model
+features\items\moments\CustomSourceApp.kt	61	False	private val methodSnsUploadUIInitView by dexMethod {	"initView", "customizeInputView", "com.tencent.mm.plugin.sns.ui.SnsUploadUI"
+features\items\moments\DisableVideosAutoPlay.kt	15	False	private val methodCheckAutoPlay by dexMethod {	
+                "checkAutoPlay",
+                "com.tencent.mm.plugin.sns.util.SnsAutoPlayUtil"
+             | 
+                "invoke",
+                $$"com.tencent.mm.plugin.sns.ui.improve.util.ImproveAutoPlayManager$autoPlay$2"
+            
+features\items\moments\DisableVideosAutoPlay.kt	24	False	private val methodImproveAutoPlayInvoke by dexMethod {	
+                "invoke",
+                $$"com.tencent.mm.plugin.sns.ui.improve.util.ImproveAutoPlayManager$autoPlay$2"
+            
+features\items\moments\DisplayDetails.kt	246	False	private val classImproveSnsInfo by dexClass {	"ImproveInfo(name=" | "MicroMsg.Improve.InteractionLayout"
+features\items\moments\DisplayDetails.kt	252	False	private val classImproveInteractionLayout by dexClass {	"MicroMsg.Improve.InteractionLayout"
+features\items\moments\DisplayDetails.kt	258	False	private val fieldInteractionSnsInfo by dexField {	(no strings)
+features\items\moments\DisplayDetails.kt	265	False	private val fieldSnsId by dexField {	(no strings)
+features\items\moments\DisplayDetails.kt	272	False	private val fieldUserName by dexField {	(no strings)
+features\items\moments\DisplayDetails.kt	279	True	private val fieldCreateTime by dexField {	(no strings)
+features\items\moments\DisplayDetails.kt	286	True	private val fieldType by dexField {	"getTimeString"
+features\items\moments\DisplayDetails.kt	293	True	private val methodGetTimeString by dexMethod(allowFailure = true) {	"getTimeString"
+features\items\moments\NoCloseVideoPlayerOnClick.kt	69	False	private val methodVideoOnTouchListenerOnTouch by dexMethod {	"com/tencent/mm/plugin/sns/ui/SnsOnlineVideoActivity$5", $$"android/view/View$OnTouchListener", "onTouch" | pkg:com.tencent.mm.plugin.sns.ui
+features\items\moments\NoCompressUploadedImages.kt	42	False	private val methodCreatePic by dexMethod {	
+                "MicroMsg.snsMediaStorage",
+                "SnsCompressResolutionFor2G",
+                "SnsCompressResolutionFor3G",
+                "SnsCompressResolutionFor4G",
+                "SnsCompressResolutionForWifi"
+            
+features\items\moments\NoCompressUploadedImages.kt	54	False	private val methodConvertImg2WxamWithoutZip by dexMethod {	
+                "MicroMsg.snsMediaStorage",
+                "convertImg2WxamWithoutZip origPath:%s OutOfMemoryError! rollback"
+            
+features\items\moments\OpenDetailsOnItemClick.kt	33	False	private val classImproveTimelineItem by dexClass {	"com.tencent.mm.plugin.sns.ui.improve.item.click.ImproveTimelineItemClick"
+features\items\moments\OpenDetailsOnItemClick.kt	46	False	private val methodItemClickListenerOnClick by dexMethod {	$$"com/tencent/mm/view/recyclerview/WxRecyclerAdapter$bindViewListener$2"
+features\items\moments\OpenDetailsOnItemClick.kt	56	False	private val methodGetLocalIdString by dexMethod {	
+                "getLocalIDString",
+                "com.tencent.mm.plugin.sns.ui.improve.model.ImproveSnsInfo"
+            
+features\items\notifications\CustomConversationNotifications.kt	97	False	//    private val methodDealNotify by dexMethod {	"jacks dealNotify, talker:%s, msgtype:%d, tipsFlag:%d, isRevokeMesasge:%B content:%s" | pkg:com.tencent.mm.booter.notification
+features\items\notifications\NotificationsEvolved.kt	58	False	private val methodDealNotify by dexMethod {	"jacks dealNotify, talker:%s, msgtype:%d, tipsFlag:%d, isRevokeMesasge:%B content:%s" | pkg:com.tencent.mm.booter.notification
+features\items\payment\AutoOpenRedPackets.kt	39	False	private val classReceiveLuckyMoney by dexClass {	"MicroMsg.NetSceneReceiveLuckyMoney" | "MicroMsg.NetSceneOpenLuckyMoney"
+features\items\payment\AutoOpenRedPackets.kt	49	False	private val classOpenLuckyMoney by dexClass {	"MicroMsg.NetSceneOpenLuckyMoney"
+features\items\payment\AutoOpenRedPackets.kt	59	False	private val methodReceiveOnGYNetEnd by dexMethod {	(no strings)
+features\items\payment\AutoOpenRedPackets.kt	66	False	private val methodOpenOnGYNetEnd by dexMethod {	(no strings)
+features\items\payment\DisplayRedPacketDetails.kt	28	False	private val methodOnBindListView by dexMethod {	
+                "MicroMsg.LuckyMoneyDetailUI",
+                "try get user contact: %s"
+             | 
+                "MicroMsg.NetSceneOpenLuckyMoney",
+                "/cgi-bin/mmpay-bin/openwxhb"
+            
+features\items\payment\DisplayRedPacketDetails.kt	37	False	private val classNetSceneOpenLuckyMoney by dexClass {	
+                "MicroMsg.NetSceneOpenLuckyMoney",
+                "/cgi-bin/mmpay-bin/openwxhb"
+             | 
+                "MicroMsg.NetSceneLuckyMoneyDetail",
+                "/cgi-bin/mmpay-bin/qrydetailwxhb"
+            
+features\items\payment\DisplayRedPacketDetails.kt	46	False	private val classNetSceneLuckyMoneyDetail by dexClass {	
+                "MicroMsg.NetSceneLuckyMoneyDetail",
+                "/cgi-bin/mmpay-bin/qrydetailwxhb"
+            
+features\items\payment\ModifyWalletBalanceDisplay.kt	28	False	private val methodWcPayMoneyLoadingViewSetMoneyCore by dexMethod {	(no strings)
+features\items\payment\OpenHistoryRedPackets.kt	63	False	private val classReceiveLuckyMoney by dexClass {	"MicroMsg.NetSceneReceiveLuckyMoney" | "MicroMsg.NetSceneOpenLuckyMoney"
+features\items\payment\OpenHistoryRedPackets.kt	73	False	private val classOpenLuckyMoney by dexClass {	"MicroMsg.NetSceneOpenLuckyMoney"
+features\items\payment\OpenHistoryRedPackets.kt	83	False	private val methodReceiveOnGYNetEnd by dexMethod {	(no strings)
+features\items\payment\OpenHistoryRedPackets.kt	90	False	private val methodOpenOnGYNetEnd by dexMethod {	(no strings)
+features\items\profile\RemoveSignatureLimits.kt	61	False	private val methodTextWatcherAfterTextChanged by dexMethod {	pkg:${PackageNames.WECHAT}.plugin.setting.ui.setting
+features\items\profile\RemoveSignatureLimits.kt	76	False	private val methodConfirmButtonOnClickListenerOnClick by dexMethod {	".*[", "].*" | pkg:${PackageNames.WECHAT}.plugin.setting.ui.setting
+features\items\profile\UploadTransparentAvatars.kt	20	False	private val classMediaTailor by dexClass {	"Rect width or height contains zero. contentRect: "
+features\items\scripting_java\JavaScriptingHook.kt	70	False	private val methodPayMsg by dexMethod {	"[onRecv PayerMsg]锛宯ewMsg.msgType锛?s"
+features\items\system\CustomDpi.kt	38	False	private val methodGetDisplayMetrics by dexMethod {	"MicroMsg.MMDensityManager", "screenResolution_target_field"
+features\items\system\DisableLowAvailableStorageDetection.kt	19	False	private val methodSplashActivitySplashFinished by dexMethod {	"WxSplash.SplashActivity", "Call splashFinished." | "UIPageFragmentActivity", "LuckyMoneyNewPrepareUI", "RemittanceUI"
+features\items\system\DisableLowAvailableStorageDetection.kt	25	False	private val classStaticValuesHolder by dexClass {	"UIPageFragmentActivity", "LuckyMoneyNewPrepareUI", "RemittanceUI"
+features\items\system\DisableResumeWatchingToast.kt	15	False	private val methodShowRecoveryToast by dexMethod {	
+                "MicroMsg.RecoveryHelper",
+                "topActivity == null or isFinishing or isDestroyed",
+                "recoveryObj == null ",
+                "toast_button",
+                "view_exp",
+            
+features\items\system\DisableShareScreenshotToast.kt	11	False	private val methodDisplayToast by dexMethod {	"MicroMsg.ScreenShotShareService", "showShareTongue, shareTongue already showing, reset onClick & countDown" | pkg:com.tencent.mm.ui.feature.api.screenshot
+features\items\system\DisableWebViewSafetyWarnings.kt	10	False	private val methodGetIsInterceptEnabled by dexMethod {	
+                "MicroMsg.WebViewHighRiskAdH5Interceptor",
+                "isInterceptEnabled, expt="
+             | "http", "https" | declaredClassOf:method
+features\items\system\DisableWebViewSafetyWarnings.kt	18	False	private val methodGetIsUrlSafe by dexMethod {	"http", "https" | declaredClassOf:method
+features\items\system\EnableWebViewFeatures.kt	18	False	private val methodInitWebViewFeatures by dexMethod {	
+                "banRightBtn:%b, showFixToolsBtn:%b",
+                "MicroMsg.WebViewFtsQuickHelper"
+            
+features\items\system\FakeLocation.kt	33	False	private val methodListener by dexMethod {	"MicroMsg.SLocationListener" | "MicroMsg.SLocationListenerWgs84" | "MicroMsg.DefaultTencentLocationManager", "[mlocationListener]error:%d, reason:%s"
+features\items\system\FakeLocation.kt	39	False	private val methodListenerWgs84 by dexMethod {	"MicroMsg.SLocationListenerWgs84" | "MicroMsg.DefaultTencentLocationManager", "[mlocationListener]error:%d, reason:%s"
+features\items\system\FakeLocation.kt	45	False	private val methodDefaultManager by dexMethod {	"MicroMsg.DefaultTencentLocationManager", "[mlocationListener]error:%d, reason:%s"
+features\items\system\FeatureFlagManager.kt	96	False	private val classFeatureFlagBase by dexClass {	"Int" | "Int", "Float", "String", "Long", "" | ""
+features\items\system\FeatureFlagManager.kt	115	False	private val methodRepairerConfigApiGet by dexMethod {	"RepairerConfigThread", "ValueStrategy_" | "String", "Int", "Long", "Float", "key", "defaultValue"
+features\items\system\ForceTabletMode.kt	22	False	private val methodIsTablet by dexMethod {	"Lenovo TB-9707F", "eebbk" | "MicroMsg.UIUtils", "isRoyoleFoldableDevice!!!" | "loginAsOtherDeviceBtn"
+features\items\system\ForceTabletMode.kt	27	False	private val methodIsTablet2 by dexMethod {	"MicroMsg.UIUtils", "isRoyoleFoldableDevice!!!" | "loginAsOtherDeviceBtn" | "MicroMsg.CgiCheckLoginAsPad", "/cgi-bin/micromsg-bin/checkloginaspad"
+features\items\system\ForceTabletMode.kt	32	False	private val methodOtherDeviceLoginButtonIsVisible by dexMethod {	"loginAsOtherDeviceBtn" | "MicroMsg.CgiCheckLoginAsPad", "/cgi-bin/micromsg-bin/checkloginaspad"
+features\items\system\ForceTabletMode.kt	37	False	private val methodCgiCheckLoginAsPad by dexMethod {	"MicroMsg.CgiCheckLoginAsPad", "/cgi-bin/micromsg-bin/checkloginaspad"
+features\items\system\ModifySportsStepCount.kt	38	False	private val methodGetSteps by dexMethod {	"MicroMsg.Sport.DeviceStepManager", "get today step from %s todayStep %d" | "MicroMsg.Sport.DeviceStepManager", "update device Step time: %s stepCount: %s" | pkg:com.tencent.mm.plugin.sport.model
+features\items\system\ModifySportsStepCount.kt	44	False	private val methodUploadSteps by dexMethod {	"MicroMsg.Sport.DeviceStepManager", "update device Step time: %s stepCount: %s" | pkg:com.tencent.mm.plugin.sport.model
+features\items\system\NerfBackgroundProcessChecker.kt	15	False	private val methodPerformProcessCheck by dexMethod {	"MicroMsg.AbstractProcessChecker", "pass this check,because request is null! ????"
+features\items\system\PreventModuleDataDeletion.kt	15	False	private val methodNativeFileSystemEntryDelete by dexMethod {	"VFS.NativeFileSystem", "Base directory exists but is not a directory, delete and proceed.Base path: "
+features\items\system\PreventXposedDetection.kt	17	True	private val methodCheckStackTraceElements by dexMethod(allowFailure = true) {	
+                "de.robv.android.xposed.XposedBridge",
+                "com.zte.heartyservice.SCC.FrameworkBridge"
+             | pkg:com.tencent.mm.app
+features\items\system\QrCodeRecord.kt	256	False	private val methodQBarString by dexMethod {	"MicroMsg.QBarStringHandler", "key_offline_scan_show_tips"
+features\items\system\RemoveExternalAppSharingSignatureVerify.kt	11	False	private val methodSignCheck by dexMethod {	"checkAppSignature get local signature failed" | pkg:com.tencent.mm.pluginsdk.model.app
+features\items\system\RemoveQrCodeScanLimit.kt	17	False	private val methodQBarString by dexMethod {	"MicroMsg.QBarStringHandler", "key_offline_scan_show_tips"
+features\items\system\SpoofEnvironment.kt	39	False	private val methodIsVpnEnabled by dexMethod {	"MicroMsg.WalletSecurityUtilService" | "connectivity"
+features\items\system\UseLegacyWalletViewInMePage.kt	32	False	private val methodGetOrderAndCardEntranceInfo by dexMethod {	"MicroMsg.EcsOrderService", "getOrderAndCardEntranceInfo use finder logic" | "MicroMsg.MoreTabUI", "account has not already!", "onPreferenceTreeClick"
+features\items\system\UseLegacyWalletViewInMePage.kt	38	False	private val methodMoreTabUIHandlePrefOnClick by dexMethod {	"MicroMsg.MoreTabUI", "account has not already!", "onPreferenceTreeClick"
+features\items\voip\BlockVoipRingtone.kt	31	False	private val methodPlaySound by dexMethod {	"MicroMsg.BaseSceneSetting", "playSound Failed Throwable t = "
+features\items\voip\PipVoip.kt	368	False	private val methodBallAddVoipView by dexMethod {	
+                "MicroMsg.VoipFloatBallHelper",
+                "addVoipView, no ball, add delayed:%s",
+             | "removeVoipView, no ball, view:%s" | declaredClassOf:method
+features\items\voip\PipVoip.kt	379	False	private val methodBallRemoveVoipView by dexMethod {	"removeVoipView, no ball, view:%s" | "MicroMsg.VoIPMP.Launcher", "dismissSmallWindow: " | declaredClassOf:method
+features\items\voip\PipVoip.kt	390	False	private val classVoipMpService by dexClass {	"MicroMsg.VoIPMP.Launcher", "dismissSmallWindow: "
+features\items\voip\PipVoip.kt	396	False	private val fieldVoipMpServiceInstance by dexField {	(no strings)
+features\items\voip\PipVoip.kt	405	False	private val methodVoipMpLaunchPage by dexMethod {	"MicroMsg.VoIPMP.Launcher", "dismissSmallWindow: "
+features\items\voip\PipVoip.kt	414	False	private val methodVoipMpDismissSmallWindow by dexMethod {	"MicroMsg.VoIPMP.Launcher", "dismissSmallWindow: " | "voipmp.VoipmpCoreSdkService@Get"
+features\items\voip\PipVoip.kt	424	False	private val classVoipMpCore by dexClass {	"voipmp.VoipmpCoreSdkService@Get"
+features\items\voip\PipVoip.kt	430	False	private val fieldVoipMpCoreInstance by dexField {	(no strings)
+features\items\voip\PipVoip.kt	439	True	private val methodVoipMpSetAppCmd by dexMethod {	(no strings)
+features\items\voip\PipVoip.kt	454	True	private val methodVoipMpHangUp by dexMethod(allowFailure = true) {	"MicroMsg.VoIPMP.CoreV2", "rejectByShortCut"
+features\items\voip\PipVoip.kt	475	False	private val methodVoipMpMuteMic by dexMethod {	"MicroMsg.VoIPMPAudioCapturer", "muteMicrophone" | declaredClassOf:method
+features\items\voip\PipVoip.kt	483	False	private val fieldVoipMpMicMuted by dexField {	"MicroMsg.VoIPMPAudioCapturer", "muteMicrophone" | "MicroMsg.VoIPMPAudioCapturer", "release" | declaredClassOf:method
+features\items\voip\PipVoip.kt	493	False	private val classVoipMpAudioCapturer by dexClass {	"MicroMsg.VoIPMPAudioCapturer", "release" | declaredClassOf:method
+features\items\voip\PipVoip.kt	499	False	private val methodVoipMpAudioCapturer by dexMethod {	"MicroMsg.MMPcmRecorder", "switchMute mute:" | declaredClassOf:method
+features\items\voip\PipVoip.kt	508	False	private val methodVoipMpSwitchMute by dexMethod {	"MicroMsg.MMPcmRecorder", "switchMute mute:"
+features\items\voip\PipVoip.kt	516	False	private val fieldVoipMpRecorder by dexField {	"MicroMsg.Voip.NewVoipMgr", "hangupTalkingOrCancelInvite"
+features\items\voip\PipVoip.kt	525	False	private val classBaseVoipManager by dexClass {	"MicroMsg.Voip.NewVoipMgr", "hangupTalkingOrCancelInvite" | "MicroMsg.FlutterVoipMgr", "qipeng, enableMute."
+features\items\voip\PipVoip.kt	531	False	private val classFlutterVoipManager by dexClass {	"MicroMsg.FlutterVoipMgr", "qipeng, enableMute." | 
+                "MicroMsg.VoIP.VoIPAudioManager",
+                "requestAudioFocus: gain focus",
+                "requestAudioFocus: not gain focus",
+            
+features\items\voip\PipVoip.kt	537	False	private val classVoipAudioManager by dexClass {	
+                "MicroMsg.VoIP.VoIPAudioManager",
+                "requestAudioFocus: gain focus",
+                "requestAudioFocus: not gain focus",
+            
+features\items\voip\PipVoip.kt	548	False	private val classFlutterVoipPlugin by dexClass {	
+                "MicroMsg.FlutterVoipPlugin",
+                "minimize: activity=",
+                "voip is already minimized, ignore!",
+                "minimize, permission denied",
+            
+features\items\voip\PipVoip.kt	559	False	private val fieldVoipAudioManager by dexField {	"qipeng, enableMute.", "qipeng, disableMute."
+features\items\voip\PipVoip.kt	566	False	private val methodSetVoipMuted by dexMethod {	"qipeng, enableMute.", "qipeng, disableMute." | "hangupTalkingOrCancelInvite"
+features\items\voip\PipVoip.kt	575	False	private val methodVoipHangUp by dexMethod {	"hangupTalkingOrCancelInvite" | "qipeng, enableMute.", "qipeng, disableMute."
+features\items\voip\PipVoip.kt	584	False	private val fieldVoipMuted by dexField {	"qipeng, enableMute.", "qipeng, disableMute."
+features\items\voip\PipVoip.kt	596	False	private val fieldFlutterVoipActivity by dexField {	(no strings)
+features\items\voip\PipVoip.kt	603	False	private val fieldFlutterVoipManager by dexField {	"onAttachedToActivity: ", "init flutter voip mgr"
+features\items\voip\PipVoip.kt	610	False	private val methodFlutterVoipAttachedToActivity by dexMethod {	"onAttachedToActivity: ", "init flutter voip mgr" | "onReattachedToActivityForConfigChanges:"
+features\items\voip\PipVoip.kt	619	True	private val methodFlutterVoipReattachedToActivity by dexMethod {	"onReattachedToActivityForConfigChanges:"
+features\items\voip\PipVoip.kt	630	True	private val classMultiTalkViewModel by dexClass(allowFailure = true) {	
+                "MicroMsg.MT.MultiTalkUIViewModel",
+                "onCameraClick, cur state: ",
+                "onMicClick, cur state: ",
+            
+features\items\voip\PipVoip.kt	640	True	private val fieldMultiTalkViewModel by dexField(allowFailure = true) {	pkg:androidx.lifecycle
+features\items\voip\PipVoip.kt	647	False	private val classObservableState by dexClass {	pkg:androidx.lifecycle
+features\items\voip\PipVoip.kt	666	True	private val methodMultiTalkMinimize by dexMethod(allowFailure = true) {	"onMiniMultiTalk" | "onExitMultiTalk"
+features\items\voip\PipVoip.kt	675	True	private val methodMultiTalkExit by dexMethod(allowFailure = true) {	"onExitMultiTalk" | "onMicClick, cur state: "
+features\items\voip\PipVoip.kt	684	True	private val methodMultiTalkMic by dexMethod(allowFailure = true) {	"onMicClick, cur state: " | "MicroMsg.MT.MultiTalkUIViewModel", "onCameraClick, cur state: "
+features\items\voip\PipVoip.kt	693	True	private val methodMultiTalkCamera by dexMethod(allowFailure = true) {	"MicroMsg.MT.MultiTalkUIViewModel", "onCameraClick, cur state: " | "MicroMsg.MT.MultiTalkUIViewModel", "onMicClick, cur state: "
+features\items\voip\PipVoip.kt	699	True	private val fieldMultiTalkMicState by dexField(allowFailure = true) {	"MicroMsg.MT.MultiTalkUIViewModel", "onMicClick, cur state: " | "MicroMsg.MT.MultiTalkUIViewModel", "onCameraClick, cur state: "
+features\items\voip\PipVoip.kt	709	True	private val fieldMultiTalkCameraState by dexField(allowFailure = true) {	"MicroMsg.MT.MultiTalkUIViewModel", "onCameraClick, cur state: "
+features\items\voip\PipVoip.kt	719	False	private val methodObservableValue by dexMethod {	(no strings)
+features\items\voip\RemoveLimitsDuringCalls.kt	30	False	private val methodIsDuringCall by dexMethod {	(no strings)
+features\items\voip\RemoveLimitsDuringCalls.kt	45	False	private val methodIsMultiTalking by dexMethod {	"MicroMsg.DeviceOccupy", "isMultiTalking" | "MicroMsg.DeviceOccupy", "isCameraUsing", "" | declaredClassOf:method
+features\items\voip\RemoveLimitsDuringCalls.kt	53	False	//    private val methodIsMultiTalking2 by dexMethod()	"MicroMsg.DeviceOccupy", "isCameraUsing", "" | "MicroMsg.DeviceOccupy", "isCameraUsing", "isLiving %b isAnchor %b isAudioMicing %s isVideoMicing %s" | "MicroMsg.DeviceOccupy", "isVoiceUsing" | declaredClassOf:method
+features\items\voip\RemoveLimitsDuringCalls.kt	54	False	private val methodIsCameraUsing by dexMethod {	"MicroMsg.DeviceOccupy", "isCameraUsing", "" | "MicroMsg.DeviceOccupy", "isCameraUsing", "isLiving %b isAnchor %b isAudioMicing %s isVideoMicing %s" | "MicroMsg.DeviceOccupy", "isVoiceUsing" | declaredClassOf:method
+features\items\voip\RemoveLimitsDuringCalls.kt	60	False	private val methodIsCameraUsing2 by dexMethod {	"MicroMsg.DeviceOccupy", "isCameraUsing", "isLiving %b isAnchor %b isAudioMicing %s isVideoMicing %s" | "MicroMsg.DeviceOccupy", "isVoiceUsing" | declaredClassOf:method
+features\items\voip\RemoveLimitsDuringCalls.kt	66	False	private val methodIsVoiceUsing by dexMethod {	"MicroMsg.DeviceOccupy", "isVoiceUsing" | declaredClassOf:method
+features\items\voip\RemoveLimitsDuringCalls.kt	73	False	private val methodIsVoiceUsing2 by dexMethod {	"MicroMsg.DeviceOccupy", "isVoiceUsing" | "MicroMsg.DeviceOccupy", "checkAppBrandVoiceUsingAndShowToast isVoiceUsing:%b, isCameraUsing:%b" | declaredClassOf:method
+features\items\voip\RemoveLimitsDuringCalls.kt	80	False	private val methodCheckAppBrandVoiceUsing by dexMethod {	"MicroMsg.DeviceOccupy", "checkAppBrandVoiceUsingAndShowToast isVoiceUsing:%b, isCameraUsing:%b" | declaredClassOf:method
+features\items\voip\RemoveLimitsDuringCalls.kt	87	False	private val methodCheckAppBrandVoiceUsing2 by dexMethod {	"MicroMsg.DeviceOccupy", "checkAppBrandVoiceUsingAndShowToast isVoiceUsing:%b, isCameraUsing:%b" | declaredClassOf:method
+features\items\voip\VirtualVoipVideo.kt	101	False	private val methodLaunchVoipPage by dexMethod {	"MicroMsg.VoIPMP.Launcher", "launch page " | "MicroMsg.ILinkVoIPCameraHelper", "old startCamera abandon"
+features\items\voip\VirtualVoipVideo.kt	107	False	private val methodStartCamera by dexMethod {	"MicroMsg.ILinkVoIPCameraHelper", "old startCamera abandon"

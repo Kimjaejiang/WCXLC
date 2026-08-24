@@ -111,8 +111,8 @@ object WeHomeScreenPopupMenuApi : ApiFeature(), IResolveDex {
             unhook = ImageView::class.reflekt().firstMethod {
                 name = "setImageResource"
             }.hookBeforeDirectly {
-                val fakeResId = args[0] as Int
-                val imageView = thisObject as ImageView
+                val fakeResId = args[0] as? Int ?: return@hookBeforeDirectly
+                val imageView = thisObject as? ImageView ?: return@hookBeforeDirectly
                 imageView.setImageDrawable(fakeResIdToResMap[fakeResId] ?: return@hookBeforeDirectly)
                 result = null
             }

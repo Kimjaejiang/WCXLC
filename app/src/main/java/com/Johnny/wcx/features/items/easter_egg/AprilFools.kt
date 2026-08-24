@@ -10,7 +10,6 @@ import android.view.View
 import android.view.animation.LinearInterpolator
 import android.widget.ImageView
 import android.widget.TextView
-import com.tencent.mm.ui.base.NoMeasuredTextView
 import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.reflekt.utils.makeAccessible
 import dev.ujhhgtg.reflekt.utils.toClass
@@ -59,17 +58,20 @@ object AprilFools : BaseFeature() {
                 applyRotation(thisObject as View)
             }
 
-        "com.tencent.mm.ui.widget.QImageView".toClass().reflekt()
-            .firstConstructor().hookAfter {
-                applyRotation(thisObject as View)
-            }
+        runCatching {
+            "com.tencent.mm.ui.widget.QImageView".toClass().reflekt()
+                .firstConstructor().hookAfter {
+                    applyRotation(thisObject as View)
+                }
+        }
 
         TextView::class.reflekt().firstMethod { name = "onDraw" }.hookBefore {
             val tv = thisObject as TextView
             applyRainbowEffect(tv, tv.text, tv.paint)
         }
 
-        NoMeasuredTextView::class.reflekt()
+        runCatching {
+        "com.tencent.mm.ui.base.NoMeasuredTextView".toClass().reflekt()
             .firstMethod { name = "onDraw" }.hookBefore {
                 val view = thisObject as View
 
@@ -84,6 +86,7 @@ object AprilFools : BaseFeature() {
                     noMeasuredTvPaintProp.get(view) as TextPaint
                 )
             }
+        }
     }
 
     private fun applyRotation(view: View) {

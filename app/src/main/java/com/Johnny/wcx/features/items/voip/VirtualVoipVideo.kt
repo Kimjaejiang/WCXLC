@@ -98,13 +98,13 @@ object VirtualVoipVideo : ClickableFeature(), IResolveDex {
 
     private val camera2HookBypass = ThreadLocal.withInitial { false }
 
-    private val methodLaunchVoipPage by dexMethod {
+    private val methodLaunchVoipPage by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.VoIPMP.Launcher", "launch page ")
         }
     }
 
-    private val methodStartCamera by dexMethod {
+    private val methodStartCamera by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.ILinkVoIPCameraHelper", "old startCamera abandon")
         }

@@ -158,7 +158,7 @@ class WeChatSettingsManager(
 
     private fun createSwitchHandlerProxy(switchHandlerClass: Class<*>, spec: SettingItemSpec): Any {
         val switchClassHandler = InvocationHandler { _, _, args ->
-            spec.onSwitchChanged?.invoke(args[0] as Boolean)
+            spec.onSwitchChanged?.invoke(args[0] as? Boolean ?: false)
         }
 
         return Proxy.newProxyInstance(switchHandlerClass.classLoader, arrayOf(switchHandlerClass), switchClassHandler)
@@ -229,11 +229,11 @@ class WeChatSettingsManager(
             contextGetStringUnhook = Context::class.reflekt()
                 .firstMethod { name = "getString"; parameters(Int::class) }
                 .hookBeforeDirectly {
-                    stringPool[args[0] as Int]?.let { result = it }
+                    stringPool[args[0] as? Int ?: 0]?.let { result = it }
                 }
 
             resourcesGetStringUnhook = methodResourceHelperGetStringById.hookBeforeDirectly {
-                stringPool[args[1] as Int]?.let { result = it }
+                stringPool[args[1] as? Int ?: 0]?.let { result = it }
             }
         }
     }

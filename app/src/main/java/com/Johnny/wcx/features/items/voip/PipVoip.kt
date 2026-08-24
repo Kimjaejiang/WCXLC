@@ -360,12 +360,12 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val voipMpCore: Any? get() = fieldVoipMpCoreInstance.field.get(null)
-    private val voipMpService: Any? get() = fieldVoipMpServiceInstance.field.get(null)
+    private val voipMpCore: Any? get() = runCatching { fieldVoipMpCoreInstance.field.get(null) }.getOrNull()
+    private val voipMpService: Any? get() = runCatching { fieldVoipMpServiceInstance.field.get(null) }.getOrNull()
 
     // ------------------------------------------------------------ 微信悬浮球（悬浮窗）
 
-    private val methodBallAddVoipView by dexMethod {
+    private val methodBallAddVoipView by dexMethod(allowFailure = true) {
         matcher {
             paramTypes("int", "boolean", View::class.java.name, "long", "boolean")
             returnType = "void"
@@ -376,7 +376,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodBallRemoveVoipView by dexMethod {
+    private val methodBallRemoveVoipView by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(methodBallAddVoipView.method.declaringClass)
             paramTypes(FrameLayout::class.java.name)
@@ -387,13 +387,13 @@ object PipVoip : SwitchFeature(), IResolveDex {
 
     // --------------------------------------------------------------- 新版 VoIPMP
 
-    private val classVoipMpService by dexClass {
+    private val classVoipMpService by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.VoIPMP.Launcher", "dismissSmallWindow: ")
         }
     }
 
-    private val fieldVoipMpServiceInstance by dexField {
+    private val fieldVoipMpServiceInstance by dexField(allowFailure = true) {
         matcher {
             declaredClass(classVoipMpService.clazz)
             type(classVoipMpService.clazz)
@@ -402,7 +402,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
     }
 
     /** `launchPage(context, needAnimation)`：把通话界面重新拉起来；8.0.77 签名变为 (Context, ZZ Z) */
-    private val methodVoipMpLaunchPage by dexMethod {
+    private val methodVoipMpLaunchPage by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classVoipMpService.clazz)
             paramTypes(Context::class.java.name, "boolean", "boolean", "boolean")
@@ -411,7 +411,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
     }
 
     /** `dismissSmallWindow()`：微信认为最小化界面该消失了 */
-    private val methodVoipMpDismissSmallWindow by dexMethod {
+    private val methodVoipMpDismissSmallWindow by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classVoipMpService.clazz)
             paramCount = 0
@@ -421,13 +421,13 @@ object PipVoip : SwitchFeature(), IResolveDex {
     }
 
     /** `voipmp.VoipmpCoreSdkService` 的 ZIDL 调用方 */
-    private val classVoipMpCore by dexClass {
+    private val classVoipMpCore by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings("voipmp.VoipmpCoreSdkService@Get")
         }
     }
 
-    private val fieldVoipMpCoreInstance by dexField {
+    private val fieldVoipMpCoreInstance by dexField(allowFailure = true) {
         matcher {
             declaredClass(classVoipMpCore.clazz)
             type(classVoipMpCore.clazz)
@@ -436,7 +436,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
     }
 
     /** `SetAppCmd(cmd, payload, length)` */
-    private val methodVoipMpSetAppCmd by dexMethod {
+    private val methodVoipMpSetAppCmd by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classVoipMpCore.clazz)
             paramTypes("int", ByteBuffer::class.java.name, "int")
@@ -472,7 +472,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
     }
 
     /** `VoIPMPAudioController.muteMicrophone()`，同时用来定位音频控制器类 */
-    private val methodVoipMpMuteMic by dexMethod {
+    private val methodVoipMpMuteMic by dexMethod(allowFailure = true) {
         matcher {
             paramCount = 0
             returnType = "boolean"
@@ -480,7 +480,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val fieldVoipMpMicMuted by dexField {
+    private val fieldVoipMpMicMuted by dexField(allowFailure = true) {
         matcher {
             declaredClass(methodVoipMpMuteMic.method.declaringClass)
             type = "boolean"
@@ -490,13 +490,13 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val classVoipMpAudioCapturer by dexClass {
+    private val classVoipMpAudioCapturer by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.VoIPMPAudioCapturer", "release")
         }
     }
 
-    private val methodVoipMpAudioCapturer by dexMethod {
+    private val methodVoipMpAudioCapturer by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(methodVoipMpMuteMic.method.declaringClass)
             paramCount = 0
@@ -505,7 +505,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
     }
 
     /** `MMPcmRecorder.switchMute(mute)` */
-    private val methodVoipMpSwitchMute by dexMethod {
+    private val methodVoipMpSwitchMute by dexMethod(allowFailure = true) {
         matcher {
             paramTypes("boolean")
             returnType = "void"
@@ -513,7 +513,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val fieldVoipMpRecorder by dexField {
+    private val fieldVoipMpRecorder by dexField(allowFailure = true) {
         matcher {
             declaredClass(classVoipMpAudioCapturer.clazz)
             type(methodVoipMpSwitchMute.method.declaringClass)
@@ -522,19 +522,19 @@ object PipVoip : SwitchFeature(), IResolveDex {
 
     // ---------------------------------------------------------- 旧版 FlutterVoip
 
-    private val classBaseVoipManager by dexClass {
+    private val classBaseVoipManager by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.Voip.NewVoipMgr", "hangupTalkingOrCancelInvite")
         }
     }
 
-    private val classFlutterVoipManager by dexClass {
+    private val classFlutterVoipManager by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.FlutterVoipMgr", "qipeng, enableMute.")
         }
     }
 
-    private val classVoipAudioManager by dexClass {
+    private val classVoipAudioManager by dexClass(allowFailure = true) {
         matcher {
             modifiers(Modifier.FINAL)
             usingEqStrings(
@@ -545,7 +545,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val classFlutterVoipPlugin by dexClass {
+    private val classFlutterVoipPlugin by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings(
                 "MicroMsg.FlutterVoipPlugin",
@@ -556,14 +556,14 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val fieldVoipAudioManager by dexField {
+    private val fieldVoipAudioManager by dexField(allowFailure = true) {
         matcher {
             declaredClass(classBaseVoipManager.clazz)
             type(classVoipAudioManager.clazz.interfaces.single())
         }
     }
 
-    private val methodSetVoipMuted by dexMethod {
+    private val methodSetVoipMuted by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipManager.clazz)
             paramTypes("boolean")
@@ -572,7 +572,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodVoipHangUp by dexMethod {
+    private val methodVoipHangUp by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classBaseVoipManager.clazz)
             paramTypes("int")
@@ -581,7 +581,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val fieldVoipMuted by dexField {
+    private val fieldVoipMuted by dexField(allowFailure = true) {
         matcher {
             declaredClass(classVoipAudioManager.clazz)
             type = "boolean"
@@ -593,21 +593,21 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val fieldFlutterVoipActivity by dexField {
+    private val fieldFlutterVoipActivity by dexField(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipPlugin.clazz)
             type(Activity::class.java)
         }
     }
 
-    private val fieldFlutterVoipManager by dexField {
+    private val fieldFlutterVoipManager by dexField(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipPlugin.clazz)
             type(classFlutterVoipManager.clazz)
         }
     }
 
-    private val methodFlutterVoipAttachedToActivity by dexMethod {
+    private val methodFlutterVoipAttachedToActivity by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipPlugin.clazz)
             paramCount = 1
@@ -616,7 +616,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodFlutterVoipReattachedToActivity by dexMethod {
+    private val methodFlutterVoipReattachedToActivity by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipPlugin.clazz)
             paramCount = 1
@@ -644,7 +644,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val classObservableState by dexClass {
+    private val classObservableState by dexClass(allowFailure = true) {
         searchPackages("androidx.lifecycle")
         matcher {
             modifiers(Modifier.PUBLIC or Modifier.ABSTRACT)
@@ -716,7 +716,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodObservableValue by dexMethod {
+    private val methodObservableValue by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classObservableState.clazz)
             paramCount = 0

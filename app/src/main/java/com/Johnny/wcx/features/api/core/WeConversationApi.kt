@@ -520,7 +520,9 @@ object WeConversationApi : ApiFeature(), IResolveDex {
 //    }
 
     /** ContactStorageLogic (`e2`), the class that owns the DND setters and the modContact builder. */
-    private val contactStorageLogic: Class<*> by lazy { methodSetDnd.method.declaringClass }
+    private val contactStorageLogic: Class<*> by lazy {
+        runCatching { methodSetDnd.method.declaringClass }.getOrNull() ?: Object::class.java
+    }
 
     /**
      * Toggle "消息免打扰" for [convId] and sync it to the server.

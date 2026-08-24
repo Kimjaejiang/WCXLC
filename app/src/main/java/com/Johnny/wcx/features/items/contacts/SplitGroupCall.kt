@@ -86,7 +86,9 @@ object SplitGroupCall : ClickableFeature(), IContactInfoProvider, IResolveDex {
         }
     }
 
-    private val multiTalkManagerClass by lazy { methodExitMultiTalk.method.declaringClass }
+    private val multiTalkManagerClass: Class<*> by lazy {
+        runCatching { methodExitMultiTalk.method.declaringClass }.getOrNull() ?: Object::class.java
+    }
 
     /** com.tencent.mm.plugin.multitalk.ilinkservice.i4 —— ILinkService (enum, 单例 INSTANCE). */
     private val classILinkService by dexClass(allowFailure = true) {
@@ -204,7 +206,9 @@ object SplitGroupCall : ClickableFeature(), IContactInfoProvider, IResolveDex {
         }
     }
 
-    private val talkRoomServerClass by lazy { methodEnterTalkRoom.method.declaringClass }
+    private val talkRoomServerClass: Class<*> by lazy {
+        runCatching { methodEnterTalkRoom.method.declaringClass }.getOrNull() ?: Object::class.java
+    }
 
     /** TalkRoomServer.exitTalkRoom() —— 终止当前「实时对讲机」. */
     private val methodExitTalkRoom by dexMethod(allowFailure = true) {

@@ -27,7 +27,7 @@ object RemoveLimitsDuringCalls : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodIsDuringCall by dexMethod {
+    private val methodIsDuringCall by dexMethod(allowFailure = true) {
         matcher {
             declaredClass {
                 modifiers(Modifier.ABSTRACT)
@@ -42,7 +42,7 @@ object RemoveLimitsDuringCalls : SwitchFeature(), IResolveDex {
             }
         }
     }
-    private val methodIsMultiTalking by dexMethod {
+    private val methodIsMultiTalking by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(methodIsDuringCall.method.declaringClass)
             usingEqStrings("MicroMsg.DeviceOccupy", "isMultiTalking")
@@ -51,40 +51,40 @@ object RemoveLimitsDuringCalls : SwitchFeature(), IResolveDex {
     }
 
     //    private val methodIsMultiTalking2 by dexMethod()
-    private val methodIsCameraUsing by dexMethod {
+    private val methodIsCameraUsing by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(methodIsDuringCall.method.declaringClass)
             usingEqStrings("MicroMsg.DeviceOccupy", "isCameraUsing", "")
         }
     }
-    private val methodIsCameraUsing2 by dexMethod {
+    private val methodIsCameraUsing2 by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(methodIsDuringCall.method.declaringClass)
             usingEqStrings("MicroMsg.DeviceOccupy", "isCameraUsing", "isLiving %b isAnchor %b isAudioMicing %s isVideoMicing %s")
         }
     }
-    private val methodIsVoiceUsing by dexMethod {
+    private val methodIsVoiceUsing by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(methodIsDuringCall.method.declaringClass)
             usingEqStrings("MicroMsg.DeviceOccupy", "isVoiceUsing")
             paramCount = 1
         }
     }
-    private val methodIsVoiceUsing2 by dexMethod {
+    private val methodIsVoiceUsing2 by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(methodIsDuringCall.method.declaringClass)
             usingEqStrings("MicroMsg.DeviceOccupy", "isVoiceUsing")
             paramCount = 2
         }
     }
-    private val methodCheckAppBrandVoiceUsing by dexMethod {
+    private val methodCheckAppBrandVoiceUsing by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(methodIsDuringCall.method.declaringClass)
             usingEqStrings("MicroMsg.DeviceOccupy", "checkAppBrandVoiceUsingAndShowToast isVoiceUsing:%b, isCameraUsing:%b")
             paramCount = 1
         }
     }
-    private val methodCheckAppBrandVoiceUsing2 by dexMethod {
+    private val methodCheckAppBrandVoiceUsing2 by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(methodIsDuringCall.method.declaringClass)
             usingEqStrings("MicroMsg.DeviceOccupy", "checkAppBrandVoiceUsingAndShowToast isVoiceUsing:%b, isCameraUsing:%b")

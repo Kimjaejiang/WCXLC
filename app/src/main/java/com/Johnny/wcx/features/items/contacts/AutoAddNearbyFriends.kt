@@ -15,13 +15,13 @@ import java.util.LinkedList
 @Feature(name = "自动添加附近的人", categories = ["联系人与群组"], description = "在附近的人菜单中添加菜单项, 可全自动向附近的人按模板发送消息 (没写完)")
 object AutoAddNearbyFriends : ClickableFeature(), IResolveDex {
 
-    private val methodCreateMenu by dexMethod {
+    private val methodCreateMenu by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("NearbyPersonUIC", "showLiveBottomSheet create menu.")
         }
     }
 
-    private val methodMenuOnClick by dexMethod {
+    private val methodMenuOnClick by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("com.tencent.mm.plugin.nearby.ui.NearbySayHiListUI")
             name = "onMMMenuItemSelected"
@@ -30,13 +30,14 @@ object AutoAddNearbyFriends : ClickableFeature(), IResolveDex {
 
     override fun onEnable() {
         methodCreateMenu.hookBefore {
-            args[0]!!.reflekt().firstMethod {
+            val target = args[0] ?: return@hookBefore
+            target.reflekt().firstMethod {
                 parameters(int, CharSequence::class)
             }.invoke(6, "自动加好友")
         }
 
         methodMenuOnClick.hookBefore {
-            val menuItem = args[0] as MenuItem
+            val menuItem = args[0] as? MenuItem ?: return@hookBefore
             val itemId = menuItem.itemId
             if (itemId != 6) return@hookBefore
 
@@ -47,7 +48,7 @@ object AutoAddNearbyFriends : ClickableFeature(), IResolveDex {
 
             val friendProtos = friends.map {
                 WeProto.decode<NearbyFriendProto>(
-                    it.reflekt().invokeMethod("toByteArray", superclass = true) as ByteArray
+                    it.reflekt().invokeMethod("toByteArray", superclass = true) as? ByteArray ?: return@hookBefore
                 )
             }
 
