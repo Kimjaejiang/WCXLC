@@ -9,7 +9,9 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -245,6 +247,7 @@ object ConversationAggregation : ClickableFeature(),
         hookSqliteWrapperQuery()
         hookConversationStorageParentQuery()
         hookConversationStorageUpdateUnread()
+        hookMentionTint()
 
         CustomLocalFriendAvatars.fallbackUsernameProvider = { folderId ->
             if (isFolderId(folderId) && !CustomLocalFriendAvatars.avatarMap.containsKey(folderId)) {
@@ -827,6 +830,39 @@ object ConversationAggregation : ClickableFeature(),
         }
     }
 
+    private val methodMvvmConversationAdapterGetView by dexMethod(allowFailure = true) {
+        matcher {
+            declaredClass {
+                usingEqStrings("MicroMsg.ConversationAdapter.MvvmConversationAdapter", "Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d")
+            }
+            name = "getView"
+        }
+    }
+
+    /** tint the "someone @ me" label green (WeChat native is orange) */
+    private fun hookMentionTint() {
+        if (methodMvvmConversationAdapterGetView.isPlaceholder) return
+        methodMvvmConversationAdapterGetView.hookAfter {
+            val root = result as? ViewGroup ?: return@hookAfter
+            tintMentionLabels(root)
+        }
+    }
+
+    private fun tintMentionLabels(root: ViewGroup) {
+        val queue = java.util.ArrayDeque<View>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val v = queue.removeFirst()
+            if (v is TextView) {
+                val text = v.text?.toString().orEmpty()
+                if (text.startsWith("\u6709\u4eba@")) v.setTextColor(MENTION_GREEN)
+            }
+            if (v is ViewGroup) {
+                for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
+            }
+        }
+    }
+
     private fun launchFolderContainer(source: Any?, folderId: String) {
         val context = source as? Context ?: return
         val intent = Intent().apply {
@@ -1217,7 +1253,8 @@ object ConversationAggregation : ClickableFeature(),
                 ${ContactTable.USERNAME}, ${ContactTable.NICKNAME}, ${ContactTable.TYPE}, ${ContactTable.VERIFY_FLAG}
             ) VALUES (?, ?, 3, 0)
             """.trimIndent(),
-            arrayOf(folder.id, folder.name)
+            arrayOf(folder.id, folder.name.take(MAX_FOLDER_DISPLAY_NAME) +
+                if (folder.name.length > MAX_FOLDER_DISPLAY_NAME) "\u2026" else "")
         )
     }
 
@@ -1366,7 +1403,9 @@ object ConversationAggregation : ClickableFeature(),
      */
     private fun prefixWithConversationName(displayName: String?, digest: String): String {
         if (digest.isBlank() || displayName.isNullOrBlank()) return digest
-        return "$displayName: $digest"
+        val name = displayName.take(MAX_DIGEST_NAME_LEN) +
+            if (displayName.length > MAX_DIGEST_NAME_LEN) "\u2026" else ""
+        return "$name: $digest"
     }
 
     private fun isFolderSchemaReady(): Boolean {
@@ -2050,6 +2089,10 @@ object ConversationAggregation : ClickableFeature(),
         val attrFlag: Int
             get() = if (unreadCount == 0 && unreadMuteCount > 0) ATTR_FLAG_MUTE_BIT else 0
     }
+
+    private const val MAX_DIGEST_NAME_LEN = 8
+    private const val MAX_FOLDER_DISPLAY_NAME = 12
+    private val MENTION_GREEN = 0xFF07C160.toInt()
 
     private object ConversationTable {
         const val NAME = "rconversation"
