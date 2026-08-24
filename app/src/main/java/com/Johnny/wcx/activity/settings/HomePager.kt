@@ -242,7 +242,7 @@ fun HomePager(onOpenFeatures: () -> Unit) {
                     .padding(top = 0.dp, start = 16.dp, end = 16.dp),
             ) {
                 Text(
-                    text = "WCX",
+                    text = "WCXLC",
                     fontSize = 40.sp,
                     fontWeight = FontWeight.Bold,
                     color = MiuixTheme.colorScheme.onSurface,

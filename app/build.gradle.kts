@@ -41,7 +41,8 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = verCode
-        versionName = verTag
+        // fork 品牌: 所有版本号统一加 "LC" 后缀 (Kimjaejiang/WCXLC)
+        versionName = verTag + "LC"
 
         buildConfigField("String", "COMMIT_HASH", "\"${gitHash}\"")
         buildConfigField("String", "TAG", "\"WCX\"")

@@ -329,9 +329,9 @@ fun SettingsPager(onOpenLicense: () -> Unit, onOpenAcknowledgements: () -> Unit)
                 )
                 PrefArrow(
                     title = "GitHub",
-                    summary = "Johnny520/wcx",
+                    summary = "Kimjaejiang/WCXLC",
                     icon = GitHubIcon,
-                    onClick = { "https://github.com/Johnny520/wcx".toUri().openInSystem(context, true) })
+                    onClick = { "https://github.com/Kimjaejiang/WCXLC".toUri().openInSystem(context, true) })
                 PrefArrow(
                     title = "TG 群组",
                     summary = "@wcx12138",
@@ -339,9 +339,9 @@ fun SettingsPager(onOpenLicense: () -> Unit, onOpenAcknowledgements: () -> Unit)
                     onClick = { "https://t.me/wcx12138".toUri().openInSystem(context, true) })
                 PrefArrow(
                     title = "官方网站",
-                    summary = "https://johnny520.github.io/Johnny/",
+                    summary = "https://github.com/Kimjaejiang/WCXLC",
                     icon = MaterialSymbols.Outlined.Public,
-                    onClick = { "https://johnny520.github.io/Johnny/".toUri().openInSystem(context, true) })
+                    onClick = { "https://github.com/Kimjaejiang/WCXLC".toUri().openInSystem(context, true) })
             }
         }
 

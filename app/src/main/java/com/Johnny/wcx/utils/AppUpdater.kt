@@ -60,10 +60,10 @@ sealed interface UpdateResult {
 // ─── GitHub Release API ────────────────────────────────────────────────────
 
 private const val GITHUB_API_LATEST =
-    "https://api.github.com/repos/Johnny520/wcx/releases/latest"
+    "https://api.github.com/repos/Kimjaejiang/WCXLC/releases/latest"
 private const val GITHUB_API_RELEASES =
-    "https://api.github.com/repos/Johnny520/wcx/releases?per_page=20"
-private const val RELEASES_PAGE = "https://github.com/Johnny520/wcx/releases"
+    "https://api.github.com/repos/Kimjaejiang/WCXLC/releases?per_page=20"
+private const val RELEASES_PAGE = "https://github.com/Kimjaejiang/WCXLC/releases"
 
 // APKs are published per entry-point flavor: app-<flavor>-<abi>-release.apk.
 // Stay on the same flavor the installed build was compiled for.
