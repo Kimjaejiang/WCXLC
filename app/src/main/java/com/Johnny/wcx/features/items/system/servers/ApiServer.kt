@@ -311,7 +311,7 @@ object ApiServer : ClickableFeature() {
             serverInfo = Implementation(
                 name = "wechat-mcp-server",
                 version = BuildConfig.VERSION_NAME,
-                title = "WeChat MCP Server (powered by WeKit)",
+                title = "WeChat MCP Server (powered by WCX)",
                 websiteUrl = "https://github.com/Kimjaejiang/WCXLC"
             ),
             options = ServerOptions(
@@ -384,7 +384,7 @@ object ApiServer : ClickableFeature() {
         addTool(
             name = "cache-image",
             description = "Cache an image message into WeChat's own storage by its server ID (equivalent to tapping the image to download from CDN); " +
-                    "does NOT decode or copy it to Download/WeKit/; returns the internal WeChat image path. May take a while if not cached yet.",
+                    "does NOT decode or copy it to Download/WCX/; returns the internal WeChat image path. May take a while if not cached yet.",
             inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     addField("msg-svr-id", "Server ID (msgSvrId) of the image message to cache", "integer")
@@ -399,7 +399,7 @@ object ApiServer : ClickableFeature() {
 
         addTool(
             name = "download-image",
-            description = "Download the image of an image message by its server ID: cache it from CDN if needed, then decode and save it to Download/WeKit/; " +
+            description = "Download the image of an image message by its server ID: cache it from CDN if needed, then decode and save it to Download/WCX/; " +
                     "returns the saved local file path. May take a while if not cached yet.",
             inputSchema = ToolSchema(
                 properties = buildJsonObject {
@@ -415,7 +415,7 @@ object ApiServer : ClickableFeature() {
 
         addTool(
             name = "download-sticker",
-            description = "Decode the sticker of a sticker message by its server ID, convert it to a GIF and save it to Download/WeKit/; " +
+            description = "Decode the sticker of a sticker message by its server ID, convert it to a GIF and save it to Download/WCX/; " +
                     "returns the saved local file path",
             inputSchema = ToolSchema(
                 properties = buildJsonObject {
@@ -431,7 +431,7 @@ object ApiServer : ClickableFeature() {
 
         addTool(
             name = "download-voice",
-            description = "Decode the voice of a voice message by its server ID (silk → mp3) and save it to Download/WeKit/; " +
+            description = "Decode the voice of a voice message by its server ID (silk → mp3) and save it to Download/WCX/; " +
                     "returns the saved local mp3 file path",
             inputSchema = ToolSchema(
                 properties = buildJsonObject {
@@ -448,7 +448,7 @@ object ApiServer : ClickableFeature() {
         addTool(
             name = "cache-file",
             description = "Cache a file message into WeChat's own storage by its server ID (equivalent to tapping the file bubble to download); " +
-                    "does NOT copy it to Download/WeKit/; returns the internal WeChat file path. May take a while for large files.",
+                    "does NOT copy it to Download/WCX/; returns the internal WeChat file path. May take a while for large files.",
             inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     addField("msg-svr-id", "Server ID (msgSvrId) of the file message to cache", "integer")
@@ -468,7 +468,7 @@ object ApiServer : ClickableFeature() {
 
         addTool(
             name = "download-file",
-            description = "Download a file message by its server ID: first cache it into WeChat's storage if needed, then copy it to Download/WeKit/; " +
+            description = "Download a file message by its server ID: first cache it into WeChat's storage if needed, then copy it to Download/WCX/; " +
                     "returns the saved local file path. May take a while for large files.",
             inputSchema = ToolSchema(
                 properties = buildJsonObject {
@@ -1964,7 +1964,7 @@ object ApiServer : ClickableFeature() {
                 }
             }
 
-            // GET /api/messages/{msgSvrId}/image — cache if needed, then decode & save to Download/WeKit/
+            // GET /api/messages/{msgSvrId}/image — cache if needed, then decode & save to Download/WCX/
             get("messages/{msgSvrId}/image") {
                 val msgSvrId = call.parameters["msgSvrId"]?.toLongOrNull()
                     ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid msgSvrId"))
@@ -2001,7 +2001,7 @@ object ApiServer : ClickableFeature() {
                 }
             }
 
-            // GET /api/messages/{msgSvrId}/file?talker=... — cache if needed, then copy to Download/WeKit/
+            // GET /api/messages/{msgSvrId}/file?talker=... — cache if needed, then copy to Download/WCX/
             get("messages/{msgSvrId}/file") {
                 val msgSvrId = call.parameters["msgSvrId"]?.toLongOrNull()
                     ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("Invalid msgSvrId"))

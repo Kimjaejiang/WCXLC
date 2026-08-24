@@ -2735,7 +2735,7 @@ private fun TelegramDatabaseSourcePrompt(
             PanelImportOption(
                 mode = TelegramDatabaseSource.ROOT,
                 title = "使用 Root 权限直接读取 Telegram 数据库",
-                description = "跳转到 WeKit 模块应用扫描实例并解析数据库",
+                description = "跳转到 WCX 模块应用扫描实例并解析数据库",
                 icon = TelegramIcon,
             ),
             PanelImportOption(
