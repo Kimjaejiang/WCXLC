@@ -51,3 +51,6 @@ screen*.png
 # è°ƒè¯•ä¸´æ—¶æ–‡ä»¶ï¼ˆä¸å…¥åº“ï¼‰
 tmp_dex/
 ui_dump.xml
+
+# Ç©ÃûÃÜÔ¿£¨CI ÓÃ GitHub Secrets£¬²»Èë¿â£©
+/keystore/
