@@ -1871,6 +1871,26 @@ private fun isHomeTabClass(className: String): Boolean {
                 weatherIcon = weatherEmoji(cur?.optString("weatherCode", "") ?: "")
             )
         }
+        // Open-Meteo 格式（自定义 API 直接填 Open-Meteo URL 时按此解析，兼容 humidity/wind 字段）
+        val curOM = root.optJSONObject("current")
+        if (curOM != null && curOM.has("temperature_2m")) {
+            val daily = root.optJSONObject("daily")
+            val maxArr = daily?.optJSONArray("temperature_2m_max")
+            val minArr = daily?.optJSONArray("temperature_2m_min")
+            val code = curOM.optInt("weather_code", -1)
+            return WeatherData(
+                city = city,
+                temperature = omTemp(curOM.optDouble("temperature_2m", Double.NaN)),
+                feelsLike = if (curOM.has("apparent_temperature")) omTemp(curOM.optDouble("apparent_temperature", Double.NaN)) else "",
+                tempHigh = omTemp(if (maxArr != null && maxArr.length() > 0) maxArr.optDouble(0, Double.NaN) else Double.NaN),
+                tempLow = omTemp(if (minArr != null && minArr.length() > 0) minArr.optDouble(0, Double.NaN) else Double.NaN),
+                humidity = curOM.optString("relative_humidity_2m", "--"),
+                windSpeed = curOM.optString("wind_speed_10m", "--") + " km/h",
+                weather = openMeteoDesc(code),
+                updateTime = try { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()) } catch (_: Throwable) { "" },
+                weatherIcon = openMeteoEmoji(code)
+            )
+        }
         val data = root.optJSONObject("data") ?: root
         val type = data.optString("type", "")
         return WeatherData(
