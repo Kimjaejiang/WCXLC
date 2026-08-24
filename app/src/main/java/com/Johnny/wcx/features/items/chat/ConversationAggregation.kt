@@ -9,9 +9,7 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup
 import android.widget.AdapterView
-import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -247,7 +245,6 @@ object ConversationAggregation : ClickableFeature(),
         hookSqliteWrapperQuery()
         hookConversationStorageParentQuery()
         hookConversationStorageUpdateUnread()
-        hookMentionTint()
 
         CustomLocalFriendAvatars.fallbackUsernameProvider = { folderId ->
             if (isFolderId(folderId) && !CustomLocalFriendAvatars.avatarMap.containsKey(folderId)) {
@@ -830,54 +827,6 @@ object ConversationAggregation : ClickableFeature(),
         }
     }
 
-    private val methodConversationWithCacheAdapterGetView by dexMethod(allowFailure = true) {
-        searchPackages("com.tencent.mm.ui.conversation")
-        matcher {
-            name = "getView"
-            usingEqStrings("MicroMsg.ConversationWithCacheAdapter", "Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d")
-        }
-    }
-
-    private val methodMvvmConversationAdapterGetView by dexMethod(allowFailure = true) {
-        matcher {
-            declaredClass {
-                usingEqStrings("MicroMsg.ConversationAdapter.MvvmConversationAdapter", "Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d")
-            }
-            name = "getView"
-        }
-    }
-
-    /** tint the "someone @ me" label green (WeChat native is orange) */
-    private fun hookMentionTint() {
-        if (!methodMvvmConversationAdapterGetView.isPlaceholder) {
-            methodMvvmConversationAdapterGetView.hookAfter {
-                val root = result as? ViewGroup ?: return@hookAfter
-                tintMentionLabels(root)
-            }
-        }
-        if (!methodConversationWithCacheAdapterGetView.isPlaceholder) {
-            methodConversationWithCacheAdapterGetView.hookAfter {
-                val root = result as? ViewGroup ?: return@hookAfter
-                tintMentionLabels(root)
-            }
-        }
-    }
-
-    private fun tintMentionLabels(root: ViewGroup) {
-        val queue = java.util.ArrayDeque<View>()
-        queue.add(root)
-        while (queue.isNotEmpty()) {
-            val v = queue.removeFirst()
-            if (v is TextView) {
-                val text = v.text?.toString().orEmpty()
-                if (text.startsWith("\u6709\u4eba@")) v.setTextColor(MENTION_GREEN)
-            }
-            if (v is ViewGroup) {
-                for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
-            }
-        }
-    }
-
     private fun launchFolderContainer(source: Any?, folderId: String) {
         val context = source as? Context ?: return
         val intent = Intent().apply {
@@ -1059,7 +1008,6 @@ object ConversationAggregation : ClickableFeature(),
                    ${ConversationTable.CONVERSATION_TIME}, ${ConversationTable.UNREAD_COUNT},
                    ${ConversationTable.UNREAD_MUTE_COUNT}, ${ConversationTable.CONTENT},
                    ${ConversationTable.MSG_TYPE}, ${ConversationTable.CHAT_MODE}, ${ConversationTable.ATTR_FLAG}
-                   ${ConversationTable.AT_ME_COUNT}
             """.trimIndent() + " " +
                     "FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME} LIKE ?",
             arrayOf("$FOLDER_PREFIX%")
@@ -1078,8 +1026,7 @@ object ConversationAggregation : ClickableFeature(),
                         unreadMuteCount = cursor.getIntOrZero(ConversationTable.UNREAD_MUTE_COUNT),
                         content = cursor.getStringOrEmpty(ConversationTable.CONTENT),
                         msgType = cursor.getStringOrEmpty(ConversationTable.MSG_TYPE),
-                        chatMode = cursor.getIntOrZero(ConversationTable.CHAT_MODE),
-                        atMeCount = cursor.getIntOrZero(ConversationTable.AT_ME_COUNT)
+                        chatMode = cursor.getIntOrZero(ConversationTable.CHAT_MODE)
                     )
                 )
             }
@@ -1268,8 +1215,7 @@ object ConversationAggregation : ClickableFeature(),
                 ${ContactTable.USERNAME}, ${ContactTable.NICKNAME}, ${ContactTable.TYPE}, ${ContactTable.VERIFY_FLAG}
             ) VALUES (?, ?, 3, 0)
             """.trimIndent(),
-            arrayOf(folder.id, folder.name.take(MAX_FOLDER_DISPLAY_NAME) +
-                if (folder.name.length > MAX_FOLDER_DISPLAY_NAME) "\u2026" else "")
+            arrayOf(folder.id, folder.name)
         )
     }
 
@@ -1294,8 +1240,7 @@ object ConversationAggregation : ClickableFeature(),
                 ${ConversationTable.FLAG}=(${ConversationTable.FLAG} & ?) | ?,
                 ${ConversationTable.UNREAD_COUNT}=?, ${ConversationTable.UNREAD_MUTE_COUNT}=?,
                 ${ConversationTable.CONTENT}=?, ${ConversationTable.MSG_TYPE}=?,
-                ${ConversationTable.CHAT_MODE}=?, ${ConversationTable.ATTR_FLAG}=?,
-                ${ConversationTable.AT_ME_COUNT}=?
+                ${ConversationTable.CHAT_MODE}=?, ${ConversationTable.ATTR_FLAG}=?
             WHERE ${ConversationTable.USERNAME}=?
             """.trimIndent(),
             arrayOf(
@@ -1312,7 +1257,6 @@ object ConversationAggregation : ClickableFeature(),
                 summary.msgType,
                 summary.chatMode,
                 summary.attrFlag,
-                summary.atMeCount,
                 folderId
             )
         )
@@ -1334,7 +1278,6 @@ object ConversationAggregation : ClickableFeature(),
                        r.${ConversationTable.STATUS}, r.${ConversationTable.CONVERSATION_TIME},
                        r.${ConversationTable.UNREAD_COUNT}, r.${ConversationTable.CONTENT},
                        r.${ConversationTable.MSG_TYPE}, r.${ConversationTable.CHAT_MODE},
-                       r.${ConversationTable.AT_ME_COUNT},
                        c.${ContactTable.TYPE}, c.${ContactTable.LV_BUFF},
                        c.${ContactTable.CON_REMARK}, c.${ContactTable.NICKNAME}
                 FROM ${ConversationTable.NAME} r
@@ -1359,7 +1302,6 @@ object ConversationAggregation : ClickableFeature(),
                         }
                         if (muted) state.mutedUnread += unread else state.normalUnread += unread
                     }
-                    state.atMeCount += cursor.getIntOrZero(ConversationTable.AT_ME_COUNT).coerceAtLeast(0)
 
                     val time = cursor.getLongOrZero(ConversationTable.CONVERSATION_TIME)
                     if (state.latest == null || time > state.latest!!.conversationTime) {
@@ -1369,7 +1311,7 @@ object ConversationAggregation : ClickableFeature(),
                         state.latest = MemberSummaryRow(
                             digest = prefixWithConversationName(
                                 displayName.takeIf { it.isNotBlank() && it != username },
-                                stripWxidPrefix(cursor.getStringOrEmpty(ConversationTable.DIGEST))
+                                cursor.getStringOrEmpty(ConversationTable.DIGEST)
                             ),
                             digestUser = cursor.getStringOrEmpty(ConversationTable.DIGEST_USER),
                             isSend = cursor.getIntOrZero(ConversationTable.IS_SEND),
@@ -1393,7 +1335,7 @@ object ConversationAggregation : ClickableFeature(),
                 )
             } else {
                 FolderSummary(
-                    digest = if (state.atMeCount > 0) "\u6709\u4eba@\u6211" else latest.digest,
+                    digest = latest.digest,
                     digestUser = latest.digestUser,
                     isSend = latest.isSend,
                     status = latest.status,
@@ -1416,19 +1358,9 @@ object ConversationAggregation : ClickableFeature(),
      * source is ambiguous once several chats are aggregated. Returns the digest untouched
      * when it is blank or the name can't be resolved, to avoid a dangling "name: " prefix.
      */
-    private val WXID_PREFIX_REGEX = Regex("^wxid_[A-Za-z0-9_]+:\\s*")
-
-    private fun stripWxidPrefix(digest: String): String {
-        if (digest.isBlank()) return digest
-        val m = WXID_PREFIX_REGEX.find(digest) ?: return digest
-        return digest.substring(m.value.length)
-    }
-
     private fun prefixWithConversationName(displayName: String?, digest: String): String {
         if (digest.isBlank() || displayName.isNullOrBlank()) return digest
-        val name = displayName.take(MAX_DIGEST_NAME_LEN) +
-            if (displayName.length > MAX_DIGEST_NAME_LEN) "\u2026" else ""
-        return "$name: $digest"
+        return "$displayName: $digest"
     }
 
     private fun isFolderSchemaReady(): Boolean {
@@ -2087,7 +2019,6 @@ object ConversationAggregation : ClickableFeature(),
         var latest: MemberSummaryRow? = null
         var normalUnread: Int = 0
         var mutedUnread: Int = 0
-        var atMeCount: Int = 0
     }
 
     private data class FolderSummary(
@@ -2098,7 +2029,6 @@ object ConversationAggregation : ClickableFeature(),
         val conversationTime: Long = System.currentTimeMillis(),
         val unreadCount: Int = 0,
         val unreadMuteCount: Int = 0,
-        val atMeCount: Int = 0,
         val content: String = "",
         val msgType: String = "",
         val chatMode: Int = 0
@@ -2112,10 +2042,6 @@ object ConversationAggregation : ClickableFeature(),
         val attrFlag: Int
             get() = if (unreadCount == 0 && unreadMuteCount > 0) ATTR_FLAG_MUTE_BIT else 0
     }
-
-    private const val MAX_DIGEST_NAME_LEN = 8
-    private const val MAX_FOLDER_DISPLAY_NAME = 12
-    private val MENTION_GREEN = 0xFF07C160.toInt()
 
     private object ConversationTable {
         const val NAME = "rconversation"
@@ -2133,7 +2059,6 @@ object ConversationAggregation : ClickableFeature(),
         const val MSG_TYPE = "msgType"
         const val CHAT_MODE = "chatmode"
         const val ATTR_FLAG = "attrflag"
-        const val AT_ME_COUNT = "atMeCount"
 
         val REQUIRED_COLUMNS = setOf(
             USERNAME,
