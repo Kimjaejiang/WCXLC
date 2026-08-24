@@ -1008,6 +1008,7 @@ object ConversationAggregation : ClickableFeature(),
                    ${ConversationTable.CONVERSATION_TIME}, ${ConversationTable.UNREAD_COUNT},
                    ${ConversationTable.UNREAD_MUTE_COUNT}, ${ConversationTable.CONTENT},
                    ${ConversationTable.MSG_TYPE}, ${ConversationTable.CHAT_MODE}, ${ConversationTable.ATTR_FLAG}
+                   ${ConversationTable.AT_ME_COUNT}
             """.trimIndent() + " " +
                     "FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME} LIKE ?",
             arrayOf("$FOLDER_PREFIX%")
@@ -1026,7 +1027,8 @@ object ConversationAggregation : ClickableFeature(),
                         unreadMuteCount = cursor.getIntOrZero(ConversationTable.UNREAD_MUTE_COUNT),
                         content = cursor.getStringOrEmpty(ConversationTable.CONTENT),
                         msgType = cursor.getStringOrEmpty(ConversationTable.MSG_TYPE),
-                        chatMode = cursor.getIntOrZero(ConversationTable.CHAT_MODE)
+                        chatMode = cursor.getIntOrZero(ConversationTable.CHAT_MODE),
+                        atMeCount = cursor.getIntOrZero(ConversationTable.AT_ME_COUNT)
                     )
                 )
             }
@@ -1240,7 +1242,8 @@ object ConversationAggregation : ClickableFeature(),
                 ${ConversationTable.FLAG}=(${ConversationTable.FLAG} & ?) | ?,
                 ${ConversationTable.UNREAD_COUNT}=?, ${ConversationTable.UNREAD_MUTE_COUNT}=?,
                 ${ConversationTable.CONTENT}=?, ${ConversationTable.MSG_TYPE}=?,
-                ${ConversationTable.CHAT_MODE}=?, ${ConversationTable.ATTR_FLAG}=?
+                ${ConversationTable.CHAT_MODE}=?, ${ConversationTable.ATTR_FLAG}=?,
+                ${ConversationTable.AT_ME_COUNT}=?
             WHERE ${ConversationTable.USERNAME}=?
             """.trimIndent(),
             arrayOf(
@@ -1257,6 +1260,7 @@ object ConversationAggregation : ClickableFeature(),
                 summary.msgType,
                 summary.chatMode,
                 summary.attrFlag,
+                summary.atMeCount,
                 folderId
             )
         )
@@ -1278,6 +1282,7 @@ object ConversationAggregation : ClickableFeature(),
                        r.${ConversationTable.STATUS}, r.${ConversationTable.CONVERSATION_TIME},
                        r.${ConversationTable.UNREAD_COUNT}, r.${ConversationTable.CONTENT},
                        r.${ConversationTable.MSG_TYPE}, r.${ConversationTable.CHAT_MODE},
+                       r.${ConversationTable.AT_ME_COUNT},
                        c.${ContactTable.TYPE}, c.${ContactTable.LV_BUFF},
                        c.${ContactTable.CON_REMARK}, c.${ContactTable.NICKNAME}
                 FROM ${ConversationTable.NAME} r
@@ -1302,6 +1307,7 @@ object ConversationAggregation : ClickableFeature(),
                         }
                         if (muted) state.mutedUnread += unread else state.normalUnread += unread
                     }
+                    state.atMeCount += cursor.getIntOrZero(ConversationTable.AT_ME_COUNT).coerceAtLeast(0)
 
                     val time = cursor.getLongOrZero(ConversationTable.CONVERSATION_TIME)
                     if (state.latest == null || time > state.latest!!.conversationTime) {
@@ -2019,6 +2025,7 @@ object ConversationAggregation : ClickableFeature(),
         var latest: MemberSummaryRow? = null
         var normalUnread: Int = 0
         var mutedUnread: Int = 0
+        var atMeCount: Int = 0
     }
 
     private data class FolderSummary(
@@ -2029,6 +2036,7 @@ object ConversationAggregation : ClickableFeature(),
         val conversationTime: Long = System.currentTimeMillis(),
         val unreadCount: Int = 0,
         val unreadMuteCount: Int = 0,
+        val atMeCount: Int = 0,
         val content: String = "",
         val msgType: String = "",
         val chatMode: Int = 0
@@ -2059,6 +2067,7 @@ object ConversationAggregation : ClickableFeature(),
         const val MSG_TYPE = "msgType"
         const val CHAT_MODE = "chatmode"
         const val ATTR_FLAG = "attrflag"
+        const val AT_ME_COUNT = "atMeCount"
 
         val REQUIRED_COLUMNS = setOf(
             USERNAME,
