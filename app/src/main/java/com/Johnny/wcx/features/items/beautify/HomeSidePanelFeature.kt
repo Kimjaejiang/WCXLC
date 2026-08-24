@@ -1091,22 +1091,24 @@ private fun isHomeTabClass(className: String): Boolean {
                         Text(w.weatherIcon?.takeIf { it.isNotBlank() } ?: "☁", fontSize = 26.sp)
                     }
                     Spacer(Modifier.height(10.dp))
-                    // 温度区：温度大字 + 高低/体感，右侧湿度/风速（窄面板下保持两列，不换行挤压）
-                    Row(
-                        modifier = Modifier.fillMaxWidth().background(cs.primaryContainer.copy(alpha = 0.6f), RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // 温度区：温度大字 + 高低/体感；湿度/风速独立一行左右分布，避免窄面板右侧挤压遮挡
+                    Column(
+                        modifier = Modifier.fillMaxWidth().background(cs.primaryContainer.copy(alpha = 0.6f), RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
-                        Text(w.temperature, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = cs.onPrimaryContainer)
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text("${w.tempHigh} / ${w.tempLow}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = cs.onPrimaryContainer, maxLines = 1)
-                            if (!w.feelsLike.isNullOrBlank()) {
-                                Text("体感 ${w.feelsLike}", style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer.copy(alpha = 0.7f), maxLines = 1)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(w.temperature, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = cs.onPrimaryContainer)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("${w.tempHigh} / ${w.tempLow}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = cs.onPrimaryContainer, maxLines = 1)
+                                if (!w.feelsLike.isNullOrBlank()) {
+                                    Text("体感 ${w.feelsLike}", style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer.copy(alpha = 0.7f), maxLines = 1)
+                                }
                             }
                         }
-                        Spacer(Modifier.weight(1f))
-                        Column(horizontalAlignment = Alignment.End) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("湿度 ${formatHumidity(w.humidity)}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1)
+                            Spacer(Modifier.weight(1f))
                             Text("风速 ${formatWindSpeed(w.windSpeed)}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1)
                         }
                     }
