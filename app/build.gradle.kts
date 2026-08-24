@@ -30,7 +30,9 @@ android {
 
     // 版本号从环境变量 VER 读取（CI 用 v* tag 最大 +1 计算），本地构建默认 v226
     val verTag = System.getenv("VER") ?: "v226"
-    val verCode = verTag.removePrefix("v").toIntOrNull() ?: 226
+    // verCode 放大 1000 倍(v244->244000)：AppUpdater 更新源(Ujhhgtg/WeKit CI)当前 verCode=861，
+    // 沿用 244 会被误判为有新版而反复弹"检测到新版本"，V244 适配版须保持大于 861。
+    val verCode = (verTag.removePrefix("v").toIntOrNull() ?: 226) * 1000
 
     defaultConfig {
         applicationId = libs.versions.namespace.get()
