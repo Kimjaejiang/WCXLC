@@ -143,13 +143,13 @@ object PipVoip : SwitchFeature(), IResolveDex {
 
     private val sessions = WeakHashMap<Activity, Session>()
 
-    private val classVoipActivityProxy by dexClass {
+    private val classVoipActivityProxy by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.ILinkVoipVideoActivityProxy-")
         }
     }
 
-    private val methodVoipActivityProxyDealContentView by dexMethod {
+    private val methodVoipActivityProxyDealContentView by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classVoipActivityProxy.clazz)
             paramTypes(View::class.java)
@@ -157,19 +157,19 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val classBaseVoipManager by dexClass {
+    private val classBaseVoipManager by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.Voip.NewVoipMgr", "hangupTalkingOrCancelInvite")
         }
     }
 
-    private val classFlutterVoipManager by dexClass {
+    private val classFlutterVoipManager by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.FlutterVoipMgr", "qipeng, enableMute.")
         }
     }
 
-    private val classVoipAudioManager by dexClass {
+    private val classVoipAudioManager by dexClass(allowFailure = true) {
         matcher {
             modifiers(Modifier.FINAL)
             usingEqStrings(
@@ -180,7 +180,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val classFlutterVoipPlugin by dexClass {
+    private val classFlutterVoipPlugin by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings(
                 "MicroMsg.FlutterVoipPlugin",
@@ -191,14 +191,14 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val fieldVoipAudioManager by dexField {
+    private val fieldVoipAudioManager by dexField(allowFailure = true) {
         matcher {
             declaredClass(classBaseVoipManager.clazz)
             type(classVoipAudioManager.clazz.interfaces.single())
         }
     }
 
-    private val methodVoipMinimize by dexMethod {
+    private val methodVoipMinimize by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classBaseVoipManager.clazz)
             paramTypes("boolean")
@@ -207,7 +207,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodSetVoipMuted by dexMethod {
+    private val methodSetVoipMuted by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipManager.clazz)
             paramTypes("boolean")
@@ -216,7 +216,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodVoipHangUp by dexMethod {
+    private val methodVoipHangUp by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classBaseVoipManager.clazz)
             paramTypes("int")
@@ -225,7 +225,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val fieldVoipMuted by dexField {
+    private val fieldVoipMuted by dexField(allowFailure = true) {
         matcher {
             declaredClass(classVoipAudioManager.clazz)
             type = "boolean"
@@ -237,7 +237,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodFlutterVoipMinimize by dexMethod {
+    private val methodFlutterVoipMinimize by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipPlugin.clazz)
             paramCount = 4
@@ -251,21 +251,21 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val fieldFlutterVoipActivity by dexField {
+    private val fieldFlutterVoipActivity by dexField(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipPlugin.clazz)
             type(Activity::class.java)
         }
     }
 
-    private val fieldFlutterVoipManager by dexField {
+    private val fieldFlutterVoipManager by dexField(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipPlugin.clazz)
             type(classFlutterVoipManager.clazz)
         }
     }
 
-    private val methodFlutterVoipAttachedToActivity by dexMethod {
+    private val methodFlutterVoipAttachedToActivity by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipPlugin.clazz)
             paramCount = 1
@@ -274,7 +274,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodFlutterVoipReattachedToActivity by dexMethod {
+    private val methodFlutterVoipReattachedToActivity by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classFlutterVoipPlugin.clazz)
             paramCount = 1
@@ -283,7 +283,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodFlutterCallbackInvoke by dexMethod {
+    private val methodFlutterCallbackInvoke by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(methodFlutterVoipMinimize.method.parameterTypes.last())
             paramTypes(Any::class.java)
@@ -291,7 +291,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val classMultiTalkViewModel by dexClass {
+    private val classMultiTalkViewModel by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings(
                 "MicroMsg.MT.MultiTalkUIViewModel",
@@ -301,14 +301,14 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val fieldMultiTalkViewModel by dexField {
+    private val fieldMultiTalkViewModel by dexField(allowFailure = true) {
         matcher {
             declaredClass(MultiTalkMainUI::class.java)
             type(classMultiTalkViewModel.clazz)
         }
     }
 
-    private val classObservableState by dexClass {
+    private val classObservableState by dexClass(allowFailure = true) {
         searchPackages("androidx.lifecycle")
         matcher {
             modifiers(Modifier.PUBLIC or Modifier.ABSTRACT)
@@ -327,7 +327,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodMultiTalkMinimize by dexMethod {
+    private val methodMultiTalkMinimize by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(MultiTalkMainUI::class.java)
             paramCount = 0
@@ -336,7 +336,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodMultiTalkExit by dexMethod {
+    private val methodMultiTalkExit by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(MultiTalkMainUI::class.java)
             paramCount = 0
@@ -345,7 +345,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodMultiTalkMic by dexMethod {
+    private val methodMultiTalkMic by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classMultiTalkViewModel.clazz)
             paramTypes("boolean")
@@ -354,13 +354,13 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodMultiTalkCamera by dexMethod {
+    private val methodMultiTalkCamera by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.MT.MultiTalkUIViewModel", "onCameraClick, cur state: ")
         }
     }
 
-    private val fieldMultiTalkMicState by dexField {
+    private val fieldMultiTalkMicState by dexField(allowFailure = true) {
         matcher {
             declaredClass(classMultiTalkViewModel.clazz)
             type(classObservableState.clazz)
@@ -370,7 +370,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val fieldMultiTalkCameraState by dexField {
+    private val fieldMultiTalkCameraState by dexField(allowFailure = true) {
         matcher {
             declaredClass(classMultiTalkViewModel.clazz)
             type(classObservableState.clazz)
@@ -380,7 +380,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodObservableValue by dexMethod {
+    private val methodObservableValue by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classObservableState.clazz)
             paramCount = 0
