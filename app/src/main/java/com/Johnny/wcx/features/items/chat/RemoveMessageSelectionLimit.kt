@@ -8,6 +8,7 @@ import com.Johnny.wcx.dexkit.dsl.dexMethod
 import com.Johnny.wcx.features.api.core.WeMessageApi
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.features.core.SwitchFeature
+import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.HookCallback
 import com.Johnny.wcx.utils.HookParam
 import com.Johnny.wcx.utils.hookDirectly
@@ -26,7 +27,7 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
 
     private const val SELECTION_LIMIT = 100
 
-    private val methodToggleMessageSelection by dexMethod {
+    private val methodToggleMessageSelection by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(WeMessageApi.classChattingDataAdapter.clazz)
             usingNumbers(SELECTION_LIMIT)
@@ -35,7 +36,7 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
         }
     }
 
-    private val methodGetSelectedMessageCount by dexMethod {
+    private val methodGetSelectedMessageCount by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(WeMessageApi.classChattingDataAdapter.clazz)
             addUsingField {
@@ -58,6 +59,7 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
 
     private val methodSetQuickSelectViewEnabled1 by dexMethod(
         allowMultiple = true,
+        allowFailure = true,
         resultIndex = 0
     ) {
         matcher {
@@ -70,6 +72,7 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
 
     private val methodSetQuickSelectViewEnabled2 by dexMethod(
         allowMultiple = true,
+        allowFailure = true,
         resultIndex = 1
     ) {
         matcher {
@@ -94,6 +97,11 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
     private val selectedMessageCountOverride = ThreadLocal<Int>()
 
     override fun onEnable() {
+        // 8.0.77: ChattingDataAdapterV3 已移除, 相关 matcher 降级 placeholder, 本功能禁用
+        if (WeMessageApi.classChattingDataAdapter.isPlaceholder) {
+            WeLogger.w("RemoveMessageSelectionLimit", "ChattingDataAdapterV3 not found, feature disabled")
+            return
+        }
         listOf(
             methodSetQuickSelectViewEnabled1,
             methodSetQuickSelectViewEnabled2

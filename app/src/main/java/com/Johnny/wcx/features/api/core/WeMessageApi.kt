@@ -222,7 +222,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
             usingEqStrings("MicroMsg.ChattingContext", "[notifyDataSetChange]")
         }
     }
-    val classChattingDataAdapter by dexClass {
+    val classChattingDataAdapter by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings(
                 "MicroMsg.ChattingDataAdapterV3",
