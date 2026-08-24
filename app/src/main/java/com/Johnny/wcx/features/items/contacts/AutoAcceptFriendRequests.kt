@@ -188,8 +188,9 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
 
         // 钩住好友验证接受方法，在微信内部接受好友请求时触发后续逻辑
         runCatching {
-            if (!methodVerifyAccept.isPlaceholder) {
-                methodVerifyAccept.hookAfter {
+            if (!ctorVerifyUserAccept.isPlaceholder) {
+                // 8.0.77: NetSceneVerifyUser 混淆为 p3, 接受入口在 <init>(opcode=VERIFYOK), 用构造器 hook
+                ctorVerifyUserAccept.constructor.hookAfter {
                     // 8.0.76 的 <init>(opcode, userId, ticket, scene, ...) 与旧版
                     // NetSceneVerifyUser 接受方法参数布局不同，先防护再取参。
                     if (args.size < 3) return@hookAfter
@@ -223,6 +224,15 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
                             }
                         }
                     }
+                }
+            } else if (!methodVerifyAccept.isPlaceholder) {
+                methodVerifyAccept.hookAfter {
+                    if (args.size < 3) return@hookAfter
+                    if (!masterEnabled) return@hookAfter
+                    val opcode = args[0] as? Int ?: return@hookAfter
+                    if (opcode != OPCODE_VERIFY_ACCEPT && opcode != 2) return@hookAfter
+                    val arg1 = (args[1] as? String)?.takeIf { it.isNotBlank() } ?: return@hookAfter
+                    WeLogger.i(TAG, "friend request accepted via legacy method: arg1=$arg1")
                 }
             } else {
                 WeLogger.w(TAG, "methodVerifyAccept not resolved, auto-accept will use database listener fallback")
