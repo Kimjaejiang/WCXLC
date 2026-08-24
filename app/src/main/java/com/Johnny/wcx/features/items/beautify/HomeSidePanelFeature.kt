@@ -974,7 +974,7 @@ private fun isHomeTabClass(className: String): Boolean {
                 try {
                     var bmp: Bitmap? = null
                     var attempts = 0
-                    while (bmp == null && attempts < 15) {
+                    while (bmp == null && attempts < 3) {
                         bmp = loadAvatarBitmap(act)
                         if (bmp == null) { try { Thread.sleep(1500) } catch (_: Throwable) {}; attempts++ }
                     }
@@ -2062,7 +2062,7 @@ private fun isHomeTabClass(className: String): Boolean {
                     if (path.isBlank()) loadWeChatAvatar(act)
                     else {
                         val f = File(path)
-                        if (f.exists() && f.canRead()) BitmapFactory.decodeFile(path) else loadWeChatAvatar(act)
+                        if (f.exists() && f.canRead()) decodeScaledBitmapFile(f, MAX_AVATAR_SIZE) else loadWeChatAvatar(act)
                     }
                 }
                 2 -> {  // 网络 URL
@@ -2078,6 +2078,32 @@ private fun isHomeTabClass(className: String): Boolean {
         }
     }
 
+    /** 按目标尺寸缩小解码本地文件（头像仅显示 56dp，避免原图大图解码慢/占内存） */
+    private fun decodeScaledBitmapFile(f: File, maxSize: Int): Bitmap? = try {
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(f.absolutePath, opts)
+        if (opts.outWidth <= 0 || opts.outHeight <= 0) return null
+        var sample = 1
+        while (opts.outWidth / (sample * 2) >= maxSize && opts.outHeight / (sample * 2) >= maxSize) sample *= 2
+        BitmapFactory.decodeFile(f.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+    } catch (e: Throwable) {
+        WeLogger.w(TAG, "decodeScaledBitmapFile 失败", e)
+        null
+    }
+
+    /** 按目标尺寸缩小解码字节数组（网络头像） */
+    private fun decodeScaledBitmapBytes(bytes: ByteArray, maxSize: Int): Bitmap? = try {
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        if (opts.outWidth <= 0 || opts.outHeight <= 0) return null
+        var sample = 1
+        while (opts.outWidth / (sample * 2) >= maxSize && opts.outHeight / (sample * 2) >= maxSize) sample *= 2
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    } catch (e: Throwable) {
+        WeLogger.w(TAG, "decodeScaledBitmapBytes 失败", e)
+        null
+    }
+
     private fun getAvatarCacheFile(act: Activity): File {
         val dir = File(act.cacheDir, AVATAR_CACHE_DIR)
         if (!dir.exists()) dir.mkdirs()
@@ -2089,14 +2115,14 @@ private fun isHomeTabClass(className: String): Boolean {
         val cacheFile = getAvatarCacheFile(act)
         if (cacheFile.exists() && cacheFile.length() > 0) {
             try {
-                val bmp = BitmapFactory.decodeFile(cacheFile.absolutePath)
+                val bmp = decodeScaledBitmapFile(cacheFile, MAX_AVATAR_SIZE)
                 if (bmp != null) return bmp
             } catch (e: Throwable) { WeLogger.w(TAG, "头像缓存读取失败", e) }
         }
         return try {
             var selfWxId = WeApi.selfWxId
             var waited = 0
-            while (selfWxId.isBlank() && waited < 10) {
+            while (selfWxId.isBlank() && waited < 4) {
                 try { Thread.sleep(1000) } catch (_: Throwable) {}
                 selfWxId = WeApi.selfWxId
                 waited++
@@ -2149,7 +2175,10 @@ private fun isHomeTabClass(className: String): Boolean {
             }
             connection.connect()
             if (connection.responseCode != HttpURLConnection.HTTP_OK) null
-            else { input = connection.inputStream; BitmapFactory.decodeStream(input) }
+            else {
+                input = connection.inputStream
+                decodeScaledBitmapBytes(input.readBytes(), MAX_AVATAR_SIZE)
+            }
         } catch (e: Throwable) {
             WeLogger.w(TAG, "downloadBitmap 失败: ${e.message}")
             null
@@ -2302,6 +2331,7 @@ private fun isHomeTabClass(className: String): Boolean {
     private const val TAG = "HomeSidePanel"
     private const val PREFS_PREFIX = "hsp_"
     private const val AVATAR_CACHE_DIR = "home_side_panel"
+    private const val MAX_AVATAR_SIZE = 192  // 头像仅显示 56dp，按 3x 密度解码，避免原图解码/缓存慢
     private const val DEAD_API_DOMAIN = "03c3.cn"
     private const val DEFAULT_WEATHER_API_URL = "https://wttr.in/{city}?format=j1&lang=zh"
     private const val DEFAULT_QUOTE_API_URL = "https://v1.hitokoto.cn/"
