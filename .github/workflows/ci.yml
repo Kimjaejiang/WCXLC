@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 # Trigger CI rebuild for v125 returnType fixes
 # Release trigger: push to master builds and auto-creates GitHub Release (see release job)
@@ -234,6 +234,7 @@ jobs:
           mkdir -p dist/apk
           find app/build/outputs/apk -type f -name '*.apk' -exec cp -v {} dist/apk/ \;
           echo "Collected APKs:"
+          echo "${VER}" > dist/apk/ver.txt
           ls -1 dist/apk
 
       - name: Collect mappings
@@ -282,7 +283,8 @@ jobs:
         run: |
           GIT_HASH=$(git rev-parse --short HEAD)
           # 版本号 = 当前时间（Asia/Shanghai），格式 YYMMDDHHMMSS；versionCode 取后 6 位（与 build.gradle.kts 一致）
-          VER=$(TZ='Asia/Shanghai' date +%y%m%d%H%M%S)
+          # 复用 build job 的版本号（与 APK 内 versionName 一致），保证 Release tag 不漂移
+          VER=$(cat artifacts/ver.txt)
           VERSION_CODE=${VER: -6}
           VERSION_TAG="${VER}"
           echo "tag=${VERSION_TAG}" >> $GITHUB_OUTPUT

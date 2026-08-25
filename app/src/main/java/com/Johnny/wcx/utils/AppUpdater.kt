@@ -238,6 +238,11 @@ object AppUpdater {
     private fun extractVersionCode(tagName: String): Int {
         val vPrefix = tagName.removePrefix("v")
         vPrefix.toIntOrNull()?.let { return it }
+        // CI 时间戳 tag（YYMMDDHHMMSS 12 位，超出 Int 范围）：取后 6 位作为 versionCode，
+        // 否则 toIntOrNull 溢出会落到 hash 分支误报"永远有更新"
+        if (vPrefix.length >= 12 && vPrefix.all { it.isDigit() }) {
+            return vPrefix.takeLast(6).toInt()
+        }
         val ciMatch = Regex("""CI-?(\d+)?""", RegexOption.IGNORE_CASE).find(tagName)
         ciMatch?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
         val hashMatch = Regex("""[0-9a-f]{7}""", RegexOption.IGNORE_CASE).find(tagName)
