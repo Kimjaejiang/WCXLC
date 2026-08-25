@@ -25,7 +25,7 @@
 | 2026-08-25 | 📞 联系人与群组 | **本地好友头像持久化** | 相册 `content://` 复制到模块私有目录存 `file://`，重启微信后不再空白；旧头像自动迁移 |
 | 2026-08-25 | 🎨 界面美化 | **侧边栏修复（4 项）** | ①入口可见性轮询（Tab 切换及时隐藏/恢复）②触发按钮挂载条件增强 ③离开首页保留挂载改隐藏 ④微信 LauncherUI 非 androidx FragmentActivity 兼容（ActionBarOverlayLayout 识别 Tab） |
 | 2026-08-25 | 🎨 界面美化 | **莫奈引擎异常防护** | 主题色解析（`materialScheme`/`primaryColor`/`onPrimaryColor`）包 try-catch，设备不支持动态取色时回退默认色不崩溃 |
-| 2026-08-25 | 🔔 通知 | **通知演进优化** | ①发送者头像缓存 + 异步预取（MessagingStyle 头像）②同一会话多条通知合并（notify id 统一为会话哈希） |
+| 2026-08-25 | 🔔 通知 | **通知演进优化** | ①发送者头像缓存 + 异步预取（MessagingStyle 头像）②同一会话多条通知合并（notify id 统一为会话哈希）③修复已读消息通知带出：微信 cancel 用原始 id 找不到合并后 id → 建立原 id→会话映射 + hook cancel 转换 id 并清空该会话 history |
 | 更早 | 💬 聊天增强 | **归拢@提醒优化** | 入口行被@时摘要显示「有人@我」（atMeCount 聚合到 folder 行）；染绿 hook 扩展双适配器；剥离摘要 WXID 前缀（后因稳定性回退，保留归拢基础功能） |
 | 更早 | 💬 聊天增强 | **解除消息多选数量限制 8.0.77** | DexKit 适配（ChattingDataAdapterV3 移除，allowFailure + placeholder 降级，onEnable guard） |
 | 更早 | 💬 聊天增强 | **自动同意好友申请 8.0.77** | hook 目标改构造器（p3.<init> 接受入口，DexMethodDelegate 无法解析构造器导致 NoSuchMethodException） |
