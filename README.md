@@ -21,6 +21,8 @@
 
 | 日期 | 模块 | 修改项 | 说明 |
 |---|---|---|---|
+| 2026-08-26 | 💬 聊天增强 | **聊天工具栏修复（相册/收藏/动态定位）** | ①相册入口平铺场景不显示：微信第一屏 grid 不在 AppPanel 视图树（快照读不到），注入显示 ②收藏点击错位打开相册：微信 onItemClick 按 position 语义触发（与 view/tag 无关，实测 tag.p=favorite 传 position 0 仍打开相册），收藏改走微信全局收藏页 `com.tencent.mm.plugin.fav.ui.FavoriteIndexUI` ③点击统一在含相册的第一屏 grid 中按名字动态定位 position，不再硬编码映射 ④语音通话/接龙按会话实际格子显示（普通聊天无格子不显示、群聊快照有则正常），群聊无视频通话格子不再误显示 |
+| 2026-08-26 | 🛠️ 构建/CI | **模块内更新 asset 匹配兼容单 ABI 命名** | AppUpdater 期望 `app-<flavor>-<abi>-release.apk`（带 ABI 段），CI 实际产物 `app-<flavor>-release.apk`（release 单 ABI 无 splits）匹配不到 → 更新只能跳转 releases 页面；现兼容两种命名，保证装 standard 更新 standard、装 legacy 更新 legacy |
 | 2026-08-26 | 🎨 界面美化 | **桌面图标重制** | 指定图片去白底 + 红色 `#E53935` 自适应背景图标，webp→png（5 档 DPI） |
 | 2026-08-26 | 💬 聊天增强 | **归拢头像稳定性修复（3 项）** | ①直接 hook `ImageView.setImageDrawable` 防微信异步占位覆盖（DexKit 扫不到系统类）②持久化文件名加时间戳+UUID 防同名覆盖（修"改一个全变同一张"）③avatar hit 清 RecyclerView 残留 tag 防串图；hook 回调以映射当前值为准（移除/更换后不拉回旧头像）+ onDisable 可卸载 |
 | 2026-08-26 | 💬 聊天增强 | **选择器默认按最近消息排序** | 默认排序改新-旧（最近消息时间），首次进入自动加载时间数据，DB 未就绪时轮询重试 |
