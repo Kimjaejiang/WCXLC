@@ -19,21 +19,24 @@
 
 ## 🛠️ 下游修改项（本仓库优化/修复，均同步上游）
 
-### 📅 2026-08-25
-
-| 模块 | 修改项 | 说明 |
-|---|---|---|
-| 💬 聊天增强 | **群聊归拢摘要染色** | 归拢文件夹摘要 `[N个聊天]` 黄色、`[有人@我]`/`[@全体]` 蓝色。摘要控件为 `NoMeasuredTextView`（extends X2CView，getText 为空），hook 其 `setText(CharSequence)` 注入 Spannable 上色 |
-| 📞 联系人与群组 | **本地好友头像持久化** | 相册 `content://` 复制到模块私有目录存 `file://`，重启微信后不再空白；旧头像自动迁移 |
-| 🎨 界面美化 | **侧边栏修复（4 项）** | ①入口可见性轮询（Tab 切换及时隐藏/恢复）②触发按钮挂载条件增强 ③离开首页保留挂载改隐藏 ④微信 LauncherUI 非 androidx FragmentActivity 兼容（ActionBarOverlayLayout 识别 Tab） |
-| 🎨 界面美化 | **莫奈引擎异常防护** | 主题色解析（`materialScheme`/`primaryColor`/`onPrimaryColor`）包 try-catch，设备不支持动态取色时回退默认色不崩溃 |
-| 🔔 通知 | **通知演进优化** | ①发送者头像缓存 + 异步预取（MessagingStyle 头像）②同一会话多条通知合并（notify id 统一为会话哈希） |
-
-### 📅 更早
-
-| 模块 | 修改项 | 说明 |
-|---|---|---|
-| 🎨 界面美化 | **侧边栏头像加载提速** | 解码按目标尺寸缩小（192px）+ 缓存读写缩小图 + selfWxId 等待 10s→4s + 重试 15→3 次，首次加载从 20s+ 降至秒级 |
+| 日期 | 模块 | 修改项 | 说明 |
+|---|---|---|---|
+| 2026-08-25 | 💬 聊天增强 | **群聊归拢摘要染色** | 归拢文件夹摘要 `[N个聊天]` 黄色、`[有人@我]`/`[@全体]` 蓝色。摘要控件为 `NoMeasuredTextView`（extends X2CView，getText 为空），hook 其 `setText(CharSequence)` 注入 Spannable 上色 |
+| 2026-08-25 | 📞 联系人与群组 | **本地好友头像持久化** | 相册 `content://` 复制到模块私有目录存 `file://`，重启微信后不再空白；旧头像自动迁移 |
+| 2026-08-25 | 🎨 界面美化 | **侧边栏修复（4 项）** | ①入口可见性轮询（Tab 切换及时隐藏/恢复）②触发按钮挂载条件增强 ③离开首页保留挂载改隐藏 ④微信 LauncherUI 非 androidx FragmentActivity 兼容（ActionBarOverlayLayout 识别 Tab） |
+| 2026-08-25 | 🎨 界面美化 | **莫奈引擎异常防护** | 主题色解析（`materialScheme`/`primaryColor`/`onPrimaryColor`）包 try-catch，设备不支持动态取色时回退默认色不崩溃 |
+| 2026-08-25 | 🔔 通知 | **通知演进优化** | ①发送者头像缓存 + 异步预取（MessagingStyle 头像）②同一会话多条通知合并（notify id 统一为会话哈希） |
+| 更早 | 💬 聊天增强 | **归拢@提醒优化** | 入口行被@时摘要显示「有人@我」（atMeCount 聚合到 folder 行）；染绿 hook 扩展双适配器；剥离摘要 WXID 前缀（后因稳定性回退，保留归拢基础功能） |
+| 更早 | 💬 聊天增强 | **解除消息多选数量限制 8.0.77** | DexKit 适配（ChattingDataAdapterV3 移除，allowFailure + placeholder 降级，onEnable guard） |
+| 更早 | 💬 聊天增强 | **自动同意好友申请 8.0.77** | hook 目标改构造器（p3.<init> 接受入口，DexMethodDelegate 无法解析构造器导致 NoSuchMethodException） |
+| 更早 | 💬 聊天增强 | **预见性返回动画 8.0.77** | hook 回调 null 保护 + ActivityInfo.name 为 null 降级 + 字段查找异常容错 |
+| 更早 | 🎨 界面美化 | **侧边栏头像加载提速** | 解码按目标尺寸缩小（192px）+ 缓存读写缩小图 + selfWxId 等待 10s→4s + 重试 15→3 次，首次加载从 20s+ 降至秒级 |
+| 更早 | 🎨 界面美化 | **天气卡片（3 项）** | ①Open-Meteo API 格式识别（parseWeatherJson 增加 current 字段）②湿度/风速独立行左右分布防挤压 ③加载占位紧凑化、温度 48sp→40sp、湿度补 %/风速补 km/h |
+| 更早 | 🎨 界面美化 | **fork 品牌化** | 版本号统一加 LC 后缀（Kimjaejiang/WCXLC），模块主页 WCX→WCXLC，设置页 GitHub/官方链接与作者署名改为 fork |
+| 更早 | 🎨 界面美化 | **v245 UI 层对齐 + 侧边栏/主题商城** | 整体替换 UI（69 文件）+ 新增侧边栏 HomeSidePanelFeature / 主题商城，适配 hook 抽象 / DexKit / agent API |
+| 更早 | 🔧 兼容适配 | **8.0.77 通话栈/防御性加固** | PipVoip 通话栈 27 处 dex 解析批量 allowFailure；hook 回调 null 保护 / lazy 链式解析容错 / 微信类硬引用降级 |
+| 更早 | 🔧 兼容适配 | **版本号对齐 fork Releases** | 默认版本号 v244.12→v252.1（本地构建 verCode 252001，可被 CI 自动发布覆盖升级） |
+| 更早 | 🛠️ 构建/CI | **native/R8/CI 修复** | mp3lame-sys 改用 cc 编译、xtask bindgen versioned target、R8 保留 compose 类、Gradle IPv4 优先等 |
 
 ---
 ## ✨ 功能特性
