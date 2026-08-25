@@ -31,9 +31,9 @@ android {
     // 版本号从环境变量 VER 读取（CI 用 tag 计算），本地构建默认日期时间格式（260825245500 = 26年08月25日24:55:00）
     val verTag = System.getenv("VER") ?: "260825245500"
     // 日期时间格式（13 位纯数字）versionCode 取后 9 位（0825245500 -> 825245500 < 2.1e9，随日期时间递增）；
-    // 旧格式（v244.1 / v245 / V20260825）按主号 *1000 + 次号计算
+    // 日期时间格式（13 位纯数字）versionCode 取后 6 位（245500），防 int 溢出；
     val verCode = if (verTag.matches(Regex("[0-9]{12,13}"))) {
-        verTag.takeLast(9).toInt()
+        verTag.takeLast(6).toInt()
     } else if (verTag.matches(Regex("[vV][0-9]{8}"))) {
         verTag.removePrefix("v").removePrefix("V").toInt()
     } else {
@@ -50,7 +50,7 @@ android {
         versionName = verTag + "LC"
 
         buildConfigField("String", "COMMIT_HASH", "\"${gitHash}\"")
-        buildConfigField("String", "TAG", "\"WCXLC\"")
+        buildConfigField("String", "TAG", "\"WCX\"")
         buildConfigField("long", "BUILD_TIMESTAMP", "${System.currentTimeMillis()}L")
         buildConfigField("boolean", "BEAUTIFY_ENABLED", "true")
     }
