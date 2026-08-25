@@ -1,6 +1,7 @@
 ﻿import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
+import java.util.Calendar
 
 plugins {
     alias(libs.plugins.android.application)
@@ -29,9 +30,17 @@ android {
     val gitHash = getGitHash()
 
     // 版本号从环境变量 VER 读取（CI 用 tag 计算），本地构建默认日期时间格式（260825245500 = 26年08月25日24:55:00）
-    val verTag = System.getenv("VER") ?: "260825245500"
-    // 日期时间格式（13 位纯数字）versionCode 取后 9 位（0825245500 -> 825245500 < 2.1e9，随日期时间递增）；
-    // 日期时间格式（13 位纯数字）versionCode 取后 6 位（245500），防 int 溢出；
+    val verTag = System.getenv("VER") ?: Calendar.getInstance().let { c ->
+        "%02d%02d%02d%02d%02d%02d".format(
+            c.get(Calendar.YEAR) % 100,
+            c.get(Calendar.MONTH) + 1,
+            c.get(Calendar.DAY_OF_MONTH),
+            c.get(Calendar.HOUR_OF_DAY),
+            c.get(Calendar.MINUTE),
+            c.get(Calendar.SECOND)
+        )
+    }
+    // 日期时间格式（YYMMDDHHMMSS 12 位纯数字）versionCode 取后 6 位（时分秒），防 int 溢出；
     val verCode = if (verTag.matches(Regex("[0-9]{12,13}"))) {
         verTag.takeLast(6).toInt()
     } else if (verTag.matches(Regex("[vV][0-9]{8}"))) {
@@ -46,8 +55,8 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = verCode
-        // fork 品牌: 所有版本号统一加 "LC" 后缀 (Kimjaejiang/WCXLC)
-        versionName = verTag + "LC"
+        // 版本号直接使用 verTag（日期时间格式），无额外后缀
+        versionName = verTag
 
         buildConfigField("String", "COMMIT_HASH", "\"${gitHash}\"")
         buildConfigField("String", "TAG", "\"WCX\"")
