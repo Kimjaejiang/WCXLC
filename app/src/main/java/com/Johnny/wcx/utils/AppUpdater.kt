@@ -76,10 +76,13 @@ private const val UNIVERSAL_APK_SUFFIX = "universal-release.apk"
  */
 private fun selectApkUrl(assets: List<GitHubAsset>): String {
     val supportedAbis = Build.SUPPORTED_ABIS
+    // 优先带 ABI 段的命名（app-<flavor>-<abi>-release.apk，多 ABI splits 产物）
     for (abi in supportedAbis) {
         val expected = "app-$FLAVOR-$abi-release.apk"
         assets.firstOrNull { it.name == expected }?.let { return it.browser_download_url }
     }
+    // 兼容不带 ABI 段的命名（app-<flavor>-release.apk：release 单 ABI 无 splits 时 AGP 实际产物名）
+    assets.firstOrNull { it.name == "app-$FLAVOR-release.apk" }?.let { return it.browser_download_url }
     assets.firstOrNull { it.name.endsWith(UNIVERSAL_APK_SUFFIX) }?.let { return it.browser_download_url }
     return RELEASES_PAGE
 }
