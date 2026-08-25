@@ -1,4 +1,4 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+﻿import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
@@ -28,14 +28,19 @@ android {
 
     val gitHash = getGitHash()
 
-    // 版本号从环境变量 VER 读取（CI 用 v* tag 最大 +1 计算），本地构建默认 v252.1
-    val verTag = System.getenv("VER") ?: "v252.1"
-    // "v244.1" -> 244001；"v244.100" -> 244100；"v245" -> 245000；"v245.1" -> 245001。
-    // 主号 *1000 + 次号（单段版本补 *1000），保证 V244.1~V244.100 序列递增且不与后续主号撞号。
-    val verCodeParts = verTag.removePrefix("v").split(".")
-    val verCode = verCodeParts.fold(0) { acc, part -> acc * 1000 + (part.toIntOrNull() ?: 0) } *
-        (if (verCodeParts.size == 1) 1000 else 1)
-
+    // 版本号从环境变量 VER 读取（CI 用 tag 计算），本地构建默认日期时间格式（260825245500 = 26年08月25日24:55:00）
+    val verTag = System.getenv("VER") ?: "260825245500"
+    // 日期时间格式（13 位纯数字）versionCode 取后 9 位（0825245500 -> 825245500 < 2.1e9，随日期时间递增）；
+    // 旧格式（v244.1 / v245 / V20260825）按主号 *1000 + 次号计算
+    val verCode = if (verTag.matches(Regex("[0-9]{12,13}"))) {
+        verTag.takeLast(9).toInt()
+    } else if (verTag.matches(Regex("[vV][0-9]{8}"))) {
+        verTag.removePrefix("v").removePrefix("V").toInt()
+    } else {
+        val verCodeParts = verTag.removePrefix("v").removePrefix("V").split(".")
+        verCodeParts.fold(0) { acc, part -> acc * 1000 + (part.toIntOrNull() ?: 0) } *
+            (if (verCodeParts.size == 1) 1000 else 1)
+    }
     defaultConfig {
         applicationId = libs.versions.namespace.get()
         minSdk = libs.versions.minSdk.get().toInt()
@@ -45,7 +50,7 @@ android {
         versionName = verTag + "LC"
 
         buildConfigField("String", "COMMIT_HASH", "\"${gitHash}\"")
-        buildConfigField("String", "TAG", "\"WCX\"")
+        buildConfigField("String", "TAG", "\"WCXLC\"")
         buildConfigField("long", "BUILD_TIMESTAMP", "${System.currentTimeMillis()}L")
         buildConfigField("boolean", "BEAUTIFY_ENABLED", "true")
     }
