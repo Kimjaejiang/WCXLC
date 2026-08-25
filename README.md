@@ -187,13 +187,13 @@ wcx/
 - 免责声明
 
 ---
-
 ## 📋 适配版本
 
-> 💡 **推荐使用微信 8.0.69 ~ 8.0.76**，功能完整且经过测试。
+> 💡 **推荐使用微信 8.0.69 ~ 8.0.77**，功能完整且经过测试。
 
 | 状态 | 版本范围 | 说明 |
 |------|----------|------|
+| 🚀 先行版 | 8.0.77 | 可以日用，一起来抓 BUG |
 | ✅ 推荐使用 | 8.0.69 ~ 8.0.76 | 功能完整适配，推荐使用 |
 | 🔧 维护中 | 8.0.65 ~ 8.0.68 | 基本可用，如有问题欢迎反馈 |
 | ⚠️ 低版本 | < 8.0.65 | 部分功能可能无法使用，不推荐 |
@@ -229,27 +229,3 @@ cd deobf && ./run_deobf.sh
 - 详见各子目录 LICENSE 文件
 
 ---
-
-## 💝 捐赠
-
-如果您觉得这个项目对您有帮助，欢迎支持一下～
-
-[![爱发电](https://img.shields.io/badge/爱发电-支持一下-ff69b4?style=for-the-badge)](https://www.ifdian.net/a/Johnny520)
-
----
-
-## 🌐 相关链接
-
-| 平台 | 链接 |
-|------|------|
-| 🌐 个人官网 | [https://johnny520.github.io/Johnny/](https://johnny520.github.io/Johnny/) |
-| 🐙 GitHub 主页 | [https://github.com/Johnny520](https://github.com/Johnny520) |
-| 💬 讨论区 | [https://johnny520.github.io/Johnny/#msg](https://johnny520.github.io/Johnny/#msg) |
-| 📚 项目文档 | [docs/](docs/) |
-| 🐛 提交 Bug | [Issues](https://github.com/Johnny520/wcx/issues) |
-
----
-
-<p align="center">
-  <sub>Built with ❤️ by 文强哥 (Johnny520)</sub>
-</p>
