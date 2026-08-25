@@ -69,6 +69,7 @@ import com.Johnny.wcx.utils.fs.KnownPaths
 import com.Johnny.wcx.utils.fs.createDirsSafe
 import com.Johnny.wcx.utils.reflection.BString
 import com.Johnny.wcx.utils.reflection.bool
+import com.Johnny.wcx.utils.hookAfterDirectly
 import kotlinx.serialization.json.Json
 import java.lang.reflect.Field
 import java.lang.reflect.Method
@@ -186,17 +187,6 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         }
     }
 
-    // WeChat's async avatar loader (AvatarDrawable/wekit) re-applies the default/placeholder
-    // avatar to the same ImageView after our hook set the custom one, wiping the folder avatars
-    // (invalid wxid → WeChat's placeholder). Hook setImageDrawable: whenever an ImageView carrying
-    // our custom-avatar tag gets set again, force re-apply the custom bitmap.
-    private val methodSetImageDrawable by dexMethod(allowFailure = true) {
-        matcher {
-            declaredClass = "android.widget.ImageView"
-            name = "setImageDrawable"
-            paramTypes("android.graphics.drawable.Drawable")
-        }
-    }
 
     private val inCustomDrawable = ThreadLocal.withInitial { false }
 
@@ -318,26 +308,7 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
                 }
             }
         }
-        if (!methodSetImageDrawable.isPlaceholder) {
-            methodSetImageDrawable.method.hookAfter {
-                val imageView = thisObject as? ImageView ?: return@hookAfter
-                if (inCustomDrawable.get()!!) return@hookAfter
-                val tag = imageView.getTag(VIEW_TAG_CUSTOM_AVATAR) as? String ?: return@hookAfter
-                val parts = tag.split(SEP)
-                if (parts.size < 3) return@hookAfter
-                inCustomDrawable.set(true)
-                try {
-                    val radius = parts[2].toFloatOrNull() ?: roundAvatarRadiusFactor
-                    loadAvatarInto(imageView, parts[1], radius)
-                    WeLogger.i(TAG, "avatar re-applied after WeChat overwrite: ${parts[0]}")
-                } finally {
-                    inCustomDrawable.set(false)
-                }
-            }
-            WeLogger.i(TAG, "setImageDrawable re-apply hook registered")
-        } else {
-            WeLogger.w(TAG, "setImageDrawable hook NOT matched")
-        }
+        hookSetImageDrawableDirectly()
     }
 
     override fun onDisable() {
@@ -393,6 +364,41 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
 
     private fun effectiveRadiusFactor(loaderRadiusFactor: Float): Float {
         return if (RoundAvatars.isEnabled) roundAvatarRadiusFactor else loaderRadiusFactor
+    }
+
+    /**
+     * 微信异步头像加载器（AvatarDrawable/wekit）会在我们 hook 设置自定义头像后，用默认/占位头像
+     * 再次覆盖同一个 ImageView（文件夹 wxid 无效 → 微信回退到占位图）。setImageDrawable 是系统
+     * 方法，DexKit 扫不到，这里直接按类名 hook：凡是带自定义头像 tag 的 ImageView 被再次设置时
+     * 强制重设自定义头像。
+     */
+    private fun hookSetImageDrawableDirectly() {
+        runCatching {
+            val cls = Class.forName("android.widget.ImageView")
+            cls.declaredMethods
+                .filter { it.name == "setImageDrawable" && it.parameterTypes.size == 1 }
+                .forEach { m ->
+                    m.isAccessible = true
+                    m.hookAfterDirectly {
+                        val imageView = thisObject as? ImageView ?: return@hookAfterDirectly
+                        if (inCustomDrawable.get()!!) return@hookAfterDirectly
+                        val tag = imageView.getTag(VIEW_TAG_CUSTOM_AVATAR) as? String ?: return@hookAfterDirectly
+                        val parts = tag.split(SEP)
+                        if (parts.size < 3) return@hookAfterDirectly
+                        inCustomDrawable.set(true)
+                        try {
+                            val radius = parts[2].toFloatOrNull() ?: roundAvatarRadiusFactor
+                            loadAvatarInto(imageView, parts[1], radius)
+                            WeLogger.i(TAG, "avatar re-applied after WeChat overwrite: ${parts[0]}")
+                        } finally {
+                            inCustomDrawable.set(false)
+                        }
+                    }
+                }
+            WeLogger.i(TAG, "setImageDrawable re-apply hook registered (direct)")
+        }.onFailure {
+            WeLogger.e(TAG, "setImageDrawable direct hook failed", it)
+        }
     }
 
     private fun applyCustomAvatar(imageView: ImageView, username: String, radiusFactor: Float): Boolean {
