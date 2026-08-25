@@ -1,4 +1,4 @@
-# WCX · 微信增强模块 💠
+﻿# WCX · 微信增强模块 💠
 
 ## ⚠️ 下游仓库声明
 
@@ -21,6 +21,10 @@
 
 | 日期 | 模块 | 修改项 | 说明 |
 |---|---|---|---|
+| 2026-08-26 | 🎨 界面美化 | **桌面图标重制** | 指定图片去白底 + 红色 `#E53935` 自适应背景图标，webp→png（5 档 DPI） |
+| 2026-08-26 | 💬 聊天增强 | **归拢头像稳定性修复（3 项）** | ①直接 hook `ImageView.setImageDrawable` 防微信异步占位覆盖（DexKit 扫不到系统类）②持久化文件名加时间戳+UUID 防同名覆盖（修"改一个全变同一张"）③avatar hit 清 RecyclerView 残留 tag 防串图；hook 回调以映射当前值为准（移除/更换后不拉回旧头像）+ onDisable 可卸载 |
+| 2026-08-26 | 💬 聊天增强 | **选择器默认按最近消息排序** | 默认排序改新-旧（最近消息时间），首次进入自动加载时间数据，DB 未就绪时轮询重试 |
+| 2026-08-26 | 🛠️ 构建/CI | **AppUpdater 版本解析 + CI 版本号对齐** | ①12 位时间戳 tag（YYMMDDHHMMSS）正确解析取后 6 位，修复模块主页"一直提示有更新" ②Release tag 复用 build job 版本号（与 APK 内 versionName 一致），ver.txt 随 artifact 上传 |
 | 2026-08-25 | 💬 聊天增强 | **群聊归拢摘要染色** | 归拢文件夹摘要 `[N个聊天]` 黄色、`[有人@我]`/`[@全体]` 蓝色。摘要控件为 `NoMeasuredTextView`（extends X2CView，getText 为空），hook 其 `setText(CharSequence)` 注入 Spannable 上色 |
 | 2026-08-25 | 📞 联系人与群组 | **本地好友头像持久化** | 相册 `content://` 复制到模块私有目录存 `file://`，重启微信后不再空白；旧头像自动迁移 |
 | 2026-08-25 | 🎨 界面美化 | **侧边栏修复（4 项）** | ①入口可见性轮询（Tab 切换及时隐藏/恢复）②触发按钮挂载条件增强 ③离开首页保留挂载改隐藏 ④微信 LauncherUI 非 androidx FragmentActivity 兼容（ActionBarOverlayLayout 识别 Tab） |
