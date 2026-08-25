@@ -277,6 +277,11 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
                 val imageView = args.getOrNull(0) as? ImageView ?: return@hookBefore
                 val wxId = args.getOrNull(1) as? String ?: return@hookBefore
 
+                // RecyclerView 复用：先清掉上一个条目的自定义头像 tag，避免微信 setImageDrawable
+                // 覆盖时被误当成当前条目重设（系统会话/其他文件夹串图）
+                imageView.setTag(VIEW_TAG_CUSTOM_AVATAR, null)
+                boundAvatarViews.remove(imageView)
+
                 val redirectedId = fallbackUsernameProvider?.invoke(wxId)
                 if (redirectedId != null) {
                     WeLogger.i(TAG, "avatar redirect[$index] $wxId -> $redirectedId")
@@ -623,7 +628,7 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
             val input = ctx.contentResolver.openInputStream(uri.toUri()) ?: return@runCatching uri
             val dir = (KnownPaths.moduleData / "avatars").createDirsSafe() ?: return@runCatching uri
             val safeName = uri.replace(Regex("[^\\w]"), "_").take(64)
-            val target = dir / "avatar_${safeName}.jpg"
+            val target = dir / "avatar_${System.currentTimeMillis()}_${safeName}.jpg"
             input.use { ins ->
                 target.toFile().outputStream().use { outs -> ins.copyTo(outs) }
             }
