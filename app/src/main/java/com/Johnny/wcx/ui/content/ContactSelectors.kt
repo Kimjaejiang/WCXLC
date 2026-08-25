@@ -188,10 +188,20 @@ fun BaseContactSelector(
 
     var filtersExpanded by remember { mutableStateOf(true) }
 
-    var sortMode by remember { mutableStateOf(SortMode.ALPHABETICAL) }
+    var sortMode by remember { mutableStateOf(SortMode.LAST_MESSAGE_TIME) }
     var sortReversed by remember { mutableStateOf(false) }
     var lastMessageTimes by remember { mutableStateOf<Map<String, Long>?>(null) }
     var isSortLoading by remember { mutableStateOf(false) }
+
+    // 默认按「新-旧」（最近消息时间）排序：首次进入自动加载时间数据，加载完成前保持传入顺序
+    LaunchedEffect(Unit) {
+        if (sortMode == SortMode.LAST_MESSAGE_TIME && lastMessageTimes == null && !isSortLoading) {
+            val times = withContext(Dispatchers.IO) {
+                if (WeDatabaseApi.isReady) WeDatabaseApi.getLastMessageTimes() else null
+            }
+            if (times != null) lastMessageTimes = times
+        }
+    }
 
     fun switchSortMode(target: SortMode) {
         if (target == sortMode || isSortLoading) return
