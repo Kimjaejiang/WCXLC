@@ -185,6 +185,7 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
         val name: String,
         val onClickListener: AdapterView.OnItemClickListener,
         val onLongClickListener: AdapterView.OnItemLongClickListener,
+        val appPanel: WeakReference<AppPanel>,
         val gridView: WeakReference<GridView>,
         val itemView: WeakReference<View>,
         val indexInGrid: Int
@@ -194,6 +195,75 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
         val id: String = UUID.randomUUID().toString(),
         val text: String,
     )
+
+    /** 触发微信工具。
+     * 1) 第一屏工具（相册/拍摄/视频通话/位置/红包/转账等）：在含相册的第一屏 grid 中按名字
+     *    动态定位 position（微信 listener 按 position 语义触发，与 view/tag 无关）。
+     * 2) 收藏：不在第一屏，listener 无法触发，改走微信全局收藏页。
+     * 3) 其余更多页工具：按名字实时匹配（尽力而为，微信 listener 可能不支持）。 */
+    private fun clickTool(appPanel: AppPanel, name: String, default: MenuItem) {
+        val grids = mutableListOf<GridView>()
+        fun collectGrids(r: View) {
+            if (r is GridView) grids.add(r)
+            if (r is ViewGroup) for (i in 0 until r.childCount) collectGrids(r.getChildAt(i))
+        }
+        collectGrids(appPanel)
+
+        // 第一屏 grid（含相册）优先，保证 grid 与 position 语义一致
+        val firstScreen = grids.firstOrNull { g ->
+            g.isAttachedToWindow && runCatching {
+                (0 until (g.adapter?.count ?: 0)).any { i -> extractItemName(g.adapter!!.getView(i, null, g)) == "相册" }
+            }.getOrDefault(false)
+        }
+
+        // 优先在 firstScreen（含相册的第一屏 grid）中按名字动态定位 position —— 与微信 listener 的
+        // position 语义一致，避免硬编码映射在版本/顺序变化时错位（如语音通话无独立格子）。
+        val grid = firstScreen ?: grids.firstOrNull { it.isAttachedToWindow }
+            ?: default.gridView.get() ?: return
+        val adapter = grid.adapter ?: return
+        val position = (0 until adapter.count).firstOrNull { idx ->
+            extractItemName(adapter.getView(idx, null, grid)) == name
+        }
+        if (position != null) {
+            val liveView = adapter.getView(position, null, grid)
+            WeLogger.i(TAG, "CLICK-MAP name=" + name + " pos=" + position + " gridCount=" + adapter.count)
+            default.onClickListener.onItemClick(grid, liveView, position, 0)
+            return
+        }
+        if (name == "收藏") {
+            // 微信 8.0.77 收藏页 Activity 名已变，逐个尝试常见类名
+            val ctx = appPanel.context
+            val candidates = listOf(
+                "com.tencent.mm.plugin.fav.ui.FavoriteIndexUI",
+            )
+            for (cls in candidates) {
+                runCatching {
+                    val intent = android.content.Intent().setClassName("com.tencent.mm", cls)
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ctx.startActivity(intent)
+                    WeLogger.i(TAG, "FAV-OK " + cls)
+                    return
+                }
+            }
+            WeLogger.i(TAG, "FAV-ALL-FAIL")
+            return
+        }
+
+        // 其他更多页工具：按名字实时匹配（尽力而为）
+        val ordered = grids.filter { it.isAttachedToWindow || it.childCount > 0 } + grids
+        for (grid in ordered.distinct()) {
+            val adapter = grid.adapter ?: continue
+            val index = (0 until adapter.count).firstOrNull { idx ->
+                extractItemName(adapter.getView(idx, null, grid)) == name
+            } ?: continue
+            val liveView = grid.getChildAt(index) ?: adapter.getView(index, null, grid)
+            WeLogger.i(TAG, "CLICK name=" + name + " index=" + index)
+            default.onClickListener.onItemClick(grid, liveView, index, 0)
+            return
+        }
+        WeLogger.i(TAG, "CLICK-FAIL name=" + name)
+    }
+
 
     private class PanelTools {
         val flow = MutableStateFlow<List<Pair<String, MenuItem>>>(emptyList())
@@ -285,6 +355,14 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
 
     /** 从 AppPanel 格子 item 提取工具名。优先读 item 布局的显示文本（用户看到的，如「相册」），
      * 微信 tag 结构里第一个 TextView 可能是长按提示（如「系统拍摄」），会导致入口消失或错位。 */
+    /** 调试：收集 item 内所有 TextView 文本，排查名字提取问题。 */
+    private fun collectTexts(root: View, out: MutableList<String>) {
+        if (root is TextView && root.text.isNotBlank()) out.add(root.text.toString())
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) collectTexts(root.getChildAt(i), out)
+        }
+    }
+
     private fun extractItemName(itemView: View): String {
         findFirstText(itemView)?.let { if (it.isNotBlank()) return it }
         return runCatching {
@@ -304,15 +382,38 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
         }
         return null
     }
+    /** 调试：递归遍历 AppPanel 视图树，打印所有 GridView（找含相册的第一屏 grid）。 */
+    private fun dumpAllGrids(root: View, depth: Int = 0) {
+        if (root is GridView) {
+            val adapter = root.adapter
+            val n = adapter?.count ?: 0
+            val items = (0 until minOf(n, 3)).map { idx ->
+                val v = adapter?.getView(idx, null, root) ?: return@map "?"
+                extractItemName(v)
+            }
+            WeLogger.i(TAG, "GRIDVIEW depth=$depth class=" + root.javaClass.name + " count=$n first3=$items")
+        }
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) dumpAllGrids(root.getChildAt(i), depth + 1)
+        }
+    }
+
     /** Reads the panel's grids into its [PanelTools.flow]. No-op while the grid isn't built yet. */
     private fun snapshotTools(appPanel: AppPanel) {
         val tools = mutableListOf<Pair<String, MenuItem>>()
+        dumpAllGrids(appPanel)
 
         // (0, 0, 0) is the MMFlipper holding one GridView per page; absent until AppPanel.init()
         // has inflated the panel's layout.
-        val grids = appPanel.findViewByChildIndexes<ViewGroup>(0, 0, 0)
-            ?.children?.map { view -> view as GridView }
-            ?: return
+        // 微信 8.0.77 面板含多个 AppGrid（第一屏+更多页）：findViewByChildIndexes(0,0,0) 只命中一组，
+        // 会漏掉相册（第一屏 index 0）。递归收集所有 GridView 合并工具。
+        val grids = mutableListOf<GridView>()
+        fun collectGrids(r: View) {
+            if (r is GridView) grids.add(r)
+            if (r is ViewGroup) for (i in 0 until r.childCount) collectGrids(r.getChildAt(i))
+        }
+        collectGrids(appPanel)
+        if (grids.isEmpty()) return
 
         grids.forEach { grid ->
             val onClickListener = grid.reflekt()
@@ -329,6 +430,7 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                         name,
                         onClickListener,
                         onLongClickListener,
+                        WeakReference(appPanel),
                         WeakReference(grid),
                         WeakReference(itemView),
                         index
@@ -488,25 +590,21 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
 
                             tools.forEach { (name, menuItem) ->
                                 if (name in NAME_TO_ICON_MAP && name != "系统拍摄") {
-                                    // 快照的 itemView/index 会在微信重建 grid 后失效：点击时按名字实时定位，
-                                    // 避免入口消失（弱引用被回收）或功能错位（点了相册却触发拍摄）
                                     list.add(name to {
-                                        run {
-                                            val gridView = menuItem.gridView.get() ?: return@run
-                                            val adapter = gridView.adapter ?: return@run
-                                            // 优先匹配 grid 已挂载的真实 view（微信点击回调可能检查 view 状态），
-                                            // 不可见项退回 adapter.getView
-                                            val index = (0 until gridView.childCount).firstOrNull { i ->
-                                                extractItemName(gridView.getChildAt(i)) == name
-                                            } ?: (0 until adapter.count).firstOrNull { idx ->
-                                                extractItemName(adapter.getView(idx, null, gridView)) == name
-                                            } ?: return@run
-                                            val liveView = gridView.getChildAt(index)
-                                                ?: adapter.getView(index, null, gridView)
-                                            menuItem.onClickListener.onItemClick(gridView, liveView, index, 0)
-                                        }
+                                        menuItem.appPanel.get()?.let { clickTool(it, name, menuItem) }
                                     })
                                 }
+                            }
+
+                            // 相册在微信所有会话的第一屏 grid 都有，但平铺时第一屏 grid 不在 AppPanel
+                            // 视图树（快照读不到），需注入显示；其余工具以快照为准（会话没有的格子不显示，
+                            // 如群聊无视频通话格子、普通聊天无语音通话/接龙格子）。
+                            val presentNames = tools.map { it.first }.toSet()
+                            val defaultMenuItem = tools.firstOrNull()?.second
+                            if (defaultMenuItem != null && "相册" in enabledItems && "相册" !in presentNames) {
+                                list.add("相册" to {
+                                    defaultMenuItem.appPanel.get()?.let { clickTool(it, "相册", defaultMenuItem) }
+                                })
                             }
 
                             list.distinctBy { it.first }
@@ -516,6 +614,7 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                                     if (idx == -1) Int.MAX_VALUE else idx
                                 }
                         }
+                        WeLogger.i(TAG, "TOOLS-RENDER enabled=" + enabledItems + " rendered=" + sortedVisibleItems.map { it.first })
 
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -529,6 +628,16 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                     }
                 }
             }, 0)
+
+            // 调试：打印 footer 子 View 结构（确认 ComposeView 添加位置与微信 UI）
+            fun dumpChildren(r: View, d: Int = 0) {
+                if (d > 4) return
+                WeLogger.i(TAG, "FOOTER d" + d + " " + r.javaClass.name + " children=" + (if (r is ViewGroup) r.childCount else 0))
+                if (r is ViewGroup) {
+                    for (i in 0 until minOf(r.childCount, 5)) dumpChildren(r.getChildAt(i), d + 1)
+                }
+            }
+            dumpChildren(chatFooter)
         }
     }
 
