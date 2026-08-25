@@ -1,4 +1,4 @@
-package com.Johnny.wcx.features.items.chat
+﻿package com.Johnny.wcx.features.items.chat
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -283,6 +283,14 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
      */
     private const val GRID_INIT_WATCHDOG_DELAY_MS = 1500L
 
+    /** 从 AppPanel 格子 item 提取显示名（微信 item tag 里嵌 TextView）。读取失败返回空串。 */
+    private fun extractItemName(itemView: View): String =
+        runCatching {
+            (itemView.tag.reflekt()
+                .firstField { type = TextView::class }
+                .get()!! as TextView).text.toString()
+        }.getOrElse { "" }
+
     /** Reads the panel's grids into its [PanelTools.flow]. No-op while the grid isn't built yet. */
     private fun snapshotTools(appPanel: AppPanel) {
         val tools = mutableListOf<Pair<String, MenuItem>>()
@@ -301,9 +309,8 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
             val listAdapter = grid.adapter
 
             listAdapter.iterable(grid).forEachIndexed { index, itemView ->
-                val name = (itemView.tag.reflekt()
-                    .firstField { type = TextView::class }
-                    .get()!! as TextView).text.toString()
+                val name = extractItemName(itemView)
+                if (name.isEmpty()) return@forEachIndexed
                 tools.add(
                     name to MenuItem(
                         name,
@@ -468,17 +475,22 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
 
                             tools.forEach { (name, menuItem) ->
                                 if (name in NAME_TO_ICON_MAP && name != "系统拍摄") {
-                                    // item views are inflated by the snapshot and only held weakly,
-                                    // so they can be collected before the chip is ever tapped
-                                    val gridView = menuItem.gridView.get() ?: return@forEach
-                                    val itemView = menuItem.itemView.get() ?: return@forEach
+                                    // 快照的 itemView/index 会在微信重建 grid 后失效：点击时按名字实时定位，
+                                    // 避免入口消失（弱引用被回收）或功能错位（点了相册却触发拍摄）
                                     list.add(name to {
-                                        menuItem.onClickListener.onItemClick(
-                                            gridView,
-                                            itemView,
-                                            menuItem.indexInGrid,
-                                            0
-                                        )
+                                        run {
+                                            val gridView = menuItem.gridView.get() ?: return@run
+                                            val adapter = gridView.adapter ?: return@run
+                                            val index = (0 until adapter.count).firstOrNull { idx ->
+                                                extractItemName(adapter.getView(idx, null, gridView)) == name
+                                            } ?: return@run
+                                            menuItem.onClickListener.onItemClick(
+                                                gridView,
+                                                adapter.getView(index, null, gridView),
+                                                index,
+                                                0
+                                            )
+                                        }
                                     })
                                 }
                             }
