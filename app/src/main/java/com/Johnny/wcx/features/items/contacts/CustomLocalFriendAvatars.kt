@@ -69,10 +69,12 @@ import com.Johnny.wcx.utils.fs.KnownPaths
 import com.Johnny.wcx.utils.fs.createDirsSafe
 import com.Johnny.wcx.utils.reflection.BString
 import com.Johnny.wcx.utils.reflection.bool
+import com.Johnny.wcx.utils.HookHandle
 import com.Johnny.wcx.utils.hookAfterDirectly
 import kotlinx.serialization.json.Json
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import java.util.UUID
 import java.text.Collator
 import java.util.Collections
 import java.util.Locale
@@ -319,6 +321,8 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
     override fun onDisable() {
         WeContactPrefsScreenApi.removeProvider(this)
         avatarMapCache = null
+        setImageDrawableUnhook?.unhook()
+        setImageDrawableUnhook = null
     }
 
     override fun getContactInfoItem(activity: Activity): List<PreferenceItem> {
@@ -371,11 +375,13 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         return if (RoundAvatars.isEnabled) roundAvatarRadiusFactor else loaderRadiusFactor
     }
 
+    private var setImageDrawableUnhook: HookHandle? = null
+
     /**
      * 微信异步头像加载器（AvatarDrawable/wekit）会在我们 hook 设置自定义头像后，用默认/占位头像
      * 再次覆盖同一个 ImageView（文件夹 wxid 无效 → 微信回退到占位图）。setImageDrawable 是系统
      * 方法，DexKit 扫不到，这里直接按类名 hook：凡是带自定义头像 tag 的 ImageView 被再次设置时
-     * 强制重设自定义头像。
+     * 强制重设自定义头像（以 avatarMap 当前值为准，头像被移除/更换后不再拉回旧头像）。
      */
     private fun hookSetImageDrawableDirectly() {
         runCatching {
@@ -384,17 +390,26 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
                 .filter { it.name == "setImageDrawable" && it.parameterTypes.size == 1 }
                 .forEach { m ->
                     m.isAccessible = true
-                    m.hookAfterDirectly {
+                    setImageDrawableUnhook = m.hookAfterDirectly {
                         val imageView = thisObject as? ImageView ?: return@hookAfterDirectly
                         if (inCustomDrawable.get()!!) return@hookAfterDirectly
                         val tag = imageView.getTag(VIEW_TAG_CUSTOM_AVATAR) as? String ?: return@hookAfterDirectly
                         val parts = tag.split(SEP)
-                        if (parts.size < 3) return@hookAfterDirectly
+                        if (parts.size < 2) return@hookAfterDirectly
+                        val username = parts.first()
+                        // 以当前映射为准，不信任 tag 里存的旧 uri
+                        val currentUri = avatarMap[username]?.takeIf { it.isNotBlank() }
+                        if (currentUri == null) {
+                            // 头像已移除：清残留 tag，避免串图/旧头像复活
+                            imageView.setTag(VIEW_TAG_CUSTOM_AVATAR, null)
+                            boundAvatarViews.remove(imageView)
+                            return@hookAfterDirectly
+                        }
+                        val radius = parts.last().toFloatOrNull() ?: roundAvatarRadiusFactor
                         inCustomDrawable.set(true)
                         try {
-                            val radius = parts[2].toFloatOrNull() ?: roundAvatarRadiusFactor
-                            loadAvatarInto(imageView, parts[1], radius)
-                            WeLogger.i(TAG, "avatar re-applied after WeChat overwrite: ${parts[0]}")
+                            loadAvatarInto(imageView, currentUri, radius)
+                            WeLogger.i(TAG, "avatar re-applied after WeChat overwrite: $username")
                         } finally {
                             inCustomDrawable.set(false)
                         }
@@ -628,7 +643,7 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
             val input = ctx.contentResolver.openInputStream(uri.toUri()) ?: return@runCatching uri
             val dir = (KnownPaths.moduleData / "avatars").createDirsSafe() ?: return@runCatching uri
             val safeName = uri.replace(Regex("[^\\w]"), "_").take(64)
-            val target = dir / "avatar_${System.currentTimeMillis()}_${safeName}.jpg"
+            val target = dir / "avatar_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}_${safeName}.jpg"
             input.use { ins ->
                 target.toFile().outputStream().use { outs -> ins.copyTo(outs) }
             }

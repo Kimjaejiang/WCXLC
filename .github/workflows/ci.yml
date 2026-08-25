@@ -250,7 +250,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: wcx-apk
-          path: dist/apk/*.apk
+          path: dist/apk
 
       - name: Upload Release Obfuscation Mapping
         uses: actions/upload-artifact@v7

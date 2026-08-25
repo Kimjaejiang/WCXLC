@@ -1,4 +1,4 @@
-package com.Johnny.wcx.ui.content
+﻿package com.Johnny.wcx.ui.content
 
 import android.icu.text.Transliterator
 import android.os.Build
@@ -78,6 +78,7 @@ import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.showToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.text.Collator
 import java.util.Locale
@@ -193,13 +194,24 @@ fun BaseContactSelector(
     var lastMessageTimes by remember { mutableStateOf<Map<String, Long>?>(null) }
     var isSortLoading by remember { mutableStateOf(false) }
 
-    // 默认按「新-旧」（最近消息时间）排序：首次进入自动加载时间数据，加载完成前保持传入顺序
+    // 默认按「新-旧」（最近消息时间）排序：首次进入自动加载时间数据，DB 未就绪时轮询重试，
+    // 加载完成前保持传入顺序（与手动切换共用 isSortLoading，避免重复查询）
     LaunchedEffect(Unit) {
         if (sortMode == SortMode.LAST_MESSAGE_TIME && lastMessageTimes == null && !isSortLoading) {
-            val times = withContext(Dispatchers.IO) {
-                if (WeDatabaseApi.isReady) WeDatabaseApi.getLastMessageTimes() else null
+            isSortLoading = true
+            try {
+                var times: Map<String, Long>? = null
+                repeat(60) { // 最多等约 30 秒（微信数据库初始化完成前不放弃）
+                    times = withContext(Dispatchers.IO) {
+                        if (WeDatabaseApi.isReady) WeDatabaseApi.getLastMessageTimes() else null
+                    }
+                    if (times != null) return@repeat
+                    delay(500)
+                }
+                if (times != null) lastMessageTimes = times
+            } finally {
+                isSortLoading = false
             }
-            if (times != null) lastMessageTimes = times
         }
     }
 
