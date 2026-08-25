@@ -283,14 +283,27 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
      */
     private const val GRID_INIT_WATCHDOG_DELAY_MS = 1500L
 
-    /** 从 AppPanel 格子 item 提取显示名（微信 item tag 里嵌 TextView）。读取失败返回空串。 */
-    private fun extractItemName(itemView: View): String =
-        runCatching {
+    /** 从 AppPanel 格子 item 提取工具名。优先读 item 布局的显示文本（用户看到的，如「相册」），
+     * 微信 tag 结构里第一个 TextView 可能是长按提示（如「系统拍摄」），会导致入口消失或错位。 */
+    private fun extractItemName(itemView: View): String {
+        findFirstText(itemView)?.let { if (it.isNotBlank()) return it }
+        return runCatching {
             (itemView.tag.reflekt()
                 .firstField { type = TextView::class }
                 .get()!! as TextView).text.toString()
         }.getOrElse { "" }
+    }
 
+    /** 深度遍历取第一个非空 TextView 文本（工具名格子通常是 图标+文字 垂直布局）。 */
+    private fun findFirstText(root: View): String? {
+        if (root is TextView && root.text.isNotBlank()) return root.text.toString()
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                findFirstText(root.getChildAt(i))?.let { return it }
+            }
+        }
+        return null
+    }
     /** Reads the panel's grids into its [PanelTools.flow]. No-op while the grid isn't built yet. */
     private fun snapshotTools(appPanel: AppPanel) {
         val tools = mutableListOf<Pair<String, MenuItem>>()
@@ -481,15 +494,16 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                                         run {
                                             val gridView = menuItem.gridView.get() ?: return@run
                                             val adapter = gridView.adapter ?: return@run
-                                            val index = (0 until adapter.count).firstOrNull { idx ->
+                                            // 优先匹配 grid 已挂载的真实 view（微信点击回调可能检查 view 状态），
+                                            // 不可见项退回 adapter.getView
+                                            val index = (0 until gridView.childCount).firstOrNull { i ->
+                                                extractItemName(gridView.getChildAt(i)) == name
+                                            } ?: (0 until adapter.count).firstOrNull { idx ->
                                                 extractItemName(adapter.getView(idx, null, gridView)) == name
                                             } ?: return@run
-                                            menuItem.onClickListener.onItemClick(
-                                                gridView,
-                                                adapter.getView(index, null, gridView),
-                                                index,
-                                                0
-                                            )
+                                            val liveView = gridView.getChildAt(index)
+                                                ?: adapter.getView(index, null, gridView)
+                                            menuItem.onClickListener.onItemClick(gridView, liveView, index, 0)
                                         }
                                     })
                                 }
