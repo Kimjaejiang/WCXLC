@@ -164,6 +164,12 @@ object HomeSidePanelFeature : ClickableFeature() {
     @Volatile private var gestureDownX = 0f
     @Volatile private var gestureDownY = 0f
 
+    // 入口按钮可见性轮询：微信 Tab 切换不产生可 hook 的触摸事件（日志确认无 GEST DOWN home=false），
+    // 仅靠 ACTION_DOWN 时的 updateVisibility 无法及时隐藏「我」Tab 等非首页上的入口，因此定时对账。
+    @Volatile private var visibilityPollerRunning = false
+    private var visibilityPollerHandler: Handler? = null
+    private var lastPollerHome = false
+
     // ==================== 左边缘右滑触摸条状态 ====================
     @Volatile private var edgeZoneStripView: View? = null
     @Volatile private var zoneDownX = 0f
@@ -257,17 +263,21 @@ object HomeSidePanelFeature : ClickableFeature() {
             return
         }
         if (isHomePageActive(act)) {
+            runCatching { diagFile("UPDATE true panel=${panelRootView != null} trigger=${triggerButtonView != null} trigParent=${triggerButtonView?.parent?.javaClass?.name}") }
             // 首页 Tab：按打开方式挂载手势/按钮（幂等）
             if (panelRootView != null) return
             val mode = migratedTriggerMode()
             if ((mode and MODE_FULL_SWIPE) != 0 && !gestureHookInstalled) attachEdgeZone(act)
             if ((mode and MODE_EDGE_STRIP) != 0 && edgeZoneStripView == null) attachEdgeZoneStrip(act)
-            if ((mode and MODE_TRIGGER_BUTTON) != 0 && triggerButtonView == null) attachTriggerButton(act)
+            if ((mode and MODE_TRIGGER_BUTTON) != 0 &&
+                (triggerButtonView == null || triggerButtonView!!.parent == null)
+            ) attachTriggerButton(act)
         } else {
-            // 离开首页 Tab 时移除已打开的面板与触发按钮
-            if (panelRootView != null || triggerButtonView != null) {
-                removeAllViews()
-            }
+            runCatching { diagFile("UPDATE false panel=${panelRootView != null} trigger=${triggerButtonView != null} trigParent=${triggerButtonView?.parent?.javaClass?.name}") }
+            // 离开首页 Tab：隐藏入口按钮/触摸条（保留挂载，轮询负责恢复），并关闭可能残留的面板
+            triggerButtonView?.visibility = View.GONE
+            edgeZoneStripView?.visibility = View.GONE
+            if (panelRootView != null) removePanelInternal()
         }
     }
     @Volatile private var callbacksRegistered = false
@@ -530,11 +540,202 @@ object HomeSidePanelFeature : ClickableFeature() {
 fun isHomePageActive(act: Activity): Boolean = try {
     if (act.isFinishing) return false
     if (act.javaClass.name != "com.tencent.mm.ui.LauncherUI") return false
-    val fragAct = act as? FragmentActivity ?: return true  // 不是 FragmentActivity 时，仅靠 Activity 校验
+    // 微信 LauncherUI 可能不继承 androidx FragmentActivity（自研 Activity 基类），
+    // 此时无法枚举 Fragment；仅凭 LauncherUI 类名放行，非 LauncherUI 的全局
+    // 误触发由 handleDispatchTouch 里的类名精确检查兜底。
+    val fragAct = act as? FragmentActivity
+    if (fragAct == null) {
+        dumpLauncherDiagnostics(act)
+        dumpTopBar(act)
+        // 微信 LauncherUI 非 androidx FragmentActivity（classloader 隔离），无法枚举 Fragment；
+        // 「微信」Tab 用 AppCompat ActionBar（ActionBarOverlayLayout），其余 Tab（通讯录/发现/我）
+        // 是 MultiTaskContainerView 容器、无 ActionBar —— 用 ActionBarOverlayLayout 可见性识别「微信」Tab。
+        val isWeChatTab = runCatching {
+            var found = false
+            var actionBarShown = false
+            val decorAttached = act.window?.decorView?.isAttachedToWindow == true
+            fun scan(v: View, depth: Int) {
+                if (found || depth > 16) return
+                val n = v.javaClass.name
+                // 微信 Tab 独有特征：主会话列表（聊天列表）。通讯录/发现/我 Tab 顶栏也有
+                // ActionBar，仅靠 ActionBar 会全部误判；以会话列表屏幕可见为准。
+                if (n == "com.tencent.mm.ui.conversation.ConversationListView") {
+                    var onScreen = false
+                    if (v.isAttachedToWindow && v.isShown) {
+                        val r = android.graphics.Rect()
+                        onScreen = v.getGlobalVisibleRect(r) && r.width() > 80 && r.height() > 80
+                    }
+                    runCatching { diagFile("CONV v=$n onScreen=$onScreen attached=${v.isAttachedToWindow} shown=${v.isShown}") }
+                    if (onScreen) {
+                        found = true
+                        return
+                    }
+                }
+                // 诊断：记录各列表容器类名（去重），用于确认微信会话列表的真实类名
+                if (n.contains("RecyclerView") || n.contains("ListView")) {
+                    runCatching {
+                        if (listDiagSet.add(n)) diagFile("LIST v=$n shown=${v.isShown}")
+                    }
+                }
+                if (!found && !decorAttached &&
+                    (n == "androidx.appcompat.widget.ActionBarOverlayLayout" ||
+                        n == "android.widget.ActionBarOverlayLayout")
+                ) {
+                    // ActionBar 仅作启动早期兜底：decor 未 attached（会话列表尚未渲染）时挂入口，
+                    // attached 后一律以会话列表为准（否则通讯录/发现/我 Tab 会全部误判）。
+                    if (isVisibleTree(v)) actionBarShown = true
+                }
+                if (v is ViewGroup) for (i in 0 until v.childCount) scan(v.getChildAt(i), depth + 1)
+            }
+            scan(act.window.decorView, 0)
+            found || actionBarShown
+        }.getOrDefault(false)
+        diagIsHome(act, null, isWeChatTab, null)
+        return isWeChatTab
+    }
     val current = fragAct.supportFragmentManager.fragments.find { it.isResumed && it.isVisible && !it.isHidden }
-        ?: return false
-    isHomeTabClass(current.javaClass.name)
+    if (current == null) {
+        diagIsHome(act, null, false, null)
+        return false
+    }
+    if (!isHomeTabClass(current.javaClass.name)) {
+        diagIsHome(act, current.javaClass.name, false, null)
+        return false
+    }
+    // 屏幕可见性校验（宽松）：ViewPager 预加载的非当前 Tab view 位于屏幕外；
+    // 未完成布局（width==0）或 rect 不可用时不判定，避免误伤首页。
+    val v = current.view
+    if (v != null && v.isShown) {
+        val r = android.graphics.Rect()
+        if (v.getGlobalVisibleRect(r)) {
+            val visibleArea = r.width().toLong() * r.height()
+            val totalArea = v.width.toLong() * v.height
+            if (totalArea > 0 && visibleArea * 10 < totalArea) {
+                diagIsHome(act, current.javaClass.name, true, false)
+                return false
+            }
+        }
+    }
+    diagIsHome(act, current.javaClass.name, true, true)
+    true
 } catch (e: Throwable) { WeLogger.e(TAG, "isHomePageActive 异常", e); false }
+
+/** 判断 view 及其祖先链是否全部 VISIBLE（不要求 attached/已布局，排除父容器 GONE） */
+private fun isVisibleTree(v: View): Boolean {
+    if (v.visibility != View.VISIBLE) return false
+    var p = v.parent
+    while (p is View) {
+        if (p.visibility != View.VISIBLE) return false
+        p = p.parent
+    }
+    return true
+}
+
+/** 诊断：isHomePageActive 判定变化时写一次 diag.log（限频） */
+@Volatile private var lastDiagHomeKey = ""
+private val listDiagSet = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
+private fun diagIsHome(act: Activity, fragCls: String?, isHome: Boolean, visible: Boolean?) {
+    val key = "${act.javaClass.name}|$fragCls|$isHome|$visible"
+    if (key == lastDiagHomeKey) return
+    lastDiagHomeKey = key
+    runCatching {
+        val f = java.io.File("/sdcard/Android/data/com.tencent.mm/WCX/diag.log")
+        f.parentFile?.mkdirs()
+        f.appendText(System.currentTimeMillis().toString() +
+            " isHomePageActive act=${act.javaClass.name} super=${act.javaClass.superclass?.name}" +
+            " frag=$fragCls isHome=$isHome visible=$visible\n")
+    }
+}
+
+/** 诊断：记录 LauncherUI decor 顶层 view 结构签名（去重）。用户在 4 个 Tab 间切换时，
+ *  每个 Tab 的顶栏（搜索/+ 栏等）结构不同，据此识别「微信」Tab 以控制侧边栏入口显隐。 */
+private val topBarDiagSet = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
+private fun diagFile(msg: String) {
+    runCatching {
+        val f = java.io.File("/sdcard/Android/data/com.tencent.mm/WCX/diag.log")
+        f.parentFile?.mkdirs()
+        f.appendText(System.currentTimeMillis().toString() + " " + msg + "\n")
+    }
+}
+private fun dumpTopBar(act: Activity) {
+    if (topBarDiagSet.size > 40) return
+    try {
+        val decor = act.window.decorView
+        val sb = StringBuilder()
+        fun walk(v: View, depth: Int) {
+            if (depth > 5 || sb.length > 2000) return
+            val vis = if (v.visibility == View.VISIBLE) "V" else "G"
+            val idName = runCatching { v.resources.getResourceEntryName(v.id) }.getOrNull()
+            val txt = if (v is TextView) (v.text?.toString() ?: "").take(8) else ""
+            sb.append(v.javaClass.simpleName).append('#').append(idName).append('#').append(vis).append('[').append(txt).append("] ")
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i), depth + 1)
+        }
+        walk(decor, 0)
+        val sig = sb.toString()
+        if (sig.isNotBlank() && topBarDiagSet.add(sig)) {
+            val f = java.io.File("/sdcard/Android/data/com.tencent.mm/WCX/diag.log")
+            f.parentFile?.mkdirs()
+            f.appendText(System.currentTimeMillis().toString() + " TOPBAR " + sig.take(1500) + "\n")
+        }
+    } catch (e: Throwable) {
+        runCatching {
+            val f = java.io.File("/sdcard/Android/data/com.tencent.mm/WCX/diag.log")
+            f.parentFile?.mkdirs()
+            f.appendText(System.currentTimeMillis().toString() + " TOPBAR ERR $e\n")
+        }
+    }
+}
+
+/** 诊断：LauncherUI 非 androidx FragmentActivity 时，dump 继承链与 fragment 反射信息（限频一次） */
+@Volatile private var launcherDiagDone = false
+private fun dumpLauncherDiagnostics(act: Activity) {
+    if (launcherDiagDone) return
+    launcherDiagDone = true
+    runCatching {
+        val f = java.io.File("/sdcard/Android/data/com.tencent.mm/WCX/diag.log")
+        f.parentFile?.mkdirs()
+        val append: (String) -> Unit = { s -> f.appendText(System.currentTimeMillis().toString() + " " + s + "\n") }
+
+        val sb = StringBuilder()
+        var cls: Class<*>? = act.javaClass
+        while (cls != null) {
+            sb.append(cls.name).append(" > ")
+            cls = cls.superclass
+        }
+        append("LauncherUI chain: $sb")
+
+        val supportCls = runCatching { Class.forName("android.support.v4.app.FragmentActivity") }.getOrNull()
+        append("old-support-FragmentActivity present=${supportCls != null} isInstance=${supportCls?.isInstance(act)}")
+        val androidxCls = runCatching { Class.forName("androidx.fragment.app.FragmentActivity") }.getOrNull()
+        append("androidx-FragmentActivity isInstance=${androidxCls?.isInstance(act)}")
+
+        // 反射尝试各种 fragment 管理器
+        val candidates = listOf(
+            "getSupportFragmentManager", "getFragmentManager",
+            "getMMFragmentManager", "getChildFragmentManager"
+        )
+        for (mName in candidates) {
+            runCatching {
+                val m = act.javaClass.getMethod(mName)
+                val fm = m.invoke(act) ?: return@runCatching
+                val getFrags = fm.javaClass.methods.firstOrNull { it.name == "getFragments" }
+                    ?: return@runCatching
+                val frags = getFrags.invoke(fm) as? List<*> ?: return@runCatching
+                val desc = frags.mapNotNull { fr ->
+                    runCatching {
+                        val fcls = fr?.javaClass ?: return@runCatching
+                        val r = runCatching { fcls.getMethod("isResumed").invoke(fr) as Boolean }.getOrDefault(false)
+                        val v = runCatching { fcls.getMethod("isVisible").invoke(fr) as Boolean }.getOrDefault(false)
+                        val h = runCatching { fcls.getMethod("isHidden").invoke(fr) as Boolean }.getOrDefault(false)
+                        val vw = runCatching { fcls.getMethod("getView").invoke(fr) }.getOrNull()
+                        "${fcls.name}(r=$r,v=$v,h=$h,view=${vw?.javaClass?.name})"
+                    }.getOrNull()
+                }
+                append("fragmentManager($mName) size=${frags.size}: $desc")
+            }
+        }
+    }
+}
 
 /**
  * 首页 Tab Fragment 类名匹配（兼容多版本微信）：
@@ -578,6 +779,20 @@ private fun isHomeTabClass(className: String): Boolean {
         offsetCandidates.maxOrNull() ?: 0
     } catch (_: Throwable) { 0 }
 
+    /** 找「微信」Tab 顶栏 Toolbar（AppCompat ActionBar 容器内），用于把触发按钮对齐到顶栏左缘 */
+    private fun findWeChatToolbar(root: View): View? {
+        if (root.javaClass.name == "androidx.appcompat.widget.Toolbar" ||
+            root.javaClass.name == "android.widget.Toolbar"
+        ) return root
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                val r = findWeChatToolbar(root.getChildAt(i)) ?: continue
+                return r
+            }
+        }
+        return null
+    }
+
     private fun attachTriggerButton(act: Activity) {
         if (triggerButtonView != null) return
         val decorView = act.window?.decorView as? ViewGroup ?: return
@@ -608,14 +823,46 @@ private fun isHomeTabClass(className: String): Boolean {
                 iconHost.addView(bar)
             }
             trigger.addView(iconHost)
-            val lp = FrameLayout.LayoutParams(triggerSizePx, triggerSizePx).apply {
-                gravity = Gravity.TOP or Gravity.START
-                leftMargin = (16 * d).toInt() + extraOffset
-                topMargin = statusBarH + (8 * d).toInt()
+            // 入口按钮采用 WindowManager 悬浮窗（参考 ALink「获」入口）：直挂 Activity window，
+            // 完全独立于页面容器，显隐由轮询按当前 Tab 控制，不会因共享 Toolbar 在「我」Tab 残留。
+            // FLAG_NOT_TOUCH_MODAL + FLAG_NOT_FOCUSABLE：按钮外触摸穿透（不拦截右滑等页面手势）。
+            val wm = act.getSystemService(Context.WINDOW_SERVICE) as? android.view.WindowManager
+            var attached = false
+            if (wm != null) {
+                runCatching {
+                    val winToken = act.window.attributes.token ?: act.window.decorView.windowToken
+                    val winLp = android.view.WindowManager.LayoutParams(
+                        triggerSizePx, triggerSizePx,
+                        android.view.WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+                        android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                        android.graphics.PixelFormat.TRANSLUCENT
+                    ).apply {
+                        gravity = Gravity.TOP or Gravity.START
+                        x = (4 * d).toInt()
+                        y = statusBarH + (8 * d).toInt()
+                        token = winToken
+                        windowAnimations = 0
+                    }
+                    if (trigger.parent != null) (trigger.parent as? ViewGroup)?.removeView(trigger)
+                    wm.addView(trigger, winLp)
+                    attached = true
+                    runCatching { diagFile("ATTACH WIN token=${winToken != null}") }
+                }.onFailure { runCatching { diagFile("ATTACH WIN 失败: ${it.javaClass.simpleName} ${it.message?.take(80)}") } }
             }
-            if (trigger.parent != null) (trigger.parent as? ViewGroup)?.removeView(trigger)
-            decorView.addView(trigger, lp)
+            if (!attached) {
+                runCatching { diagFile("ATTACH FALLBACK decor（WindowManager 挂载失败）") }
+                // 回退：直接挂 decorView 左上角（与悬浮窗同位置语义）
+                val lp = FrameLayout.LayoutParams(triggerSizePx, triggerSizePx).apply {
+                    gravity = Gravity.TOP or Gravity.START
+                    leftMargin = (16 * d).toInt() + extraOffset
+                    topMargin = statusBarH + (8 * d).toInt()
+                }
+                if (trigger.parent != null) (trigger.parent as? ViewGroup)?.removeView(trigger)
+                decorView.addView(trigger, lp)
+            }
             triggerButtonView = trigger
+            startVisibilityPoller(act)
         } catch (e: Throwable) {
             WeLogger.e(TAG, "attachTriggerButton 异常", e)
             try { triggerButtonView?.let { if (it.parent != null) (it.parent as? ViewGroup)?.removeView(it) } } catch (_: Throwable) {}
@@ -623,10 +870,60 @@ private fun isHomeTabClass(className: String): Boolean {
         }
     }
 
+    // ==================== 入口可见性轮询（微信 Tab 才显示入口/面板） ====================
+    private fun startVisibilityPoller(act: Activity) {
+        visibilityPollerRunning = false
+        visibilityPollerHandler?.removeCallbacksAndMessages(null)
+        visibilityPollerRunning = true
+        val h = Handler(android.os.Looper.getMainLooper())
+        visibilityPollerHandler = h
+        h.post(object : Runnable {
+            override fun run() {
+                if (!visibilityPollerRunning) return
+                runCatching { syncLauncherUi(act) }
+                h.postDelayed(this, 400L)
+            }
+        })
+    }
+
+    private fun stopVisibilityPoller() {
+        visibilityPollerRunning = false
+        visibilityPollerHandler?.removeCallbacksAndMessages(null)
+        visibilityPollerHandler = null
+    }
+
+    /** 定时对账：非「微信」Tab 时隐藏入口、移除残留面板；回到「微信」Tab 时恢复入口。 */
+    private fun syncLauncherUi(act: Activity) {
+        val home = isHomePageActive(act)
+        if (home != lastPollerHome) {
+            lastPollerHome = home
+            runCatching { diagFile("POLL home=$home btn=${triggerButtonView != null} panel=${panelRootView != null}") }
+        }
+        val btn = triggerButtonView
+        if (btn != null) {
+            val hidden = !home || panelRootView != null || gestureState != GESTURE_IDLE
+            val target = if (hidden) View.GONE else View.VISIBLE
+            if (btn.visibility != target) btn.visibility = target
+        }
+        // 触摸条跟随入口显隐（非「微信」Tab 隐藏，避免残留拦截区域）
+        if (edgeZoneStripView != null) {
+            val stripTarget = if (home) View.VISIBLE else View.GONE
+            if (edgeZoneStripView!!.visibility != stripTarget) edgeZoneStripView!!.visibility = stripTarget
+        }
+        if (!home && panelRootView != null) {
+            removePanelInternal()
+        }
+    }
+
     private fun hideTrigger() {
         val tv = triggerButtonView ?: return
-        try { if (tv.parent != null) (tv.parent as? ViewGroup)?.removeView(tv) }
-        catch (e: Throwable) { WeLogger.w(TAG, "移除触发按钮失败", e) }
+        try {
+            val wm = tv.context.getSystemService(Context.WINDOW_SERVICE) as? android.view.WindowManager
+            if (wm != null && tv.isAttachedToWindow) {
+                runCatching { wm.removeView(tv) }
+            }
+            if (tv.parent != null) (tv.parent as? ViewGroup)?.removeView(tv)
+        } catch (e: Throwable) { WeLogger.w(TAG, "移除触发按钮失败", e) }
         triggerButtonView = null
     }
 
@@ -720,6 +1017,7 @@ private fun isHomeTabClass(className: String): Boolean {
 
     /** 左边缘滑动触发：与全屏右滑一致地把面板展开并收尾加载。 */
     private fun openPanelFromEdgeZone(act: Activity) {
+        runCatching { diagFile("EDGE PANEL home=${runCatching { isHomePageActive(act) }.getOrDefault(false)}") }
         ensureDragPanel(act)
         val panel = panelRootView as? FrameLayout ?: return
         panel.getChildAt(1)?.animate()?.translationX(0f)?.setDuration(220)?.start()
@@ -735,13 +1033,22 @@ private fun isHomeTabClass(className: String): Boolean {
         // 面板已展开（非拖拽中）：不劫持，面板内交互由面板自身处理
         if (panelRootView != null && gestureState != GESTURE_DRAGGING) return
         val act = param.thisObject as? Activity ?: return
+        // 精确限定只响应微信主页 Activity，杜绝 hook 命中基类 dispatchTouchEvent
+        // 时在 ChattingUI 等其它页面全局呼出侧边栏。
+        if (act.javaClass.name != "com.tencent.mm.ui.LauncherUI") return
         val ev = param.args[0] as? MotionEvent ?: return
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (gestureState == GESTURE_IDLE && isHomePageActive(act)) {
+                val homeDown = isHomePageActive(act)
+                runCatching { diagFile("GEST DOWN home=$homeDown state=$gestureState x=${ev.rawX.toInt()} y=${ev.rawY.toInt()}") }
+                // Tab 切换后刷新入口显隐（切到非「微信」Tab 时移除按钮/面板）
+                runCatching { updateVisibility() }
+                if (gestureState == GESTURE_IDLE && homeDown) {
                     gestureDownX = ev.rawX
                     gestureDownY = ev.rawY
                     gestureState = GESTURE_ARMED
+                } else {
+                    gestureState = GESTURE_IDLE
                 }
             }
             MotionEvent.ACTION_MOVE -> {
@@ -794,6 +1101,7 @@ private fun isHomeTabClass(className: String): Boolean {
     /** 跟手拖拽时确保面板已创建（先置于屏幕外，不播动画），并隐藏左上角触发按钮。 */
     private fun ensureDragPanel(act: Activity) {
         if (panelRootView != null) return
+        runCatching { diagFile("ENSURE PANEL act=${act.javaClass.simpleName} home=${runCatching { isHomePageActive(act) }.getOrDefault(false)}") }
         buildPanel(act)
         hideTrigger()
     }
@@ -938,12 +1246,15 @@ private fun isHomeTabClass(className: String): Boolean {
             val mode = migratedTriggerMode()
             if ((mode and MODE_FULL_SWIPE) != 0 && !gestureHookInstalled) attachEdgeZone(act)
             if ((mode and MODE_EDGE_STRIP) != 0 && edgeZoneStripView == null) attachEdgeZoneStrip(act)
-            if ((mode and MODE_TRIGGER_BUTTON) != 0 && triggerButtonView == null) attachTriggerButton(act)
+            if ((mode and MODE_TRIGGER_BUTTON) != 0 &&
+                (triggerButtonView == null || triggerButtonView!!.parent == null)
+            ) attachTriggerButton(act)
         } catch (e: Throwable) { WeLogger.e(TAG, "hidePanel 重挂触发视图异常", e) }
     }
 
     private fun removeAllViews() {
         try {
+            stopVisibilityPoller()
             removePanelInternal()
             removeEdgeZone()
             removeEdgeZoneStrip()

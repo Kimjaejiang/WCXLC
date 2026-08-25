@@ -66,6 +66,7 @@ import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.currentWxId
 import com.Johnny.wcx.utils.android.showToast
 import com.Johnny.wcx.utils.fs.KnownPaths
+import com.Johnny.wcx.utils.fs.createDirsSafe
 import com.Johnny.wcx.utils.reflection.BString
 import com.Johnny.wcx.utils.reflection.bool
 import kotlinx.serialization.json.Json
@@ -249,27 +250,44 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
     override fun onEnable() {
         WeContactPrefsScreenApi.addProvider(this)
 
+        // 迁移旧版存的相册 content:// 头像到模块私有目录（file://），避免重启后权限失效空白
+        runCatching {
+            val migrated = avatarMap.mapValues { (_, uri) ->
+                if (uri.startsWith("content://")) persistAvatarFile(uri) else uri
+            }
+            if (migrated != avatarMap) avatarMap = migrated
+        }
+
         listOf(
             methodConversationAvatar,
             methodMvvmLoadAvatar1,
             methodMvvmLoadAvatar2,
             methodFeatureAvatarSimple1,
             methodPluginsdkLoadAvatar
-        ).forEach {
-            if (it.isPlaceholder) return@forEach
+        ).forEachIndexed { index, it ->
+            if (it.isPlaceholder) {
+                WeLogger.i(TAG, "avatar hook[$index] placeholder (not matched)")
+                return@forEachIndexed
+            }
             it.method.hookBefore {
                 val imageView = args.getOrNull(0) as? ImageView ?: return@hookBefore
-//            var wxId = args.getOrNull(1) as? String ?: return@hookBefore
                 val wxId = args.getOrNull(1) as? String ?: return@hookBefore
 
                 val redirectedId = fallbackUsernameProvider?.invoke(wxId)
                 if (redirectedId != null) {
-//                wxId = redirectedId
+                    WeLogger.i(TAG, "avatar redirect[$index] $wxId -> $redirectedId")
                     args[1] = redirectedId
                     return@hookBefore
                 }
 
-                if (applyCustomAvatar(imageView, wxId, roundAvatarRadiusFactor)) {
+                val hasCustom = avatarMap.containsKey(wxId)
+                val applied = if (hasCustom) {
+                    applyCustomAvatar(imageView, wxId, roundAvatarRadiusFactor)
+                } else {
+                    false
+                }
+                WeLogger.i(TAG, "avatar hit[$index] wxId=$wxId hasCustom=$hasCustom applied=$applied")
+                if (applied) {
                     result = null
                 }
             }
@@ -549,8 +567,28 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
     }
 
     private fun setAvatar(wxId: String, uri: String) {
-        avatarMap = avatarMap + (wxId to uri)
+        // 相册返回的 content:// URI 的持久化授权（takePersistableUriPermission）在部分相册
+        // provider 上会失败，微信重启后不可读 → 头像空白。复制到模块私有目录存 file:// 路径，
+        // 重启后始终可读。复制失败时回退原 URI（保留旧行为）。
+        val persistentUri = persistAvatarFile(uri)
+        avatarMap = avatarMap + (wxId to persistentUri)
         clearBitmapCaches()
+    }
+
+    /** 把头像图片复制到模块私有目录，返回可长期读取的 file:// URI；失败回退原 URI。 */
+    private fun persistAvatarFile(uri: String): String {
+        if (uri.startsWith("file://") || uri.startsWith("/")) return uri
+        return runCatching {
+            val ctx = HostInfo.application
+            val input = ctx.contentResolver.openInputStream(uri.toUri()) ?: return@runCatching uri
+            val dir = (KnownPaths.moduleData / "avatars").createDirsSafe() ?: return@runCatching uri
+            val safeName = uri.replace(Regex("[^\\w]"), "_").take(64)
+            val target = dir / "avatar_${safeName}.jpg"
+            input.use { ins ->
+                target.toFile().outputStream().use { outs -> ins.copyTo(outs) }
+            }
+            target.toUri().toString()
+        }.getOrDefault(uri)
     }
 
     fun removeAvatar(wxId: String) {

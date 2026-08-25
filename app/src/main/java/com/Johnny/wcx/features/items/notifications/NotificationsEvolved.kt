@@ -24,6 +24,7 @@ import com.Johnny.wcx.features.api.core.WeMessageApi
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.features.core.SwitchFeature
 import com.Johnny.wcx.utils.HostInfo
+import com.Johnny.wcx.utils.hookBeforeDirectly
 import com.Johnny.wcx.utils.TargetProcesses
 import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.getSystemService
@@ -70,7 +71,10 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
     private val lastGroupChatSender = LruCache<String, String>()
 
-    private data class HistoryEntry(val senderName: String, val text: String, val timestamp: Long)
+    // sender 头像缓存：senderKey(会话|发送者) -> Icon，异步预取，下一条通知构建时生效
+    private val senderAvatarCache = LruCache<String, Icon>(maxLimit = 64)
+
+    private data class HistoryEntry(val senderName: String, val text: String, val timestamp: Long, val senderKey: String)
 
     // Per-conversation message history rebuilt into MessagingStyle on each notification update.
     // Cleared when the user replies or marks as read; bounded to avoid unbounded growth.
@@ -207,7 +211,6 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                     WeLogger.w(TAG, "no talker captured for $notifTitle, skipping enhancements")
                     return@hookBefore
                 }
-                currentTalker.remove()
 
                 val match = MESSAGE_REGEX.find(notifText)
 
@@ -260,12 +263,13 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                 // Append the new message to this conversation's history, then replay
                 // the whole history into the style so previous messages are not lost.
                 val history = messageHistory.getOrPut(convWxId) { ArrayDeque() }
-                history.addLast(HistoryEntry(senderName, text, System.currentTimeMillis()))
+                history.addLast(HistoryEntry(senderName, text, System.currentTimeMillis(), senderCacheKey(convWxId, senderName)))
                 while (history.size > MAX_HISTORY) history.removeFirst()
 
                 for (entry in history) {
-                    val person = Person.Builder().setName(entry.senderName).build()
-                    messagingStyle.addMessage(entry.text, entry.timestamp, person)
+                    val personBuilder = Person.Builder().setName(entry.senderName)
+                    senderAvatarCache[entry.senderKey]?.let { personBuilder.setIcon(it) }
+                    messagingStyle.addMessage(entry.text, entry.timestamp, personBuilder.build())
                 }
 
                 builder.style = messagingStyle
@@ -334,6 +338,89 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                 // Apply actions directly to the builder
                 builder.addAction(replyAction)
                 builder.addAction(readAction)
+
+                // 异步预取发送者头像，供下一条通知的 MessagingStyle 使用
+                prefetchSenderAvatar(convWxId, senderName)
             }
+
+        // 合并同一会话的多条通知（通知栏同一会话只保留最新一条）
+        hookNotifyIdMerge()
+    }
+
+    // ==================== 通知合并：同一会话的通知 id 统一为会话哈希 ====================
+    private fun hookNotifyIdMerge() {
+        val notifCls = Notification::class.java
+        val nmCls = android.app.NotificationManager::class.java
+        runCatching {
+            nmCls.getMethod("notify", Int::class.javaPrimitiveType, notifCls)
+                .hookBeforeDirectly {
+                    val convWxId = currentTalker.get()
+                    if (convWxId != null) {
+                        val n = args[1] as? Notification
+                        if (n != null && n.channelId == "message_channel_new_id") {
+                            args[0] = convWxId.hashCode()
+                        }
+                        currentTalker.remove()
+                    }
+                }
+            WeLogger.i(TAG, "notify(int,Notification) hook registered")
+        }.onFailure { WeLogger.w(TAG, "hook notify(int) failed", it) }
+        runCatching {
+            nmCls.getMethod("notify", String::class.java, Int::class.javaPrimitiveType, notifCls)
+                .hookBeforeDirectly {
+                    val convWxId = currentTalker.get()
+                    if (convWxId != null) {
+                        val n = args[2] as? Notification
+                        if (n != null && n.channelId == "message_channel_new_id") {
+                            args[1] = convWxId.hashCode()
+                        }
+                        currentTalker.remove()
+                    }
+                }
+            WeLogger.i(TAG, "notify(tag,int,Notification) hook registered")
+        }.onFailure { WeLogger.w(TAG, "hook notify(tag,int) failed", it) }
+    }
+
+    // ==================== 发送者头像：异步预取 + 缓存 ====================
+    private fun senderCacheKey(convWxId: String, senderName: String): String =
+        if (convWxId.isGroupChatWxId) "$convWxId|$senderName" else convWxId
+
+    private fun resolveSenderWxid(convWxId: String, senderName: String): String? {
+        if (senderName.isBlank()) return null
+        if (!convWxId.isGroupChatWxId) return convWxId
+        // 群聊：按昵称/备注在联系人表里最佳匹配（同名时取第一个）
+        return runCatching {
+            val esc = senderName.replace("'", "''")
+            WeDatabaseApi.executeQuery(
+                "SELECT username FROM rcontact WHERE nickname = '$esc' OR conRemark = '$esc' LIMIT 1"
+            ).firstOrNull()?.get("username")?.toString()
+        }.getOrNull()
+    }
+
+    private fun prefetchSenderAvatar(convWxId: String, senderName: String) {
+        val key = senderCacheKey(convWxId, senderName)
+        if (senderAvatarCache[key] != null) return
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                val wxid = resolveSenderWxid(convWxId, senderName) ?: return@runCatching
+                val url = WeDatabaseApi.getAvatarUrl(wxid)
+                if (url.isBlank()) return@runCatching
+                val connection = URL(url).openConnection() as HttpURLConnection
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                connection.doInput = true
+                val bytes = connection.inputStream.use { it.readBytes() }
+                if (bytes.isEmpty()) return@runCatching
+                var bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching
+                val maxSize = 192
+                if (bmp.width > maxSize || bmp.height > maxSize) {
+                    val scale = maxSize.toFloat() / maxOf(bmp.width, bmp.height)
+                    bmp = Bitmap.createScaledBitmap(
+                        bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true
+                    )
+                }
+                senderAvatarCache[key] = Icon.createWithBitmap(bmp)
+            }.onFailure { /* 头像失败静默，不影响通知本身 */ }
+        }
     }
 }

@@ -9,7 +9,16 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
+import android.widget.TextView
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.ForegroundColorSpan
+import android.text.TextPaint
+import android.text.TextUtils
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -62,6 +71,9 @@ import com.Johnny.wcx.ui.content.TextButton
 import com.Johnny.wcx.ui.utils.EditIcon
 import com.Johnny.wcx.ui.utils.showComposeDialog
 import com.Johnny.wcx.utils.HookParam
+import com.Johnny.wcx.utils.hookAfterDirectly
+import com.Johnny.wcx.utils.hookBeforeDirectly
+import com.Johnny.wcx.utils.reflection.ClassLoaders
 import com.Johnny.wcx.utils.HostInfo
 import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.showToast
@@ -106,6 +118,15 @@ object ConversationAggregation : ClickableFeature(),
     // badge renders a small dot instead of a number (WeChat w3.b / s2 require this bit set
     // alongside unReadMuteCount > 0 when unReadCount == 0).
     private const val ATTR_FLAG_MUTE_BIT = 2097152
+
+    // Truncation + tint used by the FunBox-style "someone @ me" prefix on folder rows.
+    private const val MAX_DIGEST_NAME_LEN = 8
+    private const val MAX_FOLDER_DISPLAY_NAME = 12
+    // 括号内发送者名截断长度（Eatmelons → Eatm...），括号内空间小，比群名更短
+    private const val MAX_SENDER_NAME_LEN = 4
+    private val MENTION_BLUE = 0xFF4285F4.toInt()
+    private val MENTION_YELLOW = 0xFFFFCC00.toInt()
+    private val CHAT_COUNT_REGEX = Regex("\\[[^\\]]*\\u4e2a\\u804a\\u5929\\]")
 
     private val foldersFile by lazy { KnownPaths.moduleData / "chat_folders.json" }
 
@@ -231,20 +252,48 @@ object ConversationAggregation : ClickableFeature(),
     private var refreshHandler: Handler? = null
 
     override fun onEnable() {
+        WeLogger.i(TAG, "onEnable: begin")
+        diagFile("onEnable: begin")
         WeDatabaseListenerApi.addListener(this)
         WeStartActivityApi.addListener(this)
 
         startRefreshThread()
 
         hookMainUiRefresh()
+        WeLogger.i(TAG, "onEnable: after hookMainUiRefresh")
+        diagFile("onEnable: after hookMainUiRefresh")
         hookOpenFolder()
+        WeLogger.i(TAG, "onEnable: after hookOpenFolder")
+        diagFile("onEnable: after hookOpenFolder")
         hookConversationPages()
+        WeLogger.i(TAG, "onEnable: after hookConversationPages")
+        diagFile("onEnable: after hookConversationPages")
         hookFolderContextMenu()
+        WeLogger.i(TAG, "onEnable: after hookFolderContextMenu")
+        diagFile("onEnable: after hookFolderContextMenu")
         hookSelectConversationUi()
+        WeLogger.i(TAG, "onEnable: after hookSelectConversationUi")
+        diagFile("onEnable: after hookSelectConversationUi")
         hookMvvmContactListItemClick()
+        WeLogger.i(TAG, "onEnable: after hookMvvmContactListItemClick")
+        diagFile("onEnable: after hookMvvmContactListItemClick")
         hookSqliteWrapperQuery()
+        hookSqliteExec()
+        WeLogger.i(TAG, "onEnable: after hookSqliteWrapperQuery")
+        diagFile("onEnable: after hookSqliteWrapperQuery")
         hookConversationStorageParentQuery()
+        WeLogger.i(TAG, "onEnable: after hookConversationStorageParentQuery")
+        diagFile("onEnable: after hookConversationStorageParentQuery")
         hookConversationStorageUpdateUnread()
+        WeLogger.i(TAG, "onEnable: after hookConversationStorageUpdateUnread")
+        diagFile("onEnable: after hookConversationStorageUpdateUnread")
+        hookMentionTint()
+        WeLogger.i(TAG, "onEnable: after hookMentionTint")
+        diagFile("onEnable: after hookMentionTint")
+        hookTextViewSetText()
+        hookAllTextViewDraw()
+        WeLogger.i(TAG, "onEnable: done")
+        diagFile("onEnable: done")
 
         CustomLocalFriendAvatars.fallbackUsernameProvider = { folderId ->
             if (isFolderId(folderId) && !CustomLocalFriendAvatars.avatarMap.containsKey(folderId)) {
@@ -799,6 +848,10 @@ object ConversationAggregation : ClickableFeature(),
         methodSqliteWrapperRawQuery.hookBefore {
             if (suppressQueryRewrite.get()!!) return@hookBefore
             val sql = args.firstOrNull() as? String ?: return@hookBefore
+            if (sql.contains("rconversation") && (sql.contains("update", true) || sql.contains("unread", true))) {
+                WeLogger.i(TAG, "rawQuery: $sql")
+                diagFile("rawQuery: $sql")
+            }
             onQuery(sql)?.let { args[0] = it }
         }
     }
@@ -819,10 +872,675 @@ object ConversationAggregation : ClickableFeature(),
     // See methodConversationStorageUpdateUnreadByTalker: cancel the "mark box read on leave" that
     // WeChat's folder container fires against our folder id, so exiting a folder without opening any
     // member never clears the aggregate row's unread badge.
+    private val methodMvvmConversationAdapterGetView by dexMethod(allowFailure = true) {
+        matcher {
+            declaredClass {
+                usingEqStrings("MicroMsg.ConversationAdapter.MvvmConversationAdapter", "Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d")
+            }
+            name = "getView"
+        }
+    }
+
+    private val methodConversationWithCacheAdapterGetView by dexMethod(allowFailure = true) {
+        searchPackages("com.tencent.mm.ui.conversation")
+        matcher {
+            name = "getView"
+            paramTypes("int", "android.view.View", "android.view.ViewGroup")
+            returnType("android.view.View")
+            usingEqStrings("MicroMsg.ConversationWithCacheAdapter", "Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d")
+        }
+    }
+
+    /** tint the injected "someone @ me" prefix blue (matches FunBox) on both conversation adapters */
+    private fun hookMentionTint() {
+        WeLogger.i(TAG, "tint hooks: mvvmGetView placeholder=${methodMvvmConversationAdapterGetView.isPlaceholder}, cacheGetView placeholder=${methodConversationWithCacheAdapterGetView.isPlaceholder}, textViewSetText placeholder=${methodTextViewSetText.isPlaceholder}")
+        diagFile("tint hooks: mvvm=${methodMvvmConversationAdapterGetView.isPlaceholder} cache=${methodConversationWithCacheAdapterGetView.isPlaceholder} setText=${methodTextViewSetText.isPlaceholder}")
+        if (!methodMvvmConversationAdapterGetView.isPlaceholder) {
+            methodMvvmConversationAdapterGetView.hookAfter {
+                val root = result as? ViewGroup ?: return@hookAfter
+                diagFile("getView fired: ${root.javaClass.simpleName} children=${root.childCount}")
+                dumpRowTexts(root)
+                if (!dumpedTree) {
+                    dumpedTree = true
+                    val sb = StringBuilder()
+                    dumpViewTree(root, 0, sb)
+                    diagFile("VIEWTREE:\n" + sb.toString())
+                }
+                tintMentionLabels(root, "getView")
+                markVirtualRow(root)
+                root.post {
+                    tintMentionLabels(root, "getView-post")
+                    markVirtualRow(root)
+                }
+            }
+        }
+        if (!methodConversationWithCacheAdapterGetView.isPlaceholder) {
+            methodConversationWithCacheAdapterGetView.hookAfter {
+                val root = result as? ViewGroup ?: return@hookAfter
+                tintMentionLabels(root, "getView")
+                markVirtualRow(root)
+                root.post {
+                    tintMentionLabels(root, "getView-post")
+                    markVirtualRow(root)
+                }
+            }
+        }
+        // FunBox 同款：hook RecyclerView.Adapter.bindViewHolder（framework 基类方法，微信 adapter 不 override，
+        // 一定触发，覆盖微信主列表与归拢内部列表的 RecyclerView 行渲染）
+        runCatching {
+            val holderCls = Class.forName(
+                "androidx.recyclerview.widget.RecyclerView\$ViewHolder",
+                false, ClassLoaders.HOST
+            )
+            val adapterCls = Class.forName(
+                "androidx.recyclerview.widget.RecyclerView\$Adapter",
+                false, ClassLoaders.HOST
+            )
+            adapterCls.getMethod(
+                "bindViewHolder", holderCls, Int::class.javaPrimitiveType, java.util.List::class.java
+            ).hookAfterDirectly { tintHolder() }
+            runCatching {
+                adapterCls.getMethod(
+                    "bindViewHolder", holderCls, Int::class.javaPrimitiveType
+                ).hookAfterDirectly { tintHolder() }
+                WeLogger.i(TAG, "bindViewHolder(vh,int) androidx hook registered")
+                diagFile("bindViewHolder(vh,int) androidx registered")
+            }.onFailure { WeLogger.w(TAG, "hook androidx bindViewHolder(2-arg) failed", it) }
+            WeLogger.i(TAG, "bindViewHolder androidx hook registered")
+            diagFile("bindViewHolder androidx registered")
+        }.onFailure { WeLogger.w(TAG, "hook androidx bindViewHolder failed", it); diagFile("bindViewHolder androidx FAILED: $it") }
+        runCatching {
+            val holderCls = Class.forName(
+                "android.support.v7.widget.RecyclerView\$ViewHolder",
+                false, ClassLoaders.HOST
+            )
+            val adapterCls = Class.forName(
+                "android.support.v7.widget.RecyclerView\$Adapter",
+                false, ClassLoaders.HOST
+            )
+            adapterCls.getMethod(
+                "bindViewHolder", holderCls, Int::class.javaPrimitiveType, java.util.List::class.java
+            ).hookAfterDirectly { tintHolder() }
+            WeLogger.i(TAG, "bindViewHolder support hook registered")
+            diagFile("bindViewHolder support registered")
+        }.onFailure { WeLogger.w(TAG, "hook support bindViewHolder failed", it); diagFile("bindViewHolder support FAILED: $it") }
+    }
+
+    private var dumpedTree = false
+
+    private fun dumpViewTree(v: View, depth: Int, sb: StringBuilder) {
+        val pad = "  ".repeat(depth)
+        val cls = v.javaClass.name.substringAfterLast('.')
+        val text = if (v is TextView) v.text?.toString()?.take(28) else ""
+        val id = runCatching { v.resources.getResourceEntryName(v.id) }.getOrNull()
+        sb.append("$pad$cls id=$id text=$text\n")
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) dumpViewTree(v.getChildAt(i), depth + 1, sb)
+        }
+    }
+
+    /** 诊断：onDraw 染色命中的摘要文本去重（避免每帧刷日志） */
+    private val tintHitSet = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
+    /** 诊断：NoMeasuredTextView 绘制文本去重（含 [ 或 @ 的），确认摘要/未读数控件 */
+    private val drawDiagSet = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
+    /** 诊断：全量 NoMeasuredTextView 绘制文本去重（确认摘要控件与 getText 内容） */
+    private val diagAllTextSet = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
+    /** 诊断：View 挂载类名去重（验证系统类 hook 是否生效） */
+    private val diagAttachedSet = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
+    /** 诊断：主列表 View 树 dump 限频 */
+    @Volatile
+    private var lastConvDump = 0L
+    @Volatile
+    private var nmtvDrawCount = 0
+    /** 归拢摘要命中实例（WeakHashMap：控件 → 摘要文本），供 onDraw 叠加染色 */
+    private val tintedNmtv = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Any, String>())
+    @Volatile
+    private var nmtvFieldDumped = 0
+    @Volatile
+    private var diagDrawCallCount = 0
+
+    /** 诊断：收集归拢入口行内所有 TextView 文本，限频记录，用于区分 FunBox「群聊」与 WCX「群聊归拢」入口 */
+    private val dumpedRowTexts = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
+    private fun dumpRowTexts(root: ViewGroup) {
+        if (dumpedRowTexts.size > 60) return
+        runCatching {
+            // getView 时摘要可能尚未 bind，延迟到渲染完成后再 dump
+            root.postDelayed({
+                val texts = mutableListOf<String>()
+                collectTexts(root, texts)
+                // 只记录含归拢标记/摘要素的文本（聚焦），避免日志刷屏
+                val filtered = texts.filter { it.contains("[") || it.contains("@") || it.contains("聊天") }
+                if (filtered.isEmpty()) return@postDelayed
+                val joined = filtered.joinToString(" | ")
+                val key = root.javaClass.name + "#" + joined
+                if (dumpedRowTexts.add(key)) {
+                    diagFile("ROW2[${root.javaClass.simpleName}] texts: $joined")
+                }
+            }, 400)
+        }
+    }
+    private fun collectTexts(v: View, out: MutableList<String>) {
+        if (v is TextView) {
+            val t = v.text?.toString() ?: ""
+            if (t.isNotBlank()) out.add("${v.javaClass.name}[$t]")
+        }
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) collectTexts(v.getChildAt(i), out)
+        }
+    }
+
+    private val hookedTextClasses = java.util.Collections.synchronizedSet(java.util.HashSet<Class<*>>())
+
+    /** hook 微信具体 TextView 类的 setText(CharSequence) —— 微信 digest 是 override setText 的自定义类，
+     *  不走基类；绑定到 Item 行内每个 TextView 的具体类，一次注册全部生效 */
+    /** hook 微信具体 TextView 类的 setText(CharSequence) / setText(CharSequence, BufferType)。
+     *  微信 digest 是 NoMeasuredTextView 这类 override setText 的自定义类，不走基类；
+     *  绑定到 Item 行内每个 TextView 的具体类，一次注册全部生效。
+     *  方案：hookBefore 替换参数为 Spannable（A），hookAfter 反射直写 mText 兜底（B，绕过 toString） */
+    private fun hookTextViewClass(v: TextView) {
+        val cls = v.javaClass
+        if (cls == android.widget.TextView::class.java) return
+        if (cls.name.startsWith("android.") || cls.name.startsWith("androidx.")) return
+        if (!hookedTextClasses.add(cls)) return
+        runCatching {
+            cls.getMethod("setText", java.lang.CharSequence::class.java).hookBeforeDirectly {
+                val a = args ?: return@hookBeforeDirectly
+                val t = a.getOrNull(0) as? CharSequence ?: return@hookBeforeDirectly
+                val s = t.toString()
+                WeLogger.i(TAG, "clsSetText: ${cls.simpleName}: ${s.take(40)}")
+                diagFile("clsSetText: ${cls.name}: $s")
+                val tinted = tintMention(s)
+                if (tinted != null) {
+                    diagFile("clsSetText TINTED(CS): ${cls.name}: $s")
+                    a[0] = tinted
+                }
+            }
+            diagFile("clsSetText(CS) hooked: ${cls.name}")
+        }.onFailure { diagFile("clsSetText(CS) FAILED ${cls.name}: $it") }
+        runCatching {
+            val bufType = Class.forName("android.widget.TextView\$BufferType", false, ClassLoaders.HOST)
+            cls.getMethod("setText", java.lang.CharSequence::class.java, bufType).hookAfterDirectly {
+                val tv = thisObject as? TextView ?: return@hookAfterDirectly
+                val s = tv.text?.toString().orEmpty()
+                val tinted = tintMention(s)
+                if (tinted != null) {
+                    diagFile("clsSetText(CS,BT) after TINTED: ${cls.name}: $s")
+                    setTextSpanDirect(tv, tinted)
+                }
+            }
+            diagFile("clsSetText(CS,BT) hooked: ${cls.name}")
+        }.onFailure { diagFile("clsSetText(CS,BT) FAILED ${cls.name}: $it") }
+    }
+
+    /** 反射直写 TextView 私有 mText/mTransformedText，绕过所有 setText 重载（方案 B） */
+    private fun setTextSpanDirect(tv: TextView, spannable: CharSequence) {
+        runCatching {
+            val f = android.widget.TextView::class.java.getDeclaredField("mText")
+            f.isAccessible = true
+            f.set(tv, spannable)
+            val tf = android.widget.TextView::class.java.getDeclaredField("mTransformedText")
+            tf.isAccessible = true
+            tf.set(tv, spannable)
+            tv.invalidate()
+            tv.requestLayout()
+            diagFile("setTextSpanDirect applied: ${tv.javaClass.name}")
+        }.onFailure { diagFile("setTextSpanDirect FAILED: $it") }
+    }
+
+    /**
+     * 归拢摘要彩色（FunBox 叠加模式）：hook NoMeasuredTextView.onDraw **after**，
+     * 不拦截原生绘制（灰色原文照常输出），在原绘制完成后用同一 Canvas 叠加彩色标签
+     * （蓝 [有人@我]/[@全体]、黄 [N个聊天]），彩色文字盖在灰色文字上方。
+     * 优点：不依赖 Item 根类 / adapter 渲染路径 / Tag 向上遍历，摘要文本出现即染色。
+     */
+    /**
+     * 归拢摘要彩色（FunBox 叠加模式）：全局 hook TextView.onDraw **after**。
+     * 已证实微信主列表摘要不经过 NoMeasuredTextView（其 onDraw 从不触发），改为捕获所有
+     * TextView 子类绘制：文本含归拢标记（[有人@我]/[@全体]/[N个聊天]）即用控件本地坐标
+     * 画布叠加彩色标签（原生灰色保留）。同时全量输出绘制诊断以定位真实摘要控件类名。
+     */
+    private fun hookAllTextViewDraw() {
+        // 归拢摘要染色（微信主列表）：摘要控件 = NoMeasuredTextView（extends X2CView，非 TextView，
+        // getText() 为空）。归拢摘要经 setText(CharSequence) 注入；hookBefore 直接替换为 Spannable
+        // 上色（蓝 [有人@我]/[@全体]、黄 [N个聊天]），微信自绘渲染 span 颜色即上色。
+        // 已实测：系统 Framework 类 hook（View.draw/onAttachedToWindow）对微信无效，不再使用。
+        runCatching {
+            val nmtCls = Class.forName("com.tencent.mm.ui.base.NoMeasuredTextView")
+            nmtCls.declaredMethods.filter { it.name == "setText" }.forEach { m ->
+                m.apply { isAccessible = true }.hookBeforeDirectly {
+                    val text = args.getOrNull(0)?.toString() ?: return@hookBeforeDirectly
+                    if (isAggSummary(text)) {
+                        args[0] = tintAggSummary(text)
+                    }
+                }
+            }
+            diagFile("NMTV tint hook installed")
+            WeLogger.i(TAG, "NoMeasuredTextView.setText tint hook installed")
+        }.onFailure {
+            diagFile("NMTV tint hook FAILED: $it")
+            WeLogger.e(TAG, "NoMeasuredTextView.setText tint hook failed", it)
+        }
+    }
+
+    /** 诊断：递归打印 View 树中所有 View 的类名（TextView 附带文本），定位真实摘要控件 */
+    private fun dumpTextViews(v: View, depth: Int) {
+        runCatching {
+            val indent = "  ".repeat(depth)
+            if (v is TextView) {
+                diagFile("DUMP[$indent${v.javaClass.name}] w=${v.width} h=${v.height} base=${v.baseline} text=${v.text}")
+            } else {
+                diagFile("DUMP[$indent${v.javaClass.name}] w=${v.width} h=${v.height}")
+            }
+            if (v is ViewGroup) {
+                for (i in 0 until v.childCount) dumpTextViews(v.getChildAt(i), depth + 1)
+            }
+        }
+    }
+
+    /** 叠加绘制彩色前缀：蓝 [有人@我]/[@全体]、黄 [N个聊天]（后缀原生灰色保留，不拦截） */
+    private fun drawTintedOverlay(tv: TextView, canvas: Canvas, text: String) {
+        runCatching {
+            val paint = Paint(tv.paint)
+            val baseX = tv.paddingLeft.toFloat()
+            val baseY = tv.baseline.toFloat()
+            var x = baseX
+            val atIdx = text.indexOf("[有人@我]")
+            if (atIdx >= 0) {
+                paint.color = MENTION_BLUE
+                canvas.drawText("[有人@我]", x, baseY, paint)
+                x += paint.measureText("[有人@我]")
+            }
+            val allIdx = text.indexOf("[@全体]")
+            if (allIdx >= 0) {
+                paint.color = MENTION_BLUE
+                canvas.drawText("[@全体]", x, baseY, paint)
+                x += paint.measureText("[@全体]")
+            }
+            val m = CHAT_COUNT_REGEX.find(text)
+            if (m != null) {
+                paint.color = MENTION_YELLOW
+                canvas.drawText(m.value, x, baseY, paint)
+            }
+        }
+    }
+    /** 归拢摘要标记判断 */
+    private fun isAggSummary(text: String): Boolean =
+        text.contains("[有人@我]") || text.contains("[@全体]") || CHAT_COUNT_REGEX.containsMatchIn(text)
+
+    /** 归拢摘要 Spannable 上色：蓝 [有人@我]/[@全体]、黄 [N个聊天]（其余保持微信原生颜色） */
+    private fun tintAggSummary(text: String): CharSequence {
+        val sp = SpannableString(text)
+        val atIdx = text.indexOf("[有人@我]")
+        if (atIdx >= 0) sp.setSpan(ForegroundColorSpan(MENTION_BLUE), atIdx, atIdx + "[有人@我]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val allIdx = text.indexOf("[@全体]")
+        if (allIdx >= 0) sp.setSpan(ForegroundColorSpan(MENTION_BLUE), allIdx, allIdx + "[@全体]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val m = CHAT_COUNT_REGEX.find(text)
+        if (m != null) sp.setSpan(ForegroundColorSpan(MENTION_YELLOW), m.range.first, m.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return sp
+    }
+
+    /** 反射 dump 实例字段（含父类 4 层），定位 paint/baseline 字段 */
+    private fun dumpFields(obj: Any) {
+        runCatching {
+            val sb = StringBuilder()
+            var cls: Class<*>? = obj.javaClass
+            var guard = 0
+            while (cls != null && guard++ < 4) {
+                cls.declaredFields.forEach { f ->
+                    runCatching {
+                        f.isAccessible = true
+                        val v = f.get(obj)
+                        val vs = v?.toString()?.take(40) ?: "null"
+                        sb.append(f.name).append(':').append(f.type.simpleName).append('=').append(vs).append("; ")
+                    }
+                }
+                cls = cls.superclass
+            }
+            diagFile("NMTV_FIELDS[${obj.javaClass.simpleName}] $sb")
+        }
+    }
+
+
+    /** 归拢摘要分段着色：[@] 蓝、[N个聊天] 黄、其余恢复微信原生颜色，尾部超宽省略 */
+    private fun drawTintedSummary(tv: TextView, canvas: Canvas, text: String) {
+        runCatching {
+            val paint = TextPaint(tv.paint)
+            val originalColor = tv.currentTextColor
+            val baseX = tv.paddingLeft.toFloat()
+            val baseY = tv.baseline.toFloat()
+            val maxWidth = tv.width - tv.paddingLeft - tv.paddingRight
+            val blue = 0xFF4285F4.toInt()
+            val yellow = 0xFFFFCC00.toInt()
+
+            data class Seg(val start: Int, val end: Int, val color: Int)
+            val segs = mutableListOf<Seg>()
+            val atIdx = text.indexOf("[有人@我]")
+            if (atIdx >= 0) segs.add(Seg(atIdx, atIdx + "[有人@我]".length, blue))
+            val allIdx = text.indexOf("[@全体]")
+            if (allIdx >= 0) segs.add(Seg(allIdx, allIdx + "[@全体]".length, blue))
+            val m = Regex("""\[[^\]]*个聊天\]""").find(text)
+            if (m != null) segs.add(Seg(m.range.first, m.range.last + 1, yellow))
+            segs.sortBy { it.start }
+
+            var x = baseX
+            var cur = 0
+            for (seg in segs) {
+                if (seg.start > cur) {
+                    // 段间未着色文本：原色
+                    paint.color = originalColor
+                    val s = text.substring(cur, seg.start)
+                    canvas.drawText(s, x, baseY, paint)
+                    x += paint.measureText(s)
+                }
+                paint.color = seg.color
+                val s = text.substring(seg.start, seg.end)
+                canvas.drawText(s, x, baseY, paint)
+                x += paint.measureText(s)
+                cur = seg.end
+            }
+            if (cur < text.length) {
+                val rest = text.substring(cur)
+                val remain = maxWidth - (x - baseX)
+                val shown = if (remain > 0) {
+                    TextUtils.ellipsize(rest, paint, remain, TextUtils.TruncateAt.END).toString()
+                } else ""
+                if (shown.isNotEmpty()) {
+                    paint.color = originalColor
+                    canvas.drawText(shown, x, baseY, paint)
+                }
+            }
+        }
+    }
+
+    private fun diagFile(msg: String) {
+        runCatching {
+            val f = java.io.File("/sdcard/Android/data/com.tencent.mm/WCX/diag.log")
+            f.parentFile?.mkdirs()
+            f.appendText(System.currentTimeMillis().toString() + " " + msg + "\n")
+        }
+    }
+
+    // ==================== FunBox 同款：归拢摘要叠加染色（Item 根 View dispatchDraw after） ====================
+    // 方案：不拦截 NoMeasuredTextView 原生绘制（灰色原文照常输出），
+    // 在 Item 根 View dispatchDraw 之后用 Canvas 叠加彩色标签（蓝 [有人@我]/[@全体]、黄 [N个聊天]），
+    // 彩色文字盖在灰色文字上方。bind 阶段（getView）给 Item 根 setTag，无需向上遍历父布局。
+
+    /** Item 根 View 的 Tag key：标记归拢虚拟行 */
+    private const val TAG_KEY_VIRTUAL = 0x5A110001
+    /** Item 根 View 的 Tag key：归拢摘要着色状态 */
+    private const val TAG_KEY_STATE = 0x5A110002
+    /** Item 根 View 的 Tag key：内部摘要 NoMeasuredTextView 引用 */
+    private const val TAG_KEY_SUMMARY_TV = 0x5A110003
+
+    /** 归拢摘要着色状态（bind 阶段解析，onDraw 阶段直接读取） */
+    private class MergeUiState(
+        val atAll: Boolean,
+        val atMe: Boolean,
+        val chatCount: Int
+    )
+
+    /** 已 hook dispatchDraw 的 Item 根类（去重） */
+    private val hookedItemDrawClasses = java.util.Collections.synchronizedSet(java.util.HashSet<Class<*>>())
+
+    /**
+     * bind 阶段（getView 后）识别归拢虚拟行：找内部 NoMeasuredTextView 摘要控件，
+     * 文本含 [有人@我]/[@全体]/[N个聊天] 归拢标记即标记该行为虚拟行并记录着色状态。
+     * RecyclerView 复用旧 item 时先清 tag（未命中即普通会话）。
+     */
+    private fun markVirtualRow(root: ViewGroup) {
+        runCatching {
+            val queue = java.util.ArrayDeque<View>()
+            queue.add(root)
+            var summaryTv: TextView? = null
+            var fullText = ""
+            while (queue.isNotEmpty()) {
+                val v = queue.removeFirst()
+                if (v is TextView) {
+                    val t = v.text?.toString().orEmpty()
+                    // 归拢摘要标记命中即识别（摘要控件不限于 NoMeasuredTextView）
+                    if (t.contains("有人@我]") || t.contains("@全体]") || t.contains("个聊天]")) {
+                        summaryTv = v
+                        fullText = t
+                        break
+                    }
+                }
+                if (v is ViewGroup) for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
+            }
+            if (summaryTv == null) {
+                root.setTag(TAG_KEY_VIRTUAL, null)
+                root.setTag(TAG_KEY_STATE, null)
+                root.setTag(TAG_KEY_SUMMARY_TV, null)
+                return
+            }
+            val atAll = fullText.contains("[@全体]")
+            val atMe = fullText.contains("[有人@我]")
+            val chatCount = runCatching {
+                CHAT_COUNT_REGEX.find(fullText)?.value
+                    ?.trim('[', ']')?.replace("个聊天", "")?.toIntOrNull() ?: 0
+            }.getOrDefault(0)
+            root.setTag(TAG_KEY_VIRTUAL, true)
+            root.setTag(TAG_KEY_STATE, MergeUiState(atAll, atMe, chatCount))
+            root.setTag(TAG_KEY_SUMMARY_TV, summaryTv)
+            ensureItemDispatchDrawHook(root.javaClass)
+            if (tintHitSet.add(fullText)) {
+                diagFile("VIRTROW ${root.javaClass.simpleName} text=$fullText atAll=$atAll atMe=$atMe cnt=$chatCount")
+            }
+        }
+    }
+
+    /** 首次遇到某 Item 根类时 hook 其 dispatchDraw(after)：子 View（含灰色摘要）画完后叠加彩色 */
+    private fun ensureItemDispatchDrawHook(cls: Class<*>) {
+        if (!hookedItemDrawClasses.add(cls)) return
+        runCatching {
+            cls.getMethod("dispatchDraw", Canvas::class.java).hookAfterDirectly {
+                val root = thisObject as? View ?: return@hookAfterDirectly
+                if (root.getTag(TAG_KEY_VIRTUAL) != true) return@hookAfterDirectly
+                val state = root.getTag(TAG_KEY_STATE) as? MergeUiState ?: return@hookAfterDirectly
+                val summaryTv = root.getTag(TAG_KEY_SUMMARY_TV) as? TextView ?: return@hookAfterDirectly
+                if (summaryTv.width <= 0 || summaryTv.height <= 0) return@hookAfterDirectly
+                val canvas = args[0] as? Canvas ?: return@hookAfterDirectly
+                drawOverlay(root, summaryTv, state, canvas)
+            }
+            diagFile("ItemDispatchDraw hook: ${cls.name}")
+            WeLogger.i(TAG, "ItemDispatchDraw hook: ${cls.name}")
+        }.onFailure {
+            diagFile("ItemDispatchDraw hook FAIL ${cls.name}: $it")
+            WeLogger.w(TAG, "ItemDispatchDraw hook fail", it)
+        }
+    }
+
+    /** 叠加绘制：蓝 [有人@我]/[@全体] + 黄 [N个聊天]，盖在 NoMeasuredTextView 灰色原文上方 */
+    private fun drawOverlay(root: View, summaryTv: TextView, state: MergeUiState, canvas: Canvas) {
+        runCatching {
+            val paint = summaryTv.paint ?: return@runCatching
+            val tvLoc = IntArray(2)
+            val rootLoc = IntArray(2)
+            summaryTv.getLocationInWindow(tvLoc)
+            root.getLocationInWindow(rootLoc)
+            val baseY = (tvLoc[1] - rootLoc[1] + summaryTv.baseline).toFloat()
+            var x = (tvLoc[0] - rootLoc[0] + summaryTv.paddingLeft).toFloat()
+            val prefix = when {
+                state.atAll -> "[@全体]"
+                state.atMe -> "[有人@我]"
+                else -> ""
+            }
+            if (prefix.isNotEmpty()) {
+                paint.color = MENTION_BLUE
+                canvas.drawText(prefix, x, baseY, paint)
+                x += paint.measureText(prefix)
+            }
+            if (state.chatCount > 0) {
+                val s = "[${state.chatCount}个聊天]"
+                paint.color = MENTION_YELLOW
+                canvas.drawText(s, x, baseY, paint)
+            }
+            // 后缀不画：NoMeasuredTextView 原生灰色已输出全文，前缀区域被彩色覆盖，后缀区域保留原生
+        }
+    }
+
+    private fun HookParam.tintHolder() {
+        val holder = args?.getOrNull(0) ?: return
+        val itemView = runCatching {
+            holder.javaClass.getMethod("getItemView").invoke(holder) as? View
+        }.getOrNull() ?: return
+        val root = itemView as? ViewGroup ?: return
+        WeLogger.i(TAG, "bindViewHolder fired: root=${root.javaClass.simpleName} children=${root.childCount}")
+        diagFile("bindViewHolder fired: ${root.javaClass.simpleName} children=${root.childCount}")
+        tintMentionLabels(root, "bind")
+        markVirtualRow(root)
+        root.post {
+            WeLogger.i(TAG, "bindViewHolder post fired: root=${root.javaClass.simpleName}")
+        diagFile("bindViewHolder post fired: ${root.javaClass.simpleName}")
+            tintMentionLabels(root, "post")
+            markVirtualRow(root)
+        }
+    }
+
+    private fun tintMention(text: String): CharSequence? {
+        val atIdx = text.indexOf("[\u6709\u4eba@\u6211]")
+        val chatMatch = CHAT_COUNT_REGEX.find(text)
+        if (atIdx < 0 && chatMatch == null) return null
+        val spannable = SpannableString(text)
+        if (atIdx >= 0) {
+            spannable.setSpan(
+                ForegroundColorSpan(MENTION_BLUE),
+                atIdx,
+                (atIdx + 6).coerceAtMost(text.length),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        if (chatMatch != null) {
+            spannable.setSpan(
+                ForegroundColorSpan(MENTION_YELLOW),
+                chatMatch.range.first,
+                chatMatch.range.last + 1,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        return spannable
+    }
+
+    private fun tintMentionLabels(root: ViewGroup, tag: String) {
+        var tvCount = 0
+        var hit = 0
+        val queue = java.util.ArrayDeque<View>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val v = queue.removeFirst()
+            if (v is TextView) {
+                tvCount++
+                hookTextViewClass(v)
+                val text = v.text?.toString().orEmpty()
+                val tinted = tintMention(text)
+                if (tinted != null) {
+                    hit++
+                    WeLogger.i(TAG, "tint[$tag] matched class=${v.javaClass.simpleName} text=${text.take(28)}")
+                    diagFile("tint[$tag] matched ${v.javaClass.simpleName}: $text")
+                    v.setText(tinted)
+                }
+            }
+            if (v is ViewGroup) {
+                for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
+            }
+        }
+        if (hit > 0) WeLogger.i(TAG, "tint[$tag] done tv=$tvCount hit=$hit")
+    }
+
+    private fun hookSqliteExec() {
+        runCatching {
+            android.database.sqlite.SQLiteDatabase::class.java
+                .getMethod("execSQL", String::class.java)
+                .hookBeforeDirectly {
+                    val sql = args?.getOrNull(0) as? String ?: return@hookBeforeDirectly
+                    val low = sql.lowercase()
+                    if (low.contains("rconversation") && (low.contains("update") || low.contains("unread"))) {
+                        WeLogger.i(TAG, "execSQL: $sql")
+                        diagFile("execSQL: $sql")
+                    }
+                }
+            WeLogger.i(TAG, "execSQL hook registered")
+            diagFile("execSQL hook registered")
+        }.onFailure { WeLogger.w(TAG, "hook execSQL failed", it) }
+    }
+
+    private val methodRecyclerOnBind by dexMethod(allowFailure = true, allowMultiple = true) {
+        matcher {
+            name = "onBindViewHolder"
+            paramTypes("androidx.recyclerview.widget.RecyclerView\$ViewHolder", "int")
+        }
+    }
+
+    private val methodSupportRecyclerOnBind by dexMethod(allowFailure = true, allowMultiple = true) {
+        matcher {
+            name = "onBindViewHolder"
+            paramTypes("android.support.v7.widget.RecyclerView\$ViewHolder", "int")
+        }
+    }
+
+    private val methodTextViewSetText by dexMethod(allowFailure = true, allowMultiple = true) {
+        matcher {
+            name = "setText"
+            paramTypes("java.lang.CharSequence")
+        }
+    }
+
+    /** Global fallback: tint injected mention/chat-count text wherever a TextView renders it. */
+    private fun hookTextViewSetText() {
+        if (methodTextViewSetText.isPlaceholder) return
+        methodTextViewSetText.hookBefore {
+            val a = args ?: return@hookBefore
+            val text = a.getOrNull(0) as? CharSequence ?: return@hookBefore
+            val tinted = tintMention(text.toString())
+            if (tinted != null) {
+                WeLogger.i(TAG, "setText hookBefore matched: this=${this.thisObject?.javaClass?.simpleName} text=${text.toString().take(28)}")
+        diagFile("setText hookBefore matched: ${this.thisObject?.javaClass?.simpleName}: ${text.toString()}")
+                a[0] = tinted
+            }
+        }
+
+        // 兜底：hook 基类 TextView.setText，覆盖不 override 的 TextView 子类
+        runCatching {
+            val baseSetText = android.widget.TextView::class.java
+                .getMethod("setText", java.lang.CharSequence::class.java)
+            WeLogger.i(TAG, "TextView.setText base hook registered")
+            diagFile("TextView.setText base registered")
+            baseSetText.hookBeforeDirectly {
+                val a = args ?: return@hookBeforeDirectly
+                val text = a.getOrNull(0) as? CharSequence ?: return@hookBeforeDirectly
+                val tinted = tintMention(text.toString())
+                if (tinted != null) {
+                    WeLogger.i(TAG, "setText matched: [${thisObject?.javaClass?.name}] ${text.toString().take(50)}")
+                    a[0] = tinted
+                }
+            }
+        }.onFailure { WeLogger.w(TAG, "hook TextView.setText failed", it) }
+
+        // 诊断：hook 基类 setText(CharSequence, BufferType) —— TextView 所有 setText 变体的最终汇聚点，
+        // 用于定位微信主列表摘要 TextView 的真实类与渲染路径
+        runCatching {
+            val bufType = Class.forName("android.widget.TextView\$BufferType", false, ClassLoaders.HOST)
+            val m = android.widget.TextView::class.java
+                .getMethod("setText", java.lang.CharSequence::class.java, bufType)
+            WeLogger.i(TAG, "TextView.setText(CS,BT) diag hook registered")
+            diagFile("TextView.setText(CS,BT) diag registered")
+            m.hookBeforeDirectly {
+                val a = args ?: return@hookBeforeDirectly
+                val t = a.getOrNull(0) as? CharSequence ?: return@hookBeforeDirectly
+                val s = t.toString()
+                if (s.contains("[") || s.contains("@") || s.contains("聊天")) {
+                    WeLogger.i(TAG, "setText(CS,BT): this=${thisObject?.javaClass?.name} text=${s.take(40)}")
+                    diagFile("setText(CS,BT): ${thisObject?.javaClass?.name}: ${s.take(60)}")
+                }
+            }
+        }.onFailure { WeLogger.w(TAG, "hook setText(CS,BT) failed", it); diagFile("setText(CS,BT) FAILED: $it") }
+    }
+
     private fun hookConversationStorageUpdateUnread() {
         if (methodConversationStorageUpdateUnreadByTalker.isPlaceholder) return
         methodConversationStorageUpdateUnreadByTalker.hookBefore {
             val username = args.firstOrNull() as? String ?: return@hookBefore
+            WeLogger.i(TAG, "updateUnreadByTalker: $username folder=${isFolderId(username)}")
+            diagFile("updateUnreadByTalker: $username folder=${isFolderId(username)}")
             if (isFolderId(username)) result = true
         }
     }
@@ -1007,7 +1725,7 @@ object ConversationAggregation : ClickableFeature(),
                    ${ConversationTable.DIGEST_USER}, ${ConversationTable.IS_SEND}, ${ConversationTable.STATUS},
                    ${ConversationTable.CONVERSATION_TIME}, ${ConversationTable.UNREAD_COUNT},
                    ${ConversationTable.UNREAD_MUTE_COUNT}, ${ConversationTable.CONTENT},
-                   ${ConversationTable.MSG_TYPE}, ${ConversationTable.CHAT_MODE}, ${ConversationTable.ATTR_FLAG}
+                   ${ConversationTable.MSG_TYPE}, ${ConversationTable.CHAT_MODE}, ${ConversationTable.ATTR_FLAG}, ${ConversationTable.AT_COUNT}
             """.trimIndent() + " " +
                     "FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME} LIKE ?",
             arrayOf("$FOLDER_PREFIX%")
@@ -1026,7 +1744,8 @@ object ConversationAggregation : ClickableFeature(),
                         unreadMuteCount = cursor.getIntOrZero(ConversationTable.UNREAD_MUTE_COUNT),
                         content = cursor.getStringOrEmpty(ConversationTable.CONTENT),
                         msgType = cursor.getStringOrEmpty(ConversationTable.MSG_TYPE),
-                        chatMode = cursor.getIntOrZero(ConversationTable.CHAT_MODE)
+                        chatMode = cursor.getIntOrZero(ConversationTable.CHAT_MODE),
+                        atMeCount = cursor.getIntOrZero(ConversationTable.AT_COUNT)
                     )
                 )
             }
@@ -1215,7 +1934,11 @@ object ConversationAggregation : ClickableFeature(),
                 ${ContactTable.USERNAME}, ${ContactTable.NICKNAME}, ${ContactTable.TYPE}, ${ContactTable.VERIFY_FLAG}
             ) VALUES (?, ?, 3, 0)
             """.trimIndent(),
-            arrayOf(folder.id, folder.name)
+            arrayOf(
+                folder.id,
+                folder.name.take(MAX_FOLDER_DISPLAY_NAME) +
+                    if (folder.name.length > MAX_FOLDER_DISPLAY_NAME) "\u2026" else ""
+            )
         )
     }
 
@@ -1240,7 +1963,8 @@ object ConversationAggregation : ClickableFeature(),
                 ${ConversationTable.FLAG}=(${ConversationTable.FLAG} & ?) | ?,
                 ${ConversationTable.UNREAD_COUNT}=?, ${ConversationTable.UNREAD_MUTE_COUNT}=?,
                 ${ConversationTable.CONTENT}=?, ${ConversationTable.MSG_TYPE}=?,
-                ${ConversationTable.CHAT_MODE}=?, ${ConversationTable.ATTR_FLAG}=?
+                ${ConversationTable.CHAT_MODE}=?, ${ConversationTable.ATTR_FLAG}=?,
+                ${ConversationTable.AT_COUNT}=?
             WHERE ${ConversationTable.USERNAME}=?
             """.trimIndent(),
             arrayOf(
@@ -1257,6 +1981,7 @@ object ConversationAggregation : ClickableFeature(),
                 summary.msgType,
                 summary.chatMode,
                 summary.attrFlag,
+                summary.atMeCount,
                 folderId
             )
         )
@@ -1278,6 +2003,7 @@ object ConversationAggregation : ClickableFeature(),
                        r.${ConversationTable.STATUS}, r.${ConversationTable.CONVERSATION_TIME},
                        r.${ConversationTable.UNREAD_COUNT}, r.${ConversationTable.CONTENT},
                        r.${ConversationTable.MSG_TYPE}, r.${ConversationTable.CHAT_MODE},
+                       r.${ConversationTable.AT_COUNT},
                        c.${ContactTable.TYPE}, c.${ContactTable.LV_BUFF},
                        c.${ContactTable.CON_REMARK}, c.${ContactTable.NICKNAME}
                 FROM ${ConversationTable.NAME} r
@@ -1300,8 +2026,15 @@ object ConversationAggregation : ClickableFeature(),
                         } else {
                             cursor.getIntOrZero(ContactTable.TYPE) and 512 != 0
                         }
-                        if (muted) state.mutedUnread += unread else state.normalUnread += unread
+                        if (muted) {
+                            state.mutedUnread += unread
+                        } else {
+                            state.normalUnread += unread
+                        }
+                        // [N个聊天] = 归拢文件夹里有未读的聊天数（FunBox 语义，不限免打扰）
+                        state.unreadChatCount++
                     }
+                    state.atMeCount += cursor.getIntOrZero(ConversationTable.AT_COUNT).coerceAtLeast(0)
 
                     val time = cursor.getLongOrZero(ConversationTable.CONVERSATION_TIME)
                     if (state.latest == null || time > state.latest!!.conversationTime) {
@@ -1311,7 +2044,10 @@ object ConversationAggregation : ClickableFeature(),
                         state.latest = MemberSummaryRow(
                             digest = prefixWithConversationName(
                                 displayName.takeIf { it.isNotBlank() && it != username },
-                                cursor.getStringOrEmpty(ConversationTable.DIGEST)
+                                stripWxidPrefix(cursor.getStringOrEmpty(ConversationTable.DIGEST)),
+                                username.endsWith("@chatroom"),
+                                cursor.getStringOrEmpty(ConversationTable.DIGEST_USER).ifBlank { null },
+                                username
                             ),
                             digestUser = cursor.getStringOrEmpty(ConversationTable.DIGEST_USER),
                             isSend = cursor.getIntOrZero(ConversationTable.IS_SEND),
@@ -1335,7 +2071,16 @@ object ConversationAggregation : ClickableFeature(),
                 )
             } else {
                 FolderSummary(
-                    digest = latest.digest,
+                    digest = (
+                        if (isEveryoneMention(latest.digest, latest.content)) "[@全体]"
+                        else if (state.atMeCount > 0) "[有人@我]"
+                        else ""
+                    ) + (
+                        if (state.unreadChatCount > 0)
+                            "[${state.unreadChatCount}个聊天]" else ""
+                    ) + (
+                        if (latest.isSend == 1) "[自己]" else ""
+                    ) + latest.digest,
                     digestUser = latest.digestUser,
                     isSend = latest.isSend,
                     status = latest.status,
@@ -1352,21 +2097,132 @@ object ConversationAggregation : ClickableFeature(),
         }
     }
 
+    /** 判断最新摘要/消息是否为「@所有人」群发提及，用于把 [有人@我] 换成 [@全体]。
+     *  微信摘要的 @所有人 形式多样（"@所有人"、"所有人:"、"全体成员" 等），
+     *  因此按「所有人/全体」关键词匹配而非要求带 @ 符号。 */
+    private fun isEveryoneMention(digest: String, content: String): Boolean =
+        containsEveryone(digest) || containsEveryone(content)
+
+    private fun containsEveryone(s: String): Boolean =
+        s.contains("所有人") || s.contains("全体")
+
     /**
      * Prefixes the folder digest with the originating conversation's display name, so the
      * homepage folder row reads like "群聊名: 最新一条消息" instead of a bare message whose
      * source is ambiguous once several chats are aggregated. Returns the digest untouched
      * when it is blank or the name can't be resolved, to avoid a dangling "name: " prefix.
      */
-    private fun prefixWithConversationName(displayName: String?, digest: String): String {
-        if (digest.isBlank() || displayName.isNullOrBlank()) return digest
-        return "$displayName: $digest"
+    private val SENDER_PREFIX_REGEX = Regex("^(?:\uFF08([^\uFF09]+)\uFF09\uFF1A|([^:\uFF1A]+)[:\uFF1A])")
+
+    private val WXID_PREFIX_REGEX = Regex("^wxid_[A-Za-z0-9_]+:\\s*")
+
+    private fun stripWxidPrefix(digest: String): String {
+        if (digest.isBlank()) return digest
+        val m = WXID_PREFIX_REGEX.find(digest) ?: return digest
+        return digest.substring(m.value.length)
     }
+
+    private fun chineseNumber(n: Int): String = when (n) {
+        in 1..9 -> arrayOf("\u4e00", "\u4e8c", "\u4e09", "\u56db", "\u4e94", "\u516d", "\u4e03", "\u516b", "\u4e5d")[n - 1]
+        in 10..99 -> {
+            val tens = arrayOf("", "\u5341", "\u4e8c\u5341", "\u4e09\u5341", "\u56db\u5341", "\u4e94\u5341", "\u516d\u5341", "\u4e03\u5341", "\u516b\u5341", "\u4e5d\u5341")[n / 10]
+            val ones = n % 10
+            if (ones == 0) tens else "$tens${arrayOf("\u4e00", "\u4e8c", "\u4e09", "\u56db", "\u4e94", "\u516d", "\u4e03", "\u516b", "\u4e5d")[ones - 1]}"
+        }
+        else -> n.toString()
+    }
+
+    private fun prefixWithConversationName(
+        displayName: String?,
+        digest: String,
+        isChatroom: Boolean,
+        senderWxid: String? = null,
+        groupId: String? = null
+    ): String {
+        if (digest.isBlank() || displayName.isNullOrBlank()) return digest
+        val name = displayName.take(MAX_DIGEST_NAME_LEN) +
+            if (displayName.length > MAX_DIGEST_NAME_LEN) "\u2026" else ""
+        if (isChatroom) {
+            val m = SENDER_PREFIX_REGEX.find(digest)
+            if (m != null) {
+                val sender = m.groupValues[1].ifEmpty { m.groupValues[2] }
+                val rawSender = resolveSenderDisplayName(sender, senderWxid, groupId)
+                val senderName = rawSender.take(MAX_SENDER_NAME_LEN) +
+                    if (rawSender.length > MAX_SENDER_NAME_LEN) "\u2026" else ""
+                val rest = digest.substring(m.value.length)
+                // 发送者名无法解析（无备注、无群名片）时不显示空括号
+                return if (senderName.isBlank()) "$name: $rest" else "$name($senderName):$rest"
+            }
+        }
+        return "$name: $digest"
+    }
+
+    private val senderNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Resolve the digest's raw sender handle to the display name shown in the folder digest.
+     *  与微信群聊一致：备注 → 群名片（该群内，chatroom.roomdata displayName）→ 微信昵称。
+     *  不直接显示微信号/用户 ID（wxid_、带 @ 的账号标识）。
+     *  [senderWxid] 来自微信 digestUser（发送者账号，最精确）；[groupId] 为所在群（@chatroom），
+     *  用于取群名片（如无群名片时微信摘要可能显示昵称，但群名片才是用户在该群的名字）。 */
+    private fun resolveSenderDisplayName(sender: String, senderWxid: String? = null, groupId: String? = null): String {
+        if (sender.isBlank() && senderWxid.isNullOrBlank()) return ""
+        val cacheKey = "$senderWxid|$sender|$groupId"
+        senderNameCache[cacheKey]?.let { return it }
+        val final = runCatching {
+            val wxid = senderWxid?.takeIf { it.isNotBlank() } ?: sender
+            val isAccount = wxid.startsWith("wxid_") || wxid.contains("@")
+            // 1) 备注（个人备注优先，与微信一致）
+            val remark = queryContactField(wxid, ContactTable.CON_REMARK)
+            if (remark.isNotBlank()) return@runCatching remark
+            // 2) 群名片：发送者是该群成员时的群内显示名（优先于昵称）
+            if (groupId != null && wxid.startsWith("wxid_")) {
+                val card = WeDatabaseApi.getGroupMemberDisplayName(groupId, wxid)
+                if (card.isNotBlank()) return@runCatching card
+            }
+            // 3) 微信昵称
+            val nickname = queryContactField(wxid, ContactTable.NICKNAME)
+            if (nickname.isNotBlank()) return@runCatching nickname
+            // 4) 账号标识：查不到名字则不显示（避免暴露用户 ID）
+            if (isAccount) return@runCatching ""
+            // 5) sender 是显示名文本（微信摘要里的群名片/昵称）——反查昵称得账号后取群名片
+            val nicknameWxid = runCatching {
+                WeDatabaseApi.rawQuery(
+                    "SELECT ${ContactTable.USERNAME} FROM ${ContactTable.NAME} WHERE ${ContactTable.NICKNAME}=? LIMIT 1",
+                    arrayOf(sender)
+                ).use { c -> if (c.moveToFirst()) c.getString(0) else null }
+            }.getOrNull()
+            if (nicknameWxid != null && groupId != null) {
+                val card = WeDatabaseApi.getGroupMemberDisplayName(groupId, nicknameWxid)
+                if (card.isNotBlank()) return@runCatching card
+            }
+            sender
+        }.getOrDefault("")
+        senderNameCache[cacheKey] = final
+        return final
+    }
+
+    /** 查询联系人单字段（备注或昵称），无值返回空串。 */
+    private fun queryContactField(username: String, column: String): String = runCatching {
+        WeDatabaseApi.rawQuery(
+            "SELECT $column FROM ${ContactTable.NAME} WHERE ${ContactTable.USERNAME}=?",
+            arrayOf(username)
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getStringOrEmpty(column) else ""
+        }
+    }.getOrDefault("")
 
     private fun isFolderSchemaReady(): Boolean {
         folderSchemaReady?.let { return it }
         val result = runCatching {
             val conversationColumns = tableColumns(ConversationTable.NAME)
+            WeLogger.i(TAG, "rconversation columns: $conversationColumns")
+            runCatching {
+                WeDatabaseApi.rawQuery("SELECT name FROM sqlite_master WHERE type='table'").use { tc ->
+                    val tns = mutableListOf<String>()
+                    while (tc.moveToNext()) tns += tc.getString(0)
+                    WeLogger.i(TAG, "sqlite tables: ${tns.joinToString()}")
+                }
+            }.onFailure { WeLogger.w(TAG, "list tables failed", it) }
             val contactColumns = tableColumns(ContactTable.NAME)
             val missingConversationColumns = ConversationTable.REQUIRED_COLUMNS - conversationColumns
             val missingContactColumns = ContactTable.REQUIRED_COLUMNS - contactColumns
@@ -2019,6 +2875,8 @@ object ConversationAggregation : ClickableFeature(),
         var latest: MemberSummaryRow? = null
         var normalUnread: Int = 0
         var mutedUnread: Int = 0
+        var unreadChatCount: Int = 0
+        var atMeCount: Int = 0
     }
 
     private data class FolderSummary(
@@ -2029,6 +2887,7 @@ object ConversationAggregation : ClickableFeature(),
         val conversationTime: Long = System.currentTimeMillis(),
         val unreadCount: Int = 0,
         val unreadMuteCount: Int = 0,
+        val atMeCount: Int = 0,
         val content: String = "",
         val msgType: String = "",
         val chatMode: Int = 0
@@ -2059,6 +2918,7 @@ object ConversationAggregation : ClickableFeature(),
         const val MSG_TYPE = "msgType"
         const val CHAT_MODE = "chatmode"
         const val ATTR_FLAG = "attrflag"
+        const val AT_COUNT = "atCount"
 
         val REQUIRED_COLUMNS = setOf(
             USERNAME,
