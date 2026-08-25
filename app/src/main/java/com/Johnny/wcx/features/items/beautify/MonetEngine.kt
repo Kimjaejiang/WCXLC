@@ -41,8 +41,13 @@ object MonetEngine : ApiFeature() {
     private const val DEFAULT_COLOR = -16268960 // 0xFF07C160
 
     private val scheme by lazy {
-        val dark = HostInfo.application.isDarkMode
-        SeedResolver.materialScheme(SeedResolver.customSeed(HostInfo.application, dark), dark)
+        try {
+            val dark = HostInfo.application.isDarkMode
+            SeedResolver.materialScheme(SeedResolver.customSeed(HostInfo.application, dark), dark)
+        } catch (e: Exception) {
+            WeLogger.w(TAG, "failed to resolve monet scheme, device may not support dynamic colors", e)
+            throw e
+        }
     }
 
     /** Accent that replaces the brand green (M3 `primary`). */
