@@ -935,7 +935,9 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
     }
 
     /** `mp5.q2.Ii(String toUser, ...)` — VoIPMP call-record insertion (未接听 / 已取消 / duration). */
-    internal val methodVoipMpInsertMsg by dexMethod(allowFailure = true) {
+    // 8.0.76: ZIDL 与 mp5.q2 两条插入路径共存 → Multiple methods found, 取第一个(ZIDL, 与 8.0.77 同目标);
+    // 8.0.77: 唯一匹配。hook 侧有参数结构防护, 版本不匹配时自动 no-op。
+    internal val methodVoipMpInsertMsg by dexMethod(allowMultiple = true, allowFailure = true) {
         matcher {
             // 8.0.77: VoIPMP 通话记录插入移入 ZIDL 层, 不再打 Launcher tag;
             // toUser 是第 2 个参数 (UTF-8 字节数组)。

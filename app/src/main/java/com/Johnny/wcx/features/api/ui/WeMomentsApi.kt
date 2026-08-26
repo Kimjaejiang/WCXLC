@@ -251,7 +251,8 @@ object WeMomentsApi : ApiFeature(), IResolveDex {
         }
     }
 
-    val methodAddSightObjectByPath by dexMethod {
+    // 8.0.76 无此方法(类结构不同) → No method found; allowFailure 降级, 调用处 postTextAndVideo 已有 try/catch 兜底返回 false
+    val methodAddSightObjectByPath by dexMethod(allowFailure = true) {
         searchPackages("com.tencent.mm.plugin.sns.model")
         matcher {
             declaredClass(classUploadPackHelper.clazz)
