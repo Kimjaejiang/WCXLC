@@ -15,10 +15,7 @@ typealias HookParam = com.Johnny.wcx.loader.abc.IHookBridge.IMemberHookParam
 
 typealias HookHandle = com.Johnny.wcx.loader.abc.IHookBridge.MemberUnhookHandle
 
-/** Xposed-style alias so `method` resolves inside [HookParam] receiver lambdas. */
-val HookParam.method: java.lang.reflect.Member get() = member
-
-abstract class HookCallback(val priority: Int = 50) : IHookBridge.IMemberHookCallback {
+abstract class HookCallback(val priority: Int = 50) : com.Johnny.wcx.loader.abc.IHookBridge.IMemberHookCallback {
     protected open fun beforeHookedMethod(param: HookParam) {}
     protected open fun afterHookedMethod(param: HookParam) {}
     override fun beforeHookedMember(param: HookParam) = beforeHookedMethod(param)

@@ -20,13 +20,6 @@ import org.luckypray.dexkit.query.enums.StringMatchType
 )
 object ErudaConsole : SwitchFeature(), IResolveDex {
 
-    private val erudaScript by lazy {
-        runCatching {
-            HostInfo.application.assets.open("eruda/eruda.min.js")
-                .use { it.readBytes().toString(Charsets.UTF_8) }
-        }.getOrElse { "" }
-    }
-
     private val xwebOnPageFinished by dexMethod {
         searchPackages("com.tencent.mm.plugin.appbrand.page")
         matcher {

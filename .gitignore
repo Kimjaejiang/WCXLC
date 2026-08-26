@@ -54,3 +54,4 @@ ui_dump.xml
 
 # 签名密钥（CI 用 GitHub Secrets，不入库）
 /keystore/
+maven-mirror/

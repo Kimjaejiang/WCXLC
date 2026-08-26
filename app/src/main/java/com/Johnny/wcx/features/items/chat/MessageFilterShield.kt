@@ -46,7 +46,6 @@ import com.Johnny.wcx.ui.content.Button
 import com.Johnny.wcx.ui.content.DefaultColumn
 import com.Johnny.wcx.ui.content.TextButton
 import com.Johnny.wcx.ui.utils.showComposeDialog
-import com.Johnny.wcx.utils.HookParam
 import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.showToast
 import com.Johnny.wcx.utils.strings.isGroupChatWxId
@@ -204,7 +203,7 @@ object MessageFilterShield : ClickableFeature(),
 
     // ==================== 消息 View 创建监听（隐藏策略） ====================
 
-    override fun onCreateView(param: HookParam, view: View) {
+    override fun onCreateView(param: XC_MethodHook.MethodHookParam, view: View) {
         if (!masterEnabled) return
         if (strategy != FilterStrategy.HIDE.value) return
 

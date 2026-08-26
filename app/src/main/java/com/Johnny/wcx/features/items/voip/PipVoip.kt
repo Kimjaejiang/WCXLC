@@ -24,7 +24,6 @@ import com.Johnny.wcx.dexkit.dsl.dexMethod
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.features.core.SwitchFeature
 import com.Johnny.wcx.utils.WeLogger
-import com.Johnny.wcx.utils.method
 import com.Johnny.wcx.utils.android.Intent
 import java.lang.reflect.Modifier
 import java.util.WeakHashMap
@@ -49,15 +48,27 @@ object PipVoip : SwitchFeature(), IResolveDex {
 
         val receiver = object : ResultReceiver(Handler(Looper.getMainLooper())) {
             override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+                // 8.0.77 加固: 这些回调跑在 Binder/主线程上, 行为全部 runCatching 兜底,
+                // 异常只进模块日志, 不进微信执行栈。
                 when (resultCode) {
                     PipVoipActivity.RESULT_HANG_UP -> {
-                        hangUp()
+                        runCatching { hangUp() }
+                            .onFailure { WeLogger.e(TAG, "hangUp failed", it) }
                         pipActive = false
                     }
 
-                    PipVoipActivity.RESULT_TOGGLE_MIC -> toggleMic()
-                    PipVoipActivity.RESULT_TOGGLE_VIDEO -> toggleVideo()
-                    PipVoipActivity.RESULT_RESTORE -> restoreCallActivity()
+                    PipVoipActivity.RESULT_TOGGLE_MIC ->
+                        runCatching { toggleMic() }
+                            .onFailure { WeLogger.e(TAG, "toggleMic failed", it) }
+
+                    PipVoipActivity.RESULT_TOGGLE_VIDEO ->
+                        runCatching { toggleVideo() }
+                            .onFailure { WeLogger.e(TAG, "toggleVideo failed", it) }
+
+                    PipVoipActivity.RESULT_RESTORE ->
+                        runCatching { restoreCallActivity() }
+                            .onFailure { WeLogger.e(TAG, "restore failed", it) }
+
                     PipVoipActivity.RESULT_CLOSED -> pipActive = false
                 }
             }
@@ -69,18 +80,26 @@ object PipVoip : SwitchFeature(), IResolveDex {
 
         fun enterPip() {
             if (pipActive) return
+            // 8.0.77 加固: 取值(micMuted) 与启动画中画都 runCatching 兜底, 失败回滚 pipActive,
+            // 异常只进模块日志, 不进微信执行栈。
             pipActive = true
-            activity.startActivity(
-                Intent().apply {
-                    component = ComponentName(PackageNames.MODULE, PipVoipActivity::class.java.name)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    putExtra(PipVoipActivity.EXTRA_GROUP_CALL, this@Session is GroupSession)
-                    putExtra(PipVoipActivity.EXTRA_MIC_MUTED, micMuted)
-                    putExtra(PipVoipActivity.EXTRA_VIDEO_ENABLED, videoEnabled)
-                    putExtra(PipVoipActivity.EXTRA_RESULT_RECEIVER, receiver)
-                }
-            )
-            activity.moveTaskToBack(true)
+            runCatching {
+                val muted = micMuted
+                activity.startActivity(
+                    Intent().apply {
+                        component = ComponentName(PackageNames.MODULE, PipVoipActivity::class.java.name)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        putExtra(PipVoipActivity.EXTRA_GROUP_CALL, this@Session is GroupSession)
+                        putExtra(PipVoipActivity.EXTRA_MIC_MUTED, muted)
+                        putExtra(PipVoipActivity.EXTRA_VIDEO_ENABLED, videoEnabled)
+                        putExtra(PipVoipActivity.EXTRA_RESULT_RECEIVER, receiver)
+                    }
+                )
+                activity.moveTaskToBack(true)
+            }.onFailure {
+                pipActive = false
+                WeLogger.e(TAG, "failed to enter pip", it)
+            }
         }
 
         @SuppressLint("MissingPermission")
@@ -390,13 +409,15 @@ object PipVoip : SwitchFeature(), IResolveDex {
 
     override fun onEnable() {
         methodVoipActivityProxyDealContentView.hookBefore {
-            WeLogger.d(TAG, "dealContentView: ${args[0]?.javaClass}")
+            // 8.0.77 加固: args 取值做空安全
+            WeLogger.d(TAG, "dealContentView: ${args?.getOrNull(0)?.javaClass}")
         }
 
         ActivityInfo::class.reflekt()
             .firstConstructor()
             .hookAfter {
-                val info = thisObject as ActivityInfo
+                // 8.0.77 加固: as? + 空返
+                val info = thisObject as? ActivityInfo ?: return@hookAfter
                 if (info.name == VideoActivity::class.java.name) applyPipFlags(info)
             }
 
@@ -407,22 +428,27 @@ object PipVoip : SwitchFeature(), IResolveDex {
             }
             .hookBefore {
                 if (thisObject is VideoActivity) {
-                    WeLogger.i(TAG, "VideoActivity picture-in-picture mode: ${args[0]}")
+                    WeLogger.i(TAG, "VideoActivity picture-in-picture mode: ${args?.getOrNull(0)}")
                 }
             }
 
         methodFlutterVoipAttachedToActivity.hookAfter {
-            registerSingleSession(thisObject ?: return@hookAfter)
+            registerSingleSession(thisObject)
         }
 
         methodFlutterVoipReattachedToActivity.hookAfter {
-            registerSingleSession(thisObject ?: return@hookAfter)
+            registerSingleSession(thisObject)
         }
 
         methodFlutterVoipMinimize.hookBefore {
-            val activity = fieldFlutterVoipActivity.field.get(thisObject) as VideoActivity
-            sessions.getValue(activity).enterPip()
-            methodFlutterCallbackInvoke.method.invoke(args[3], true)
+            // 8.0.77 加固: as? + 空返; 取值与 Dart 回调 invoke 用 runCatching 兜底
+            val activity = fieldFlutterVoipActivity.field.get(thisObject) as? VideoActivity
+                ?: return@hookBefore
+            sessions[activity]?.enterPip() ?: WeLogger.w(TAG, "no session for $activity, leaving wechat alone")
+            runCatching {
+                val callbackArg = args?.getOrNull(3) ?: return@runCatching
+                methodFlutterCallbackInvoke.method.invoke(callbackArg, true)
+            }.onFailure { WeLogger.e(TAG, "flutter minimize callback invoke failed", it) }
             try {
                 // 仅当原方法返回 void 时才设置 result = null
                 if (method is java.lang.reflect.Method) {
@@ -437,8 +463,9 @@ object PipVoip : SwitchFeature(), IResolveDex {
         }
 
         methodVoipMinimize.hookBefore {
+            // 8.0.77 加固: firstOrNull + 空返, 找不到匹配 session 时静默放行
             val session = sessions.values.filterIsInstance<SingleSession>()
-                .first { it.manager === thisObject }
+                .firstOrNull { it.manager === thisObject } ?: return@hookBefore
             session.enterPip()
             try {
                 // 仅当原方法返回 boolean 时才设置 result = true
@@ -457,31 +484,36 @@ object PipVoip : SwitchFeature(), IResolveDex {
             name = "onUserLeaveHint"
             parameterCount = 0
         }.hookBefore {
-            sessions.getValue(thisObject as VideoActivity).enterPip()
+            // 8.0.77 加固: as? + 空返, 找不到 session 只记日志
+            val activity = thisObject as? VideoActivity ?: return@hookBefore
+            sessions[activity]?.enterPip() ?: WeLogger.w(TAG, "no session for $activity, leaving wechat alone")
         }
         VideoActivity::class.reflekt().firstMethod {
             name = "onDestroy"
             parameterCount = 0
         }.hookBefore {
-            removeSession(thisObject as VideoActivity)
+            removeSession(thisObject as? VideoActivity ?: return@hookBefore)
         }
 
         MultiTalkMainUI::class.reflekt().firstMethod {
             name = "onCreate"
             parameterCount = 1
         }.hookAfter {
-            val activity = thisObject as MultiTalkMainUI
+            // 8.0.77 加固: as? + 空返
+            val activity = thisObject as? MultiTalkMainUI ?: return@hookAfter
             sessions[activity] = GroupSession(activity)
         }
         MultiTalkMainUI::class.reflekt().firstMethod {
             name = "onDestroy"
             parameterCount = 0
         }.hookBefore {
-            removeSession(thisObject as MultiTalkMainUI)
+            removeSession(thisObject as? MultiTalkMainUI ?: return@hookBefore)
         }
 
         methodMultiTalkMinimize.hookBefore {
-            sessions.getValue(thisObject as MultiTalkMainUI).enterPip()
+            // 8.0.77 加固: as? + 空返
+            val activity = thisObject as? MultiTalkMainUI ?: return@hookBefore
+            sessions[activity]?.enterPip() ?: WeLogger.w(TAG, "no session for $activity, leaving wechat alone")
             try {
                 // 仅当原方法返回 void 时才设置 result = null
                 if (method is java.lang.reflect.Method) {
@@ -498,7 +530,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
         Activity::class.reflekt().firstMethod { name = "onUserLeaveHint" }.hookBefore {
             val activity = thisObject
             if (activity is MultiTalkMainUI) {
-                sessions.getValue(activity).enterPip()
+                sessions[activity]?.enterPip() ?: WeLogger.w(TAG, "no session for $activity, leaving wechat alone")
             }
         }
     }
@@ -509,15 +541,25 @@ object PipVoip : SwitchFeature(), IResolveDex {
     }
 
     private fun registerSingleSession(plugin: Any) {
-        val activity = fieldFlutterVoipActivity.field.get(plugin) as VideoActivity
-        val manager = fieldFlutterVoipManager.field.get(plugin)!!
+        // 8.0.77 加固: 字段可能已混淆/移除, as? + 空返, 异常不再抛进微信执行栈
+        val activity = fieldFlutterVoipActivity.field.get(plugin) as? VideoActivity ?: run {
+            WeLogger.w(TAG, "flutter voip plugin has no activity attached")
+            return
+        }
+        val manager = fieldFlutterVoipManager.field.get(plugin) ?: run {
+            WeLogger.w(TAG, "flutter voip plugin has no manager attached")
+            return
+        }
         WeLogger.d(TAG, "placing $activity into map")
         sessions[activity] = SingleSession(activity, manager)
     }
 
     private fun applyPipFlags(info: ActivityInfo) {
-        info.flags = info.flags or FLAG_SUPPORTS_PICTURE_IN_PICTURE
-        info.reflekt().firstField { name = "resizeMode" }.set(RESIZE_MODE_RESIZEABLE)
+        // 8.0.77 加固: resizeMode 字段可能已混淆/改名, runCatching 兜底
+        runCatching {
+            info.flags = info.flags or FLAG_SUPPORTS_PICTURE_IN_PICTURE
+            info.reflekt().firstField { name = "resizeMode" }.set(RESIZE_MODE_RESIZEABLE)
+        }.onFailure { WeLogger.e(TAG, "failed to apply pip flags", it) }
     }
 
     private fun removeSession(activity: Activity) {
@@ -525,12 +567,15 @@ object PipVoip : SwitchFeature(), IResolveDex {
     }
 
     private fun closePipActivity(context: Context) {
-        context.startActivity(
-            Intent {
-                component = ComponentName(PackageNames.WECHAT, PipVoipActivity::class.java.name)
-                action = PipVoipActivity.ACTION_CLOSE
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
-        )
+        // 8.0.77 加固: 启动/关闭行为 runCatching 兜底, 失败只记日志
+        runCatching {
+            context.startActivity(
+                Intent {
+                    component = ComponentName(PackageNames.WECHAT, PipVoipActivity::class.java.name)
+                    action = PipVoipActivity.ACTION_CLOSE
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
+            )
+        }.onFailure { WeLogger.e(TAG, "failed to close pip activity", it) }
     }
 }

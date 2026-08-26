@@ -39,4 +39,3 @@ data class SKBuiltinBufferProto(
     }
 }
 
-typealias OpBufProto = SKBuiltinBufferProto

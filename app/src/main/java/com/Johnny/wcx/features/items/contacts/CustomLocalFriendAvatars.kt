@@ -1,4 +1,4 @@
-﻿package com.Johnny.wcx.features.items.contacts
+package com.Johnny.wcx.features.items.contacts
 
 import android.app.Activity
 import android.content.Context
@@ -66,20 +66,19 @@ import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.currentWxId
 import com.Johnny.wcx.utils.android.showToast
 import com.Johnny.wcx.utils.fs.KnownPaths
-import com.Johnny.wcx.utils.fs.createDirsSafe
 import com.Johnny.wcx.utils.reflection.BString
 import com.Johnny.wcx.utils.reflection.bool
-import com.Johnny.wcx.utils.HookHandle
-import com.Johnny.wcx.utils.hookAfterDirectly
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import java.util.UUID
 import java.text.Collator
 import java.util.Collections
 import java.util.Locale
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.io.path.absolutePathString
 import kotlin.io.path.div
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -131,33 +130,20 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         }
     }
 
-    private val classAvatarDrawable by dexClass(allowMultiple = true) {
+    private val classAvatarDrawable by dexClass {
+        searchPackages("com.tencent.mm.feature.avatar")
         matcher {
-            usingEqStrings("MicroMsg.AvatarDrawable", "imageView is null")
-            // 8.0.77: pluginsdk.ui.u 与 feature.avatar.w 都含这两个字符串; 用 u.b(ImageView,String,F,Z) 限定
-            methods {
-                add {
-                    name = "b"
-                    paramTypes(
-                        "android.widget.ImageView",
-                        "java.lang.String",
-                        "float",
-                        "boolean"
-                    )
-                }
-            }
+            usingEqStrings("MicroMsg.AvatarDrawable", "imageView is null", "?access_token=")
         }
     }
 
     // com.tencent.mm.feature.avatar.w.pg; an exception: this doesn't call methodMvvmLoadAvatar
-    private val methodFeatureAvatarSimple1 by dexMethod(allowFailure = true) {
+    private val methodFeatureAvatarSimple1 by dexMethod {
         matcher {
             declaredClass(classAvatarDrawable.clazz)
             paramTypes(
                 "android.widget.ImageView",
-                "java.lang.String",
-                "float",
-                "boolean"
+                "java.lang.String"
             )
             returnType(Void.TYPE)
 
@@ -189,9 +175,6 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         }
     }
 
-
-    private val inCustomDrawable = ThreadLocal.withInitial { false }
-
     private val methodRoundBitmap by dexMethod(allowFailure = true) {
         searchPackages("com.tencent.mm.sdk.platformtools")
         matcher {
@@ -205,7 +188,7 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
     }
 
     // com.tencent.mm.pluginsdk.ui.u.b
-    private val methodConversationAvatar by dexMethod(allowFailure = true) {
+    private val methodConversationAvatar by dexMethod {
         searchPackages("com.tencent.mm.pluginsdk.ui")
         matcher {
             usingEqStrings("MicroMsg.AvatarDrawable", "imageView is null")
@@ -256,73 +239,95 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
     override fun onEnable() {
         WeContactPrefsScreenApi.addProvider(this)
 
-        // 迁移旧版存的相册 content:// 头像到模块私有目录（file://），避免重启后权限失效空白
-        runCatching {
-            val migrated = avatarMap.mapValues { (_, uri) ->
-                if (uri.startsWith("content://")) persistAvatarFile(uri) else uri
+        // 清除重启可能残留的缓存状态，避免旧缓存导致头像加载异常
+        clearBitmapCaches()
+        boundAvatarViews.clear()
+
+        val hookTargets = listOf(
+            "methodConversationAvatar" to methodConversationAvatar,
+            "methodMvvmLoadAvatar1" to methodMvvmLoadAvatar1,
+            "methodMvvmLoadAvatar2" to methodMvvmLoadAvatar2,
+            "methodFeatureAvatarSimple1" to methodFeatureAvatarSimple1,
+            "methodPluginsdkLoadAvatar" to methodPluginsdkLoadAvatar
+        )
+
+        for ((name, delegate) in hookTargets) {
+            if (delegate.isPlaceholder) {
+                WeLogger.w(TAG, "skipping hook $name: method not found (placeholder) in current WeChat version")
+                continue
             }
-            if (migrated != avatarMap) avatarMap = migrated
-        }
 
-        listOf(
-            methodConversationAvatar,
-            methodMvvmLoadAvatar1,
-            methodMvvmLoadAvatar2,
-            methodFeatureAvatarSimple1,
-            methodPluginsdkLoadAvatar
-        ).forEachIndexed { index, it ->
-            if (it.isPlaceholder) {
-                WeLogger.i(TAG, "avatar hook[$index] placeholder (not matched)")
-                return@forEachIndexed
-            }
-            it.method.hookBefore {
-                val imageView = args.getOrNull(0) as? ImageView ?: return@hookBefore
-                val wxId = args.getOrNull(1) as? String ?: return@hookBefore
+            try {
+                delegate.method.hookBefore {
+                    val imageView = args.getOrNull(0) as? ImageView ?: return@hookBefore
+                    val wxId = args.getOrNull(1) as? String ?: return@hookBefore
 
-                // RecyclerView 复用：先清掉上一个条目的自定义头像 tag，避免微信 setImageDrawable
-                // 覆盖时被误当成当前条目重设（系统会话/其他文件夹串图）
-                imageView.setTag(VIEW_TAG_CUSTOM_AVATAR, null)
-                boundAvatarViews.remove(imageView)
+                    val redirectedId = fallbackUsernameProvider?.invoke(wxId)
+                    if (redirectedId != null) {
+                        args[1] = redirectedId
+                        return@hookBefore
+                    }
 
-                val redirectedId = fallbackUsernameProvider?.invoke(wxId)
-                if (redirectedId != null) {
-                    WeLogger.i(TAG, "avatar redirect[$index] $wxId -> $redirectedId")
-                    args[1] = redirectedId
-                    return@hookBefore
+                    if (applyCustomAvatar(imageView, wxId, roundAvatarRadiusFactor)) {
+                        try {
+                            // 仅当原方法返回 void 时才设置 result = null
+                            if (method is java.lang.reflect.Method) {
+                                val returnType = (method as java.lang.reflect.Method).returnType
+                                if (returnType == Void.TYPE) {
+                                    result = null
+                                }
+                            }
+                        } catch (e: Throwable) {
+                            // 兜底异常捕获，防止单条 Hook 异常导致微信主线程崩溃
+                        }
+                    }
                 }
-
-                val hasCustom = avatarMap.containsKey(wxId)
-                val applied = if (hasCustom) {
-                    applyCustomAvatar(imageView, wxId, roundAvatarRadiusFactor)
-                } else {
-                    false
-                }
-                WeLogger.i(TAG, "avatar hit[$index] wxId=$wxId hasCustom=$hasCustom applied=$applied")
-                if (applied) {
-                    result = null
-                }
-            }
-        }
-
-        methodHdGallerySetUsername.hookBefore {
-            val username = args.getOrNull(0) as? String ?: return@hookBefore
-            val gallery = thisObject
-            if (applyCustomHdAvatar(gallery, username)) {
-                result = null
-                (gallery as? View)?.let { view ->
-                    view.post { applyCustomHdAvatar(gallery, username) }
-                    view.postDelayed({ applyCustomHdAvatar(gallery, username) }, 300L)
-                }
+                WeLogger.i(TAG, "hook $name set up successfully")
+            } catch (e: Exception) {
+                WeLogger.w(TAG, "failed to hook $name, avatar loading may be affected", e)
             }
         }
-        hookSetImageDrawableDirectly()
+
+        if (!methodHdGallerySetUsername.isPlaceholder) {
+            try {
+                methodHdGallerySetUsername.hookBefore {
+                    val username = args.getOrNull(0) as? String ?: return@hookBefore
+                    val gallery = thisObject
+                    if (applyCustomHdAvatar(gallery, username)) {
+                        try {
+                            // 仅当原方法返回 void 时才设置 result = null
+                            if (method is java.lang.reflect.Method) {
+                                val returnType = (method as java.lang.reflect.Method).returnType
+                                if (returnType == Void.TYPE) {
+                                    result = null
+                                }
+                            }
+                        } catch (e: Throwable) {
+                            // 兜底异常捕获，防止单条 Hook 异常导致微信主线程崩溃
+                        }
+                        (gallery as? View)?.let { view ->
+                            view.post { applyCustomHdAvatar(gallery, username) }
+                            view.postDelayed({ applyCustomHdAvatar(gallery, username) }, 300L)
+                        }
+                    }
+                }
+                WeLogger.i(TAG, "hook methodHdGallerySetUsername set up successfully")
+            } catch (e: Exception) {
+                WeLogger.w(TAG, "failed to hook methodHdGallerySetUsername", e)
+            }
+        } else {
+            WeLogger.w(TAG, "skipping hook methodHdGallerySetUsername: method not found (placeholder)")
+        }
+
+        WeLogger.i(TAG, "CustomLocalFriendAvatars enabled, avatarMap size=${avatarMap.size}")
     }
 
     override fun onDisable() {
         WeContactPrefsScreenApi.removeProvider(this)
         avatarMapCache = null
-        setImageDrawableUnhook?.unhook()
-        setImageDrawableUnhook = null
+        clearBitmapCaches()
+        boundAvatarViews.clear()
+        WeLogger.i(TAG, "CustomLocalFriendAvatars disabled, caches cleared")
     }
 
     override fun getContactInfoItem(activity: Activity): List<PreferenceItem> {
@@ -375,68 +380,33 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         return if (RoundAvatars.isEnabled) roundAvatarRadiusFactor else loaderRadiusFactor
     }
 
-    private var setImageDrawableUnhook: HookHandle? = null
-
-    /**
-     * 微信异步头像加载器（AvatarDrawable/wekit）会在我们 hook 设置自定义头像后，用默认/占位头像
-     * 再次覆盖同一个 ImageView（文件夹 wxid 无效 → 微信回退到占位图）。setImageDrawable 是系统
-     * 方法，DexKit 扫不到，这里直接按类名 hook：凡是带自定义头像 tag 的 ImageView 被再次设置时
-     * 强制重设自定义头像（以 avatarMap 当前值为准，头像被移除/更换后不再拉回旧头像）。
-     */
-    private fun hookSetImageDrawableDirectly() {
-        runCatching {
-            val cls = Class.forName("android.widget.ImageView")
-            cls.declaredMethods
-                .filter { it.name == "setImageDrawable" && it.parameterTypes.size == 1 }
-                .forEach { m ->
-                    m.isAccessible = true
-                    setImageDrawableUnhook = m.hookAfterDirectly {
-                        val imageView = thisObject as? ImageView ?: return@hookAfterDirectly
-                        if (inCustomDrawable.get()!!) return@hookAfterDirectly
-                        val tag = imageView.getTag(VIEW_TAG_CUSTOM_AVATAR) as? String ?: return@hookAfterDirectly
-                        val parts = tag.split(SEP)
-                        if (parts.size < 2) return@hookAfterDirectly
-                        val username = parts.first()
-                        // 以当前映射为准，不信任 tag 里存的旧 uri
-                        val currentUri = avatarMap[username]?.takeIf { it.isNotBlank() }
-                        if (currentUri == null) {
-                            // 头像已移除：清残留 tag，避免串图/旧头像复活
-                            imageView.setTag(VIEW_TAG_CUSTOM_AVATAR, null)
-                            boundAvatarViews.remove(imageView)
-                            return@hookAfterDirectly
-                        }
-                        val radius = parts.last().toFloatOrNull() ?: roundAvatarRadiusFactor
-                        inCustomDrawable.set(true)
-                        try {
-                            loadAvatarInto(imageView, currentUri, radius)
-                            WeLogger.i(TAG, "avatar re-applied after WeChat overwrite: $username")
-                        } finally {
-                            inCustomDrawable.set(false)
-                        }
-                    }
-                }
-            WeLogger.i(TAG, "setImageDrawable re-apply hook registered (direct)")
-        }.onFailure {
-            WeLogger.e(TAG, "setImageDrawable direct hook failed", it)
-        }
-    }
-
     private fun applyCustomAvatar(imageView: ImageView, username: String, radiusFactor: Float): Boolean {
         val uri = avatarMap[username]?.takeIf { it.isNotBlank() } ?: return false
         val effectiveRadiusFactor = effectiveRadiusFactor(radiusFactor)
         val tag = "$username$SEP$uri$SEP$effectiveRadiusFactor"
         imageView.setTag(VIEW_TAG_CUSTOM_AVATAR, tag)
         boundAvatarViews[imageView] = BoundAvatar(username, uri, radiusFactor)
-        loadAvatarInto(imageView, uri, effectiveRadiusFactor)
+
+        // 首次加载：若 bitmap 解码失败（如 content provider 尚未就绪），让原始方法先跑，
+        // 避免 ImageView 空白；post 回调会做二次尝试覆盖。
+        val firstAttemptOk = loadAvatarInto(imageView, uri, effectiveRadiusFactor)
         imageView.post {
             if (imageView.getTag(VIEW_TAG_CUSTOM_AVATAR) == tag) {
                 loadAvatarInto(imageView, uri, effectiveRadiusFactor)
             }
         }
-        return true
+
+        if (!firstAttemptOk) {
+            WeLogger.d(TAG, "first loadAvatarInto attempt failed for $username, allowing original method as fallback")
+        }
+        return firstAttemptOk
     }
 
-    private fun loadAvatarInto(imageView: ImageView, uri: String, radiusFactor: Float) {
+    /**
+     * 加载自定义头像到 ImageView。
+     * @return true 表示成功设置了自定义头像 bitmap，false 表示需要回退到原始加载逻辑。
+     */
+    private fun loadAvatarInto(imageView: ImageView, uri: String, radiusFactor: Float): Boolean {
         val targetSize = imageView.width
             .takeIf { it > 0 }
             ?: imageView.layoutParams?.width?.takeIf { it > 0 }
@@ -448,17 +418,21 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
             targetSize = targetSize,
             round = shouldRound,
             radiusFactor = if (shouldRound) radiusFactor else 0f
-        ) ?: run {
+        )
+
+        if (bitmap == null) {
+            WeLogger.d(TAG, "decodeAvatarBitmap failed for $uri, falling back to Coil")
             imageView.load(uri) {
                 allowHardware(false)
                 crossfade(false)
             }
-            return
+            return false
         }
 
         imageView.scaleType = ImageView.ScaleType.FIT_XY
         imageView.setImageDrawable(bitmap.toDrawable(imageView.resources))
         imageView.invalidate()
+        return true
     }
 
     private fun applyCustomHdAvatar(gallery: Any?, username: String): Boolean {
@@ -627,28 +601,8 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
     }
 
     private fun setAvatar(wxId: String, uri: String) {
-        // 相册返回的 content:// URI 的持久化授权（takePersistableUriPermission）在部分相册
-        // provider 上会失败，微信重启后不可读 → 头像空白。复制到模块私有目录存 file:// 路径，
-        // 重启后始终可读。复制失败时回退原 URI（保留旧行为）。
-        val persistentUri = persistAvatarFile(uri)
-        avatarMap = avatarMap + (wxId to persistentUri)
+        avatarMap = avatarMap + (wxId to uri)
         clearBitmapCaches()
-    }
-
-    /** 把头像图片复制到模块私有目录，返回可长期读取的 file:// URI；失败回退原 URI。 */
-    private fun persistAvatarFile(uri: String): String {
-        if (uri.startsWith("file://") || uri.startsWith("/")) return uri
-        return runCatching {
-            val ctx = HostInfo.application
-            val input = ctx.contentResolver.openInputStream(uri.toUri()) ?: return@runCatching uri
-            val dir = (KnownPaths.moduleData / "avatars").createDirsSafe() ?: return@runCatching uri
-            val safeName = uri.replace(Regex("[^\\w]"), "_").take(64)
-            val target = dir / "avatar_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}_${safeName}.jpg"
-            input.use { ins ->
-                target.toFile().outputStream().use { outs -> ins.copyTo(outs) }
-            }
-            target.toUri().toString()
-        }.getOrDefault(uri)
     }
 
     fun removeAvatar(wxId: String) {
@@ -699,12 +653,17 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
     }
 
     private fun loadAvatarMap(): Map<String, String> {
-        if (!avatarMapFile.exists()) return emptyMap()
+        if (!avatarMapFile.exists()) {
+            WeLogger.d(TAG, "avatar map file not found, returning empty map")
+            return emptyMap()
+        }
         return runCatching {
             val raw = avatarMapFile.readText()
-            Json.decodeFromString<Map<String, String>>(raw).filter { it.key.isNotBlank() && it.value.isNotBlank() }
+            val map = Json.decodeFromString(MapSerializer(String.serializer(), String.serializer()), raw).filter { it.key.isNotBlank() && it.value.isNotBlank() }
+            WeLogger.i(TAG, "loaded avatar map: ${map.size} entries from ${avatarMapFile.absolutePathString()}")
+            map
         }.getOrElse {
-            WeLogger.e(TAG, "failed to parse custom avatar map", it)
+            WeLogger.e(TAG, "failed to parse custom avatar map from ${avatarMapFile.absolutePathString()}", it)
             emptyMap()
         }
     }

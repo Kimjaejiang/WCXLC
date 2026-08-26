@@ -1,4 +1,4 @@
-﻿package com.Johnny.wcx.ui.content
+package com.Johnny.wcx.ui.content
 
 import android.icu.text.Transliterator
 import android.os.Build
@@ -88,10 +88,11 @@ import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.showToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.text.CollationKey
 import java.text.Collator
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 private const val SELECTED_SECTION_KEY = "\u0000selected"
 private const val NEWEST_SECTION_KEY = "\u0000newest"
@@ -178,6 +179,33 @@ fun BaseContactSelector(
         }
     }
 
+    // 分组字母缓存 (首字符 -> A-Z / #)。
+    // ICU 的 Transliterator 很慢, 而 groupedContacts 会在每次搜索按键时对整个列表重跑一遍;
+    // 不同的首字符数量远小于联系人数量, 按首字符缓存后主线程基本只是查表。
+    val initialCache = remember { ConcurrentHashMap<Char, String>() }
+
+    fun initialOf(displayName: String): String {
+        val name = displayName.trim()
+        if (name.isEmpty()) return "#"
+        val firstChar = name.first()
+        initialCache[firstChar]?.let { return it }
+
+        val upper = firstChar.uppercaseChar()
+        val initial = if (upper in 'A'..'Z') {
+            upper.toString()
+        } else if (transliterator != null) {
+            // safe to ignore since transliterator is null when SDK too low
+            // ICU Transliterator 不是线程安全的, 预热协程与主线程可能同时进来。
+            val pinyin = synchronized(transliterator) { transliterator.transliterate(firstChar.toString()) }
+            val c = pinyin.firstOrNull()?.uppercaseChar() ?: '#'
+            if (c in 'A'..'Z') c.toString() else "#"
+        } else {
+            "#"
+        }
+        initialCache[firstChar] = initial
+        return initial
+    }
+
     var friendWxIds by remember { mutableStateOf(emptySet<String>()) }
     var groupWxIds by remember { mutableStateOf(emptySet<String>()) }
     var officialAccountWxIds by remember { mutableStateOf(emptySet<String>()) }
@@ -189,6 +217,10 @@ fun BaseContactSelector(
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
+            // 先在 IO 线程把分组字母算好, 主线程之后每次按键都只命中缓存。
+            // (之后新增的联系人会在 initialOf 里按需补算, 结果一致。)
+            runCatching { allContacts.forEach { initialOf(it.displayName) } }
+
             try {
                 if (WeDatabaseApi.isReady) {
                     val friends = WeDatabaseApi.getFriends().map { it.wxId }.toSet()
@@ -265,31 +297,10 @@ fun BaseContactSelector(
 
     var filtersExpanded by remember { mutableStateOf(true) }
 
-    var sortMode by remember { mutableStateOf(SortMode.LAST_MESSAGE_TIME) }
+    var sortMode by remember { mutableStateOf(SortMode.ALPHABETICAL) }
     var sortReversed by remember { mutableStateOf(false) }
     var lastMessageTimes by remember { mutableStateOf<Map<String, Long>?>(null) }
     var isSortLoading by remember { mutableStateOf(false) }
-
-    // 默认按「新-旧」（最近消息时间）排序：首次进入自动加载时间数据，DB 未就绪时轮询重试，
-    // 加载完成前保持传入顺序（与手动切换共用 isSortLoading，避免重复查询）
-    LaunchedEffect(Unit) {
-        if (sortMode == SortMode.LAST_MESSAGE_TIME && lastMessageTimes == null && !isSortLoading) {
-            isSortLoading = true
-            try {
-                var times: Map<String, Long>? = null
-                repeat(60) { // 最多等约 30 秒（微信数据库初始化完成前不放弃）
-                    times = withContext(Dispatchers.IO) {
-                        if (WeDatabaseApi.isReady) WeDatabaseApi.getLastMessageTimes() else null
-                    }
-                    if (times != null) return@repeat
-                    delay(500)
-                }
-                if (times != null) lastMessageTimes = times
-            } finally {
-                isSortLoading = false
-            }
-        }
-    }
 
     fun switchSortMode(target: SortMode) {
         if (target == sortMode || isSortLoading) return
@@ -436,7 +447,7 @@ fun BaseContactSelector(
         }
     }
 
-    val groupedContacts = remember(displayedContacts, transliterator, selectionKey, sortMode, sortReversed, lastMessageTimes) {
+    val groupedContacts = remember(displayedContacts, initialCache, selectionKey, sortMode, sortReversed, lastMessageTimes) {
         if (sortMode == SortMode.LAST_MESSAGE_TIME) {
             val times = lastMessageTimes ?: emptyMap()
             val sorted = if (sortReversed) {
@@ -942,16 +953,10 @@ fun SingleContactSelector(
     var searchQuery by remember { mutableStateOf("") }
     var selectedWxId by remember { mutableStateOf(initialSelectedWxId) }
 
-    val chinaCollator = remember { Collator.getInstance(Locale.CHINA) }
+    val sortedContacts = remember(contacts) { sortContactsByDisplayName(contacts) }
 
-    val filteredContacts = remember(searchQuery, contacts, chinaCollator) {
-        contacts.filter {
-            it.displayName.contains(searchQuery, ignoreCase = true) ||
-                    it.wxId.contains(searchQuery, ignoreCase = true)
-        }.sortedWith(
-            compareBy<IWeContact> { it.displayName.isBlank() }
-                .thenComparator { c1, c2 -> chinaCollator.compare(c1.displayName, c2.displayName) }
-        )
+    val filteredContacts = remember(searchQuery, sortedContacts) {
+        filterSortedContacts(sortedContacts, searchQuery)
     }
 
     BaseContactSelector(
@@ -989,16 +994,10 @@ fun ContactsSelector(
     var searchQuery by remember { mutableStateOf("") }
     var selectedWxIds by remember { mutableStateOf(initialSelectedWxIds) }
 
-    val chinaCollator = remember { Collator.getInstance(Locale.CHINA) }
+    val sortedContacts = remember(contacts) { sortContactsByDisplayName(contacts) }
 
-    val filteredContacts = remember(searchQuery, contacts, chinaCollator) {
-        contacts.filter {
-            it.displayName.contains(searchQuery, ignoreCase = true) ||
-                    it.wxId.contains(searchQuery, ignoreCase = true)
-        }.sortedWith(
-            compareBy<IWeContact> { it.displayName.isBlank() }
-                .thenComparator { c1, c2 -> chinaCollator.compare(c1.displayName, c2.displayName) }
-        )
+    val filteredContacts = remember(searchQuery, sortedContacts) {
+        filterSortedContacts(sortedContacts, searchQuery)
     }
 
     BaseContactSelector(
@@ -1045,4 +1044,48 @@ fun ContactsSelector(
             selectedWxIds = newSelection
         }
     )
+}
+
+private class SortableContact(
+    val contact: IWeContact,
+    val isBlankName: Boolean,
+    val key: CollationKey,
+)
+
+/**
+ * 按显示名排序 (与 `Collator.compare` 的顺序完全一致)。
+ *
+ * ICU 的 [Collator] 每次 compare 都要重新分析两个字符串, 排序过程里同一个名字会被反复分析;
+ * 这里先给每个不同的显示名各算一份 [CollationKey] (每个名字只分析一次), 排序时只比较键。
+ * `displayName` 是 getter (WeContact 每次都会重新拼字符串), 所以也只取一次。
+ *
+ * 调用方只在联系人列表变化时调用一次, 搜索时改用 [filterSortedContacts] 在已排好序的
+ * 列表上做纯字符串过滤, 避免每敲一个字就在主线程上重跑一遍 ICU 排序。
+ */
+private fun sortContactsByDisplayName(contacts: List<IWeContact>): List<IWeContact> {
+    if (contacts.size < 2) return contacts
+    val collator = Collator.getInstance(Locale.CHINA)
+    val keyCache = HashMap<String, CollationKey>()
+    return contacts
+        .map { contact ->
+            val name = contact.displayName
+            SortableContact(
+                contact = contact,
+                isBlankName = name.isBlank(),
+                key = keyCache.getOrPut(name) { collator.getCollationKey(name) },
+            )
+        }
+        .sortedWith(compareBy<SortableContact> { it.isBlankName }.thenBy { it.key })
+        .map { it.contact }
+}
+
+/**
+ * 在已排好序的列表上过滤。过滤保序, 所以结果与"先过滤再排序"完全一致。
+ */
+private fun filterSortedContacts(sorted: List<IWeContact>, query: String): List<IWeContact> {
+    if (query.isEmpty()) return sorted
+    return sorted.filter {
+        it.displayName.contains(query, ignoreCase = true) ||
+                it.wxId.contains(query, ignoreCase = true)
+    }
 }

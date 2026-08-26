@@ -14,7 +14,6 @@ internal class ZygiskLoaderService(
 
     override var classLoaderHelper: IClassLoaderHelper? = null
 
-    override val loaderName: String = "Zygisk 加载器"
 
     override val entryPointName: String = "com.Johnny.wcx.loader.entry.zygisk.ZygiskEntry"
 

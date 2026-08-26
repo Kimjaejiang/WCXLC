@@ -134,7 +134,7 @@ object WePacketHelper : ApiFeature(), IResolveDex {
             }
         }
     }
-    private val classNetScenePat by dexClass {
+    val classNetScenePat by dexClass {
         matcher {
             classNetSceneBase.clazz.let { superClass = it.name }
 
@@ -430,7 +430,7 @@ object WePacketHelper : ApiFeature(), IResolveDex {
                         when (method.name) {
                             "hashCode" -> return@newProxyInstance System.identityHashCode(proxy)
                             "equals" -> return@newProxyInstance proxy === args?.get(0)
-                            "toString" -> return@newProxyInstance "WCXNativeCallback@${
+                            "toString" -> return@newProxyInstance "WeKitNativeCallback@${
                                 Integer.toHexString(
                                     System.identityHashCode(proxy)
                                 )

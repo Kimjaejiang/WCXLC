@@ -44,8 +44,8 @@ import com.Johnny.wcx.ui.utils.ExposurePlus1Icon
 import com.Johnny.wcx.ui.utils.FormatQuoteIcon
 import com.Johnny.wcx.ui.utils.dpToPx
 import com.Johnny.wcx.ui.utils.showComposeDialog
-import com.Johnny.wcx.utils.HookParam
 import com.Johnny.wcx.utils.android.isDarkMode
+import de.robv.android.xposed.XC_MethodHook
 import com.Johnny.wcx.utils.android.showToastSuspend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -154,7 +154,7 @@ object SwipeMessageOperations : ClickableFeature(), IResolveDex,
 
     // ── row binding: register state + attach the swipe listener, keep context fresh ─
 
-    override fun onCreateView(param: HookParam, view: View) {
+    override fun onCreateView(param: XC_MethodHook.MethodHookParam, view: View) {
         val chattingContext = WeChatMessageViewApi.getChattingContextFromParam(param)
 
         val state = states.getOrPut(view) {

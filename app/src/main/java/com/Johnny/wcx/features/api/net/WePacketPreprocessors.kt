@@ -23,7 +23,7 @@ import org.json.JSONObject
 /**
  * 消息发送签名器 (CGI 522)
  */
-object NewSendMsgSigner : IPacketPreprocessor {
+object NewSendMsgPreprocessor : IPacketPreprocessor {
     override fun matchesJson(cgiId: Int) = cgiId == 522
 
     override fun matchesProto(value: Any): Boolean = value is INewSendMsgProto
@@ -79,7 +79,7 @@ object NewSendMsgSigner : IPacketPreprocessor {
 /**
  * AppMsg 签名注入 (CGI 222)
  */
-object AppMsgSigner : IPacketPreprocessor {
+object AppMsgPreprocessor : IPacketPreprocessor {
     override fun matchesJson(cgiId: Int) = cgiId == 222
 
     override fun matchesProto(value: Any): Boolean = value is IAppMsgProto
@@ -134,7 +134,7 @@ object AppMsgSigner : IPacketPreprocessor {
         json.put("7", signature)           // lr5.Signature
         json.put("4", (nowMs / 1000).toInt()) // lr5.ReqTime
 
-        WeLogger.i("AppMsgSigner", "成功: ID=$nextId, Sign=$signature")
+        WeLogger.i("AppMsgPreprocessor", "成功: ID=$nextId, Sign=$signature")
         return PreprocessResult(json = json)
     }
 }
@@ -142,7 +142,7 @@ object AppMsgSigner : IPacketPreprocessor {
 /**
  * 表情签名器 (CGI 175)
  */
-object EmojiSigner : IPacketPreprocessor {
+object EmojiPreprocessor : IPacketPreprocessor {
     override fun matchesJson(cgiId: Int) = cgiId == 175
 
     override fun matchesProto(value: Any): Boolean = value is ISendEmojiProto
@@ -183,7 +183,7 @@ object EmojiSigner : IPacketPreprocessor {
 /**
  * 拍一拍签名器 (CGI 849)
  */
-class SendPatSigner(private val lazyClass: () -> Class<*>?) : IPacketPreprocessor {
+class SendPatPreprocessor(private val lazyClass: () -> Class<*>?) : IPacketPreprocessor {
     override fun matchesJson(cgiId: Int) = cgiId == 849
 
     override fun matchesProto(value: Any): Boolean = value is ISendPatProto
@@ -227,7 +227,7 @@ class SendPatSigner(private val lazyClass: () -> Class<*>?) : IPacketPreprocesso
             )
             return PreprocessResult(json = json, nativeNetScene = nativeScene)
         } catch (e: Throwable) {
-            WeLogger.e("SendPatSigner", "实例化原生 NetScene 失败: ${e.message}")
+            WeLogger.e("SendPatPreprocessor", "实例化原生 NetScene 失败: ${e.message}")
             return PreprocessResult(json = json)
         }
     }
@@ -236,10 +236,10 @@ class SendPatSigner(private val lazyClass: () -> Class<*>?) : IPacketPreprocesso
 object WePacketSigner {
     val signers: List<IPacketPreprocessor> by lazy {
         listOf(
-            NewSendMsgSigner,
-            EmojiSigner,
-            AppMsgSigner,
-            SendPatSigner { WePacketHelper.classNetScenePat.clazz }
+            NewSendMsgPreprocessor,
+            EmojiPreprocessor,
+            AppMsgPreprocessor,
+            SendPatPreprocessor { WePacketHelper.classNetScenePat.clazz }
         )
     }
 

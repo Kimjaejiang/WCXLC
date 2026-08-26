@@ -239,10 +239,11 @@ androidComponents {
             description = "Download eruda.min.js into assets for $variantName"
 
             url.set("https://cdn.jsdelivr.net/npm/eruda@3.4.3/eruda.min.js")
-            outputDir.set(layout.buildDirectory.dir("generated/eruda-assets/${variant.name}"))
+            outputDir.set(layout.buildDirectory.dir("generated/source/eruda/${variant.name}"))
+            namespace.set(libs.versions.namespace.get())
         }
 
-        variant.sources.assets?.addGeneratedSourceDirectory(
+        kotlinSources.addGeneratedSourceDirectory(
             embedEruda,
             EmbedErudaTask::getOutputDir
         )

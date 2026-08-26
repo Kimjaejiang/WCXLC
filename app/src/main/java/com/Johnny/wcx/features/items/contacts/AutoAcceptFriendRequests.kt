@@ -52,6 +52,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.SetSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -86,7 +88,7 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
 
     private fun getBlacklist(): Set<String> {
         return runCatching {
-            json.decodeFromString<Set<String>>(blacklistJson)
+            json.decodeFromString(SetSerializer(String.serializer()), blacklistJson)
         }.getOrDefault(emptySet())
     }
 
@@ -118,12 +120,18 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
 
     // 8.0.76 的 NetSceneVerifyUser 构造器（m3.<init>），用于主动构造"接受"请求
     // 使用内联查找版 dexConstructor（resolveInlineDex 时自动解析）
-    private val ctorVerifyUserAccept by dexConstructor {
+    // 本地 DSL 无 allowFailure 参数：用 throwOnFailure=false 让解析失败降级为占位符而非抛错
+    private val ctorVerifyUserAccept by dexConstructor(throwOnFailure = false) {
         searchPackages("com.tencent.mm.pluginsdk.model")
         matcher {
             usingEqStrings("This NetSceneVerifyUser init MUST use opcode == MM_VERIFYUSER_VERIFYOK")
         }
     }
+
+    // 本地 DSL 的 DexConstructorDelegate 未提供 isPlaceholder，用「.constructor 可解析」等价判定
+    // （与 fork 的 !isPlaceholder 语义一致：占位符或未解析时访问 .constructor 会抛异常）
+    private val ctorVerifyUserAcceptReady: Boolean
+        get() = runCatching { ctorVerifyUserAccept.constructor }.isSuccess
 
     // 好友验证页面的 initView — 用于检测用户手动进入验证页面时提取信息
     // 备用：如果 NetScene 方法无法匹配，通过验证页面输入来触发
@@ -153,6 +161,18 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
                     usingEqStrings(
                         "MicroMsg.NetSceneVerifyUser",
                         "summerverify opcode[%s], verifyContent[%s], verifyScene[%s]"
+                    )
+                }
+            }
+        }
+
+        // 更旧版本回退（本地版保留）
+        if (methodVerifyAccept.isPlaceholder) {
+            methodVerifyAccept.find(dexKit, allowFailure = true) {
+                matcher {
+                    usingEqStrings(
+                        "MicroMsg.NetSceneAddFriend",
+                        "verify ok clicked"
                     )
                 }
             }
@@ -188,7 +208,7 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
 
         // 钩住好友验证接受方法，在微信内部接受好友请求时触发后续逻辑
         runCatching {
-            if (!ctorVerifyUserAccept.isPlaceholder) {
+            if (ctorVerifyUserAcceptReady) {
                 // 8.0.77: NetSceneVerifyUser 混淆为 p3, 接受入口在 <init>(opcode=VERIFYOK), 用构造器 hook
                 ctorVerifyUserAccept.constructor.hookAfter {
                     // 8.0.76 的 <init>(opcode, userId, ticket, scene, ...) 与旧版
@@ -227,12 +247,32 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
                 }
             } else if (!methodVerifyAccept.isPlaceholder) {
                 methodVerifyAccept.hookAfter {
+                    // 旧版入口保留：8.0.76+ 接受 opcode == 1 (MM_VERIFYUSER_VERIFYOK)，旧版 == 2
                     if (args.size < 3) return@hookAfter
                     if (!masterEnabled) return@hookAfter
                     val opcode = args[0] as? Int ?: return@hookAfter
                     if (opcode != OPCODE_VERIFY_ACCEPT && opcode != 2) return@hookAfter
-                    val arg1 = (args[1] as? String)?.takeIf { it.isNotBlank() } ?: return@hookAfter
-                    WeLogger.i(TAG, "friend request accepted via legacy method: arg1=$arg1")
+
+                    val verifyContent = (args[1] as? String)?.takeIf { it.isNotBlank() } ?: return@hookAfter
+                    val verifyScene = (args[2] as? String)?.takeIf { it.isNotBlank() } ?: return@hookAfter
+
+                    WeLogger.i(TAG, "friend request accepted via legacy method: scene=$verifyScene")
+
+                    // 发送欢迎语
+                    if (sendWelcome && welcomeText.isNotBlank()) {
+                        val targetWxId = extractWxIdFromVerifyContent(verifyContent)
+                        if (targetWxId.isNotEmpty()) {
+                            CoroutineScope(Dispatchers.IO).launch {
+                                delay(1500) // 等待好友关系建立
+                                runCatching {
+                                    WeMessageApi.sendText(targetWxId, welcomeText)
+                                    WeLogger.i(TAG, "welcome text sent to $targetWxId")
+                                }.onFailure { e ->
+                                    WeLogger.e(TAG, "failed to send welcome text", e)
+                                }
+                            }
+                        }
+                    }
                 }
             } else {
                 WeLogger.w(TAG, "methodVerifyAccept not resolved, auto-accept will use database listener fallback")
@@ -331,9 +371,9 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
     }
 
     private fun acceptFriendRequest(encryptUsername: String, ticket: String, scene: String) {
-        // 8.0.76：构造 NetSceneVerifyUser(m3) opcode=MM_VERIFYUSER_VERIFYOK，走 NetSceneManager 发送
+        // 8.0.76+：构造 NetSceneVerifyUser(<init>) opcode=MM_VERIFYUSER_VERIFYOK，走 NetSceneManager 发送
         runCatching {
-            if (!ctorVerifyUserAccept.isPlaceholder) {
+            if (ctorVerifyUserAcceptReady) {
                 val netScene = ctorVerifyUserAccept.newInstance(
                     OPCODE_VERIFY_ACCEPT,
                     encryptUsername,
@@ -345,11 +385,11 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
                     null
                 )
                 WeNetSceneApi.sendNetScene(netScene)
-                WeLogger.i(TAG, "8.0.76: verify accept NetScene sent: encryptUsername=$encryptUsername")
+                WeLogger.i(TAG, "8.0.76+: verify accept NetScene sent: encryptUsername=$encryptUsername")
                 return
             }
         }.onFailure { e ->
-            WeLogger.w(TAG, "8.0.76 accept via ctor failed, trying legacy path", e)
+            WeLogger.w(TAG, "8.0.76+ accept via ctor failed, trying legacy path", e)
         }
 
         if (!methodVerifyAccept.isPlaceholder) {

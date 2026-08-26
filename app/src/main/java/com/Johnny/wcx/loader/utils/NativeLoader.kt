@@ -24,4 +24,8 @@ object NativeLoader {
 
         MMKV.mmkvWithID(WePrefs.PREFS_NAME, MMKV.MULTI_PROCESS_MODE)
     }
+
+    fun configureZygiskPayload(apkPath: String, dataDir: String) {
+        // Zygisk payload configuration; kept as a no-op entry point for legacy flavors.
+    }
 }

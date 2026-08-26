@@ -71,9 +71,9 @@ object AprilFools : BaseFeature() {
         }
 
         runCatching {
-        "com.tencent.mm.ui.base.NoMeasuredTextView".toClass().reflekt()
-            .firstMethod { name = "onDraw" }.hookBefore {
-                val view = thisObject as View
+            "com.tencent.mm.ui.base.NoMeasuredTextView".toClass().reflekt()
+                .firstMethod { name = "onDraw" }.hookBefore {
+                    val view = thisObject as View
 
                     if (!::noMeasuredTvTextProp.isInitialized) {
                         noMeasuredTvTextProp = view.reflekt().firstField { name = "mText" }.self.makeAccessible()
@@ -86,13 +86,6 @@ object AprilFools : BaseFeature() {
                         noMeasuredTvPaintProp.get(view) as TextPaint
                     )
                 }
-
-                applyRainbowEffect(
-                    view,
-                    noMeasuredTvTextProp.get(view) as CharSequence,
-                    noMeasuredTvPaintProp.get(view) as TextPaint
-                )
-            }
         }
     }
 

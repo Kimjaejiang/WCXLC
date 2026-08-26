@@ -23,6 +23,7 @@ object ModuleLoader {
     ) {
         savedHostClassLoader = hostClassLoader
         savedModulePath = modulePath
+        com.Johnny.wcx.loader.startup.StartupInfo.modulePath = modulePath
     }
 
     @Suppress("unused")
@@ -41,6 +42,7 @@ object ModuleLoader {
         // Save parameters for potential hot-reload
         savedHostClassLoader = initialClassLoader
         savedModulePath = modulePath
+        com.Johnny.wcx.loader.startup.StartupInfo.modulePath = modulePath
         savedLoaderService = loaderService
         savedHookBridge = hookBridge
         savedHostDataDir = hostDataDir

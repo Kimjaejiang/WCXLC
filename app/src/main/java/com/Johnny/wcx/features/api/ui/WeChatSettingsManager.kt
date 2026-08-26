@@ -210,40 +210,4 @@ class WeChatSettingsManager(
                 resourcesGetStringUnhook?.unhook(); resourcesGetStringUnhook = null
             }
     }
-
-    private fun isSupportedSettingsUi(ui: Any): Boolean {
-        val name = ui.javaClass.name
-        return name.endsWith("MainSettingsUI") || name.endsWith("CommonSettingsUI")
-    }
-
-    // 第一个设置页进入时安装全局 getString Hook
-    private fun onSettingsUiEntered(ui: Any) {
-        synchronized(settingsUiLock) {
-            // 同一个页面重复触发，或者已经有别的设置页存活时，不重复挂钩
-            if (!activeSettingsUis.add(ui)) return
-            if (activeSettingsUis.size != 1) return
-            if (contextGetStringUnhook != null || resourcesGetStringUnhook != null) return
-
-            contextGetStringUnhook = Context::class.reflekt()
-                .firstMethod { name = "getString"; parameters(Int::class) }
-                .hookBeforeDirectly {
-                    stringPool[args[0] as? Int ?: 0]?.let { result = it }
-                }
-
-            resourcesGetStringUnhook = methodResourceHelperGetStringById.hookBeforeDirectly {
-                stringPool[args[1] as? Int ?: 0]?.let { result = it }
-            }
-        }
-    }
-
-    // 最后一个设置页销毁时才解钩
-    private fun onSettingsUiDestroyed(ui: Any) {
-        synchronized(settingsUiLock) {
-            activeSettingsUis.remove(ui)
-            if (activeSettingsUis.isNotEmpty()) return
-
-            contextGetStringUnhook?.unhook(); contextGetStringUnhook = null
-            resourcesGetStringUnhook?.unhook(); resourcesGetStringUnhook = null
-        }
-    }
 }

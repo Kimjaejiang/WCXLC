@@ -91,35 +91,6 @@ object WeHomeScreenPopupMenuApi : ApiFeature(), IResolveDex {
         }
     }
 
-    // adapter 只有在菜单构建时才能拿到，所以 getView 的 Hook 没法在 onEnable 里注册；
-    // 这里按 Method 去重，避免每打开一次菜单就往 getView 上再叠一层 Hook
-    // (那会让每次 getView 都反复安装/卸载 N 个全局的 ImageView.setImageResource Hook)
-    private val hookedGetViewMethods = ConcurrentHashMap.newKeySet<Method>()
-
-    private fun hookAdapterGetViewOnce(baseAdapter: BaseAdapter) {
-        val getView = baseAdapter.reflekt().firstMethod {
-            name = "getView"
-        }
-        if (!hookedGetViewMethods.add(getView.self)) return
-
-        var unhook: HookHandle? = null
-
-        getView.hookBefore {
-            unhook = ImageView::class.reflekt().firstMethod {
-                name = "setImageResource"
-            }.hookBeforeDirectly {
-                val fakeResId = args[0] as? Int ?: return@hookBeforeDirectly
-                val imageView = thisObject as? ImageView ?: return@hookBeforeDirectly
-                imageView.setImageDrawable(fakeResIdToResMap[fakeResId] ?: return@hookBeforeDirectly)
-                result = null
-            }
-        }
-
-        getView.hookAfter {
-            unhook?.unhook()
-            unhook = null
-        }
-    }
     override fun onEnable() {
         // WeChat 8.0.70 moved this to com.tencent.mm.ui.HomeUI
         methodAddItem.hookAfter {

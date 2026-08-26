@@ -187,6 +187,7 @@ object ZygiskEntry {
                 modulePath = modulePath,
                 allowDynamicLoad = false,
             )
+            true
         } catch (t: Throwable) {
             WeLogger.e(TAG, "failed to start WeKit module", t)
             false
