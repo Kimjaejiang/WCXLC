@@ -88,16 +88,16 @@ object MonetEngine : ApiFeature() {
 
         runCatching {
             "com.tencent.mm.ui.widget.MMSwitchBtn".toClass().constructors.forEach {
-            it.hookAfter {
-                thisObject!!.reflekt()
-                    .fields {
-                        type = Int::class
-                        superclass()
-                    }.forEach { field ->
-                        if (field.get()!! as Int == DEFAULT_COLOR)
-                            field.set(primaryColor)
-                    }
-            }
+                it.hookAfter {
+                    thisObject.reflekt()
+                        .fields {
+                            type = Int::class
+                            superclass()
+                        }.forEach { field ->
+                            if (field.get()!! as Int == DEFAULT_COLOR)
+                                field.set(primaryColor)
+                        }
+                }
             }
         }.onFailure {
             WeLogger.w(TAG, "failed to hook MMSwitchBtn", it)

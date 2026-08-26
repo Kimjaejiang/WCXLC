@@ -1,5 +1,5 @@
 [workspace]
-members = ["app/src/main/rust/wekit-native/", "contrib/wekit-read-receipts-server", "wekit-zygisk/native/", "xtask"]
+members = ["app/src/main/rust/wekit-native/", "xtask"]
 resolver = "3"
 
 [profile.release]

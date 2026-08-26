@@ -1,7 +1,6 @@
 package com.Johnny.wcx.agent.engine
 
 import com.Johnny.wcx.agent.tool.ToolRegistry
-import com.Johnny.wcx.agent.tool.ToolVisibility
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -12,12 +11,7 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 object ToolDiscovery {
 
-    fun handle(
-        registry: ToolRegistry,
-        args: JsonObject,
-        discovered: MutableSet<String>,
-        visibility: ToolVisibility,
-    ): String {
+    fun handle(registry: ToolRegistry, args: JsonObject, discovered: MutableSet<String>): String {
         val action = args["action"]?.jsonPrimitive?.content ?: return "Error: missing 'action'"
         val providerFilter = args["provider"]?.jsonPrimitive?.content
         val keyword = args["keyword"]?.jsonPrimitive?.content
@@ -29,22 +23,15 @@ object ToolDiscovery {
                 .ifEmpty { "No providers." }
 
             "list_tools" -> {
-                val tools = registry.resolveVisibleTools(visibility)
+                val tools = registry.resolveVisibleTools()
                     .filter { providerFilter == null || it.provider.id == providerFilter || it.provider.name == providerFilter }
                 tools.forEach { discovered += it.exposedName }
                 renderTools(tools)
             }
 
             "search_tools" -> {
-                // A blank keyword would make `contains("")` match everything, dumping the whole
-                // catalog (every JSON schema) into context — exactly what DYNAMIC loading exists to
-                // avoid. Require a real keyword and point the model at list_tools if it wants all.
-                val kw = keyword?.trim()?.lowercase()
-                if (kw.isNullOrEmpty()) {
-                    return "Error: 'keyword' is required for search_tools and must not be blank. " +
-                            "Use action=list_tools (optionally with a 'provider') if you really want the full catalog."
-                }
-                val tools = registry.resolveVisibleTools(visibility).filter {
+                val kw = keyword?.lowercase().orEmpty()
+                val tools = registry.resolveVisibleTools().filter {
                     it.exposedName.lowercase().contains(kw) || it.description.lowercase().contains(kw)
                 }
                 tools.forEach { discovered += it.exposedName }

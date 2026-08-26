@@ -41,6 +41,8 @@ import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.collections.emptyHashSet
 import com.Johnny.wcx.utils.fs.KnownPaths
 import com.Johnny.wcx.utils.fs.asPath
+import com.Johnny.wcx.utils.reflection.BBool
+import com.Johnny.wcx.utils.reflection.BInt
 import com.Johnny.wcx.utils.reflection.BString
 import com.Johnny.wcx.utils.reflection.bool
 import com.Johnny.wcx.utils.reflection.int
@@ -223,6 +225,8 @@ object WeMessageApi : ApiFeature(), IResolveDex {
         }
     }
     val classChattingDataAdapter by dexClass(allowFailure = true) {
+        // 8.0.77 已移除 ChattingDataAdapterV3 → allowFailure 降级为 placeholder，
+        // 使用方需用 isPlaceholder 守卫（RemoveMessageSelectionLimit 内已处理）
         matcher {
             usingEqStrings(
                 "MicroMsg.ChattingDataAdapterV3",
@@ -361,7 +365,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
 
     private val classVoiceServiceInterface by dexClass()
 
-    private val classVoiceServiceImpl by dexClass {
+    private val classVoiceServiceImpl by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings(
                 "MicroMsg.VoiceMsgAsyncSendFSC",
@@ -382,14 +386,18 @@ object WeMessageApi : ApiFeature(), IResolveDex {
     // -------------------------------------------------------------------------------------
 
     // 基础 & 文本
-    private val getSelfAliasMethod: Method by lazy {
-        classConfigLogic.reflekt()
-            .firstMethod {
-                name { it.length <= 2 }
-                modifiers(Modifiers.STATIC)
-                parameterCount = 0
-                returnType = String::class
-            }.self
+    private val getSelfAliasMethod: Method? by lazy {
+        try {
+            classConfigLogic.reflekt()
+                .firstMethod {
+                    modifiers(Modifiers.STATIC)
+                    parameterCount = 0
+                    returnType = String::class
+                }.self
+        } catch (e: Exception) {
+            WeLogger.w(TAG, "getSelfAliasMethod: failed to resolve via signature matching, selfCustomWxId will be empty", e)
+            null
+        }
     }
 
     // 图片
@@ -529,10 +537,16 @@ object WeMessageApi : ApiFeature(), IResolveDex {
             }
         }
 
-        val targetInterface = classVoiceServiceImpl.clazz.interfaces.first {
-            !it.isBuiltin && !it.name.startsWith("ki0.")
+        try {
+            val targetInterface = classVoiceServiceImpl.clazz.interfaces.first {
+                !it.isBuiltin && !it.name.startsWith("ki0.")
+            }
+            classVoiceServiceInterface.setDescriptor(targetInterface.name)
+            WeLogger.i(TAG, "VoiceServiceInterface resolved: ${targetInterface.name}")
+        } catch (e: Exception) {
+            WeLogger.w(TAG, "VoiceMsgAsyncSendFSC interface resolution failed (R8 obfuscation changed), voice sending will use SceneVoiceService fallback", e)
+            classVoiceServiceInterface.setPlaceholderDescriptor()
         }
-        classVoiceServiceInterface.setDescriptor(targetInterface.name)
     }
 
     fun convertMsgInfoInstanceFromContentValues(contentValues: ContentValues): Any {
@@ -1307,9 +1321,9 @@ object WeMessageApi : ApiFeature(), IResolveDex {
             val target = classVoiceLogic.clazz.reflekt()
                 .firstMethod {
                     parameters {
-                        it[0] == BString && it[1] == int && it[2] == int
+                        it[0] == BString && it[1] == BInt && it[2] == BInt
                     }
-                    returnType = bool
+                    returnType = BBool
                 }.self
             if (target.parameterCount == 4) {
                 target.invoke(null, partialPath, actualDuration, 0, null)
@@ -1652,7 +1666,12 @@ object WeMessageApi : ApiFeature(), IResolveDex {
 
     val selfCustomWxId: String
         get() {
-            return getSelfAliasMethod.invoke(null) as? String ?: ""
+            return runCatching {
+                getSelfAliasMethod?.invoke(null) as? String ?: ""
+            }.getOrElse {
+                WeLogger.w(TAG, "selfCustomWxId resolution failed", it)
+                ""
+            }
         }
 
     fun getMsgInfoFromTag(tag: Any): Any {
@@ -1838,7 +1857,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
                 when (method.name) {
                     "hashCode" -> System.identityHashCode(proxy)
                     "equals" -> proxy === args?.get(0)
-                    "toString" -> "WCXDownloadCallback"
+                    "toString" -> "WcxDownloadCallback"
                     else -> null
                 }
             }

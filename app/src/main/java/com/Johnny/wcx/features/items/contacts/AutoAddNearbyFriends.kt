@@ -41,7 +41,7 @@ object AutoAddNearbyFriends : ClickableFeature(), IResolveDex {
             val itemId = menuItem.itemId
             if (itemId != 6) return@hookBefore
 
-            val controller = thisObject!!.reflekt().firstField().get()!!
+            val controller = thisObject.reflekt().firstField().get()!!
             val friends = controller.reflekt().firstField {
                 type = List::class
             }.get()!! as LinkedList<*>
@@ -52,7 +52,17 @@ object AutoAddNearbyFriends : ClickableFeature(), IResolveDex {
                 )
             }
 
-            result = null
+            try {
+                // 仅当原方法返回 void 时才设置 result = null
+                if (method is java.lang.reflect.Method) {
+                    val returnType = (method as java.lang.reflect.Method).returnType
+                    if (returnType == Void.TYPE) {
+                        result = null
+                    }
+                }
+            } catch (e: Throwable) {
+                // 兜底异常捕获，防止单条 Hook 异常导致微信主线程崩溃
+            }
         }
     }
 

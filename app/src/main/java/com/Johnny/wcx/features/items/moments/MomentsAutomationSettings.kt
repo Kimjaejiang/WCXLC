@@ -1,53 +1,8 @@
 package com.Johnny.wcx.features.items.moments
 
-import android.content.Context
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
-import com.Johnny.wcx.features.api.core.WeDatabaseApi
-import com.Johnny.wcx.features.api.core.models.IWeContact
-import com.Johnny.wcx.features.api.ui.WeMomentsApi
-import com.Johnny.wcx.features.items.AtomicJsonConfigStore
-import com.Johnny.wcx.features.items.AutomationContactSettingsSelector
-import com.Johnny.wcx.features.items.AutomationKeywordControls
-import com.Johnny.wcx.features.items.AutomationKeywordRule
-import com.Johnny.wcx.features.items.AutomationRuleHeader
-import com.Johnny.wcx.features.items.AutomationScrollableColumn
-import com.Johnny.wcx.features.items.AutomationSettingsError
-import com.Johnny.wcx.features.items.AutomationTimeRangeControls
-import com.Johnny.wcx.features.items.AutomationTimeRangeRule
-import com.Johnny.wcx.features.items.AutomationToggleRule
-import com.Johnny.wcx.features.items.automationKeywordSummary
-import com.Johnny.wcx.features.items.formatAutomationMinute
-import com.Johnny.wcx.preferences.WePrefs
-import com.Johnny.wcx.ui.content.AlertDialogContent
-import com.Johnny.wcx.ui.content.Button
-import com.Johnny.wcx.ui.content.DefaultColumn
-import com.Johnny.wcx.ui.content.TextButton
-import com.Johnny.wcx.ui.utils.showComposeDialog
-import com.Johnny.wcx.utils.WeLogger
-import com.Johnny.wcx.utils.android.showToast
-import com.Johnny.wcx.utils.fs.KnownPaths
-import kotlinx.serialization.Serializable
-import kotlin.io.path.div
+// Constants shared across moments automation features
+const val MOMENTS_AUTOMATION_CONFIG_VERSION = 1
+const val MOMENTS_AUTOMATION_MAX_ACTION_DELAY_MS = 300_000L
 
 @Serializable
 internal data class MomentAutomationRuleSet(
@@ -758,3 +713,7 @@ private const val LEGACY_MODE_WHEN_SEEN = 0
 private const val LEGACY_MODE_ALL_LOADED = 1
 private const val LEGACY_ACTION_LIKE = 0
 private const val LEGACY_ACTION_UNLIKE = 1
+const val LEGACY_MODE_WHEN_SEEN = 0
+const val LEGACY_MODE_ALL_LOADED = 1
+const val LEGACY_ACTION_LIKE = 0
+const val LEGACY_ACTION_UNLIKE = 1

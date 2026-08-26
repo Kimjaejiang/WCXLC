@@ -112,7 +112,7 @@ object DetectDeletedFriends : ClickableFeature() {
                                 break
                             }
 
-                            WePacketHelper.sendCgi(
+                            WePacketHelper.sendCgiRaw(
                                 "/cgi-bin/mmpay-bin/beforetransfer", 2783, 0, 0,
                                 BeforeTransferReqProto(userName = friend.wxId).encode()
                             ) {

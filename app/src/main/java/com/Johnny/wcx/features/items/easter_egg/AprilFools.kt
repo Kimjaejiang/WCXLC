@@ -75,9 +75,16 @@ object AprilFools : BaseFeature() {
             .firstMethod { name = "onDraw" }.hookBefore {
                 val view = thisObject as View
 
-                if (!::noMeasuredTvTextProp.isInitialized) {
-                    noMeasuredTvTextProp = view.reflekt().firstField { name = "mText" }.self.makeAccessible()
-                    noMeasuredTvPaintProp = view.reflekt().firstField { type = TextPaint::class }.self.makeAccessible()
+                    if (!::noMeasuredTvTextProp.isInitialized) {
+                        noMeasuredTvTextProp = view.reflekt().firstField { name = "mText" }.self.makeAccessible()
+                        noMeasuredTvPaintProp = view.reflekt().firstField { type = TextPaint::class }.self.makeAccessible()
+                    }
+
+                    applyRainbowEffect(
+                        view,
+                        noMeasuredTvTextProp.get(view) as CharSequence,
+                        noMeasuredTvPaintProp.get(view) as TextPaint
+                    )
                 }
 
                 applyRainbowEffect(

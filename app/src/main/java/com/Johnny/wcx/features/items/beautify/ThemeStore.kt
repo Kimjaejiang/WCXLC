@@ -57,7 +57,6 @@ import com.Johnny.wcx.features.core.ClickableFeature
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.preferences.WePrefs
 import com.Johnny.wcx.preferences.WePrefs.Companion.prefOption
-import com.Johnny.wcx.utils.HookParam
 import com.Johnny.wcx.ui.content.AlertDialogContent
 import com.Johnny.wcx.ui.content.Button
 import com.Johnny.wcx.ui.content.DefaultColumn
@@ -532,7 +531,7 @@ object ThemeStore : ClickableFeature(), WeChatMessageViewApi.ICreateViewListener
     // ══════════════════════════════════════════════════════════
     // 气泡直接应用：聊天消息视图创建时按主题气泡替换背景（9-patch）
     // ══════════════════════════════════════════════════════════
-    override fun onCreateView(param: HookParam, view: View) {
+    override fun onCreateView(param: de.robv.android.xposed.XC_MethodHook.MethodHookParam, view: View) {
         if (activeThemeId.isEmpty()) return
         try {
             val msgInfo = WeChatMessageViewApi.getMsgInfoFromParam(param)
