@@ -251,7 +251,7 @@ object WeMomentsApi : ApiFeature(), IResolveDex {
         }
     }
 
-    val methodAddSightObjectByPath by dexMethod {
+    val methodAddSightObjectByPath by dexMethod(allowFailure = true) {
         searchPackages("com.tencent.mm.plugin.sns.model")
         matcher {
             declaredClass(classUploadPackHelper.clazz)

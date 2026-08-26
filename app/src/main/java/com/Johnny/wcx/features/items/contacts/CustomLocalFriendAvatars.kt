@@ -138,7 +138,7 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
     }
 
     // com.tencent.mm.feature.avatar.w.pg; an exception: this doesn't call methodMvvmLoadAvatar
-    private val methodFeatureAvatarSimple1 by dexMethod {
+    private val methodFeatureAvatarSimple1 by dexMethod(allowFailure = true) {
         matcher {
             declaredClass(classAvatarDrawable.clazz)
             paramTypes(

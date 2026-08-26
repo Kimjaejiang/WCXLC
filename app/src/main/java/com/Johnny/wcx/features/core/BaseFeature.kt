@@ -80,7 +80,15 @@ abstract class BaseFeature {
     }
 
     internal fun resolveInlineDex(dexKit: DexKitBridge) {
-        dexDelegates.forEach { it.findInline(dexKit) }
+        dexDelegates.forEach {
+            try {
+                it.findInline(dexKit)
+            } catch (e: Throwable) {
+                // 单个委托的 Dex 匹配失败不应拖垮整个模块初始化，
+                // 记录日志后继续解析其余委托（该功能将按未匹配降级）。
+                WeLogger.e("BaseFeature", "Dex inline 解析失败: ${it.key} - ${e.message}")
+            }
+        }
     }
 
     internal val unhooks = mutableListOf<XC_MethodHook.Unhook>()
