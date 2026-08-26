@@ -113,7 +113,7 @@ object ExportChatHistory : ClickableFeature() {
             runCatching {
                 val exportDir = File(
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                    "WCX"
+                    "WCXLC"
                 )
                 exportDir.mkdirs()
 

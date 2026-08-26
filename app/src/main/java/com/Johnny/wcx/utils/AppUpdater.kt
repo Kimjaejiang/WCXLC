@@ -10,7 +10,6 @@ import android.os.Environment
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import com.Johnny.wcx.BuildConfig
-import com.Johnny.wcx.constants.PackageNames
 import com.Johnny.wcx.utils.android.getSystemService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -83,6 +82,9 @@ private fun selectApkUrl(assets: List<GitHubAsset>): String {
     }
     // 兼容不带 ABI 段的命名（app-<flavor>-release.apk：release 单 ABI 无 splits 时 AGP 实际产物名）
     assets.firstOrNull { it.name == "app-$FLAVOR-release.apk" }?.let { return it.browser_download_url }
+    // GitHub may only publish other flavors (legacy etc.): fall back to any app-*-release.apk
+    assets.firstOrNull { it.name.startsWith("app-") && it.name.endsWith("-release.apk") }
+        ?.let { return it.browser_download_url }
     assets.firstOrNull { it.name.endsWith(UNIVERSAL_APK_SUFFIX) }?.let { return it.browser_download_url }
     return RELEASES_PAGE
 }
@@ -142,8 +144,8 @@ object AppUpdater {
         runCatching {
             val release = fetchLatestRelease()
             val updateInfo = parseUpdateInfo(release)
-            val installedCode = BuildConfig.VERSION_CODE
-            if (updateInfo.versionCode > installedCode) {
+            // 完整时间戳优先比较（YYMMDDHHMMSS 12 位数字），避免 versionCode 只取后 6 位在跨天场景误判
+            if (isNewerThanInstalled(release.tag_name, updateInfo.versionCode)) {
                 UpdateResult.UpdateAvailable(updateInfo)
             } else {
                 UpdateResult.UpToDate
@@ -185,8 +187,13 @@ object AppUpdater {
      * [BroadcastReceiver] on [Dispatchers.Main].
      */
     suspend fun downloadAndInstall(context: Context, info: UpdateInfo) {
-        val apkUrl = info.apkUrl.ifBlank { selectApkUrl(emptyList()) }
-        val fileName = "wcx-${info.versionName}.apk"
+        val apkUrl = info.apkUrl
+        // selectApkUrl 找不到匹配 APK 时返回 releases 页面地址：不能拿网页去下载，改为跳转浏览器
+        if (apkUrl.isBlank() || apkUrl == RELEASES_PAGE) {
+            openReleasesPage(context)
+            return
+        }
+        val fileName = "wcx-${info.releaseTag}.apk"
 
         val downloadId = enqueueDownload(context, apkUrl, fileName)
         val apkFile = waitForDownload(context, downloadId)
@@ -238,6 +245,21 @@ object AppUpdater {
         )
     }
 
+    /**
+     * 完整时间戳（YYMMDDHHMMSS 12 位数字）优先比较，避免 versionCode 只取后 6 位在跨天场景误判；
+     * 非时间戳 tag 回退 versionCode 比较。
+     */
+    private fun isNewerThanInstalled(tagName: String, remoteCode: Int): Boolean {
+        val installedName = BuildConfig.VERSION_NAME
+        val remote = tagName.removePrefix("v").removePrefix("V")
+        if (installedName.length >= 12 && installedName.all { it.isDigit() } &&
+            remote.length >= 12 && remote.all { it.isDigit() }
+        ) {
+            return remote.toLong() > installedName.toLong()
+        }
+        return remoteCode > BuildConfig.VERSION_CODE
+    }
+
     private fun extractVersionCode(tagName: String): Int {
         val vPrefix = tagName.removePrefix("v")
         vPrefix.toIntOrNull()?.let { return it }
@@ -253,9 +275,19 @@ object AppUpdater {
         return Int.MAX_VALUE - 9999
     }
 
+    private fun openReleasesPage(context: Context) {
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, RELEASES_PAGE.toUri()).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        }.onFailure { WeLogger.w("AppUpdater", "failed to open releases page", it) }
+    }
+
     private fun enqueueDownload(context: Context, url: String, fileName: String): Long {
         val request = DownloadManager.Request(url.toUri()).apply {
-            setTitle("WCX 更新")
+            setTitle("WCXLC 更新")
             setDescription("正在下载更新...")
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
@@ -289,11 +321,21 @@ object AppUpdater {
                                     val localUriStr = cursor.getString(localUriCol)
 
                                     runCatching {
-                                        val realFile = File(android.net.Uri.parse(localUriStr).path!!)
-                                        cont.resume(realFile)
-                                    }.getOrElse {
-                                        cont.resumeWithException(RuntimeException("Failed to resolve download path", it))
-                                    }
+                        // ColorOS/MediaProvider 可能返回 content:// URI（真实路径不可直接 File()）：复制到 cacheDir 再安装
+                        val uri = android.net.Uri.parse(localUriStr)
+                        val realFile = if (uri.scheme == "content") {
+                            val cacheFile = File(context.cacheDir, "update-$downloadId.apk")
+                            context.contentResolver.openInputStream(uri)?.use { input ->
+                                cacheFile.outputStream().use { output -> input.copyTo(output) }
+                            } ?: error("open content uri failed")
+                            cacheFile
+                        } else {
+                            File(uri.path!!)
+                        }
+                        cont.resume(realFile)
+                    }.getOrElse {
+                        cont.resumeWithException(RuntimeException("Failed to resolve download path", it))
+                    }
                                 } else {
                                     val reasonCol = cursor.getColumnIndex(DownloadManager.COLUMN_REASON)
                                     cont.resumeWithException(RuntimeException("Download failed: reason=${cursor.getInt(reasonCol)}"))
@@ -322,23 +364,11 @@ object AppUpdater {
         }
 
     private fun install(context: Context, apk: File) {
-        /*
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:exported="false"
-            android:process=":recovery"
-            android:authorities="com.tencent.mm.external.recovery.logprovider"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/di"/>
-        </provider>
-         */
-
+        // FileProvider: authority = ${applicationId}.provider, 路径见 res/xml/file_paths.xml
         val uri =
             FileProvider.getUriForFile(
                 context,
-                "${PackageNames.WECHAT}.external.recovery.logprovider",
+                "${context.packageName}.provider",
                 apk,
             )
 

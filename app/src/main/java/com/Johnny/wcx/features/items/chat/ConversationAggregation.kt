@@ -128,7 +128,17 @@ object ConversationAggregation : ClickableFeature(),
     private val MENTION_YELLOW = 0xFFFFCC00.toInt()
     private val CHAT_COUNT_REGEX = Regex("\\[[^\\]]*\\u4e2a\\u804a\\u5929\\]")
 
-    private val foldersFile by lazy { KnownPaths.moduleData / "chat_folders.json" }
+    private val foldersFile by lazy {
+        KnownPaths.moduleData / ("chat_folders_" + (currentUin() ?: "default") + ".json")
+    }
+
+    /** 当前微信账号 uin（读微信登录态 auth sp），用于按账号隔离对话归拢配置，避免切号串配置 */
+    private fun currentUin(): String? =
+        runCatching {
+            HostInfo.application
+                .getSharedPreferences("auth_info_key_prefs", Context.MODE_PRIVATE)
+                .getString("uin", null)
+        }.getOrNull()?.takeIf { it.isNotBlank() }
 
     private const val CONTAINER_UI_NAME = "com.tencent.mm.ui.conversation.ConvBoxServiceConversationUI"
     private val methodSqliteWrapperRawQuery by dexMethod(allowFailure = true) {
