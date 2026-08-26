@@ -54,3 +54,9 @@ ui_dump.xml
 
 # 签名密钥（CI 用 GitHub Secrets，不入库）
 /keystore/
+
+# 构建日志与本地产物 (2026-08-27)
+*.log
+build_local.pid
+vendor/mp3lame-sys/lame-3.100/
+
