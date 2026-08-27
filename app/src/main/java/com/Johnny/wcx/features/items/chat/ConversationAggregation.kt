@@ -1362,9 +1362,10 @@ object ConversationAggregation : ClickableFeature(),
                 val v = queue.removeFirst()
                 if (v is TextView) {
                     val t = v.text?.toString().orEmpty()
-                    // 标题：非空、非摘要标记、字号最大的 TextView（文件夹标题控件特征）
-                    if (t.isNotBlank() && !isAggSummary(t) && (titleTv == null || v.textSize > titleTv.textSize)) {
+                    // 标题：非摘要、含文字（排除未读数角标等纯数字/时间控件）、字号最大的 TextView
+                    if (!isAggSummary(t) && t.any { it.isLetter() } && (titleTv == null || v.textSize > titleTv.textSize)) {
                         titleTv = v
+                        WeLogger.i(TAG, "titleTv candidate: class=${v.javaClass.simpleName} textSize=${v.textSize} text=${t.take(20)}")
                     }
                     // 归拢摘要标记命中即识别（摘要控件不限于 NoMeasuredTextView）
                     if (isAggSummary(t) && summaryTv == null) {
@@ -1391,6 +1392,7 @@ object ConversationAggregation : ClickableFeature(),
             root.setTag(TAG_KEY_STATE, MergeUiState(atAll, atMe, fullText.contains("[自己]"), chatCount))
             root.setTag(TAG_KEY_SUMMARY_TV, summaryTv)
             root.setTag(TAG_KEY_TITLE_TV, titleTv)
+            WeLogger.i(TAG, "markVirtualRow: summary=${summaryTv.javaClass.simpleName} title=${titleTv?.javaClass?.simpleName ?: "NULL"} titleText=${titleTv?.text?.take(20)}")
             ensureItemDispatchDrawHook(root.javaClass)
             if (tintHitSet.add(fullText)) {
                 diagFile("VIRTROW ${root.javaClass.simpleName} text=$fullText atAll=$atAll atMe=$atMe cnt=$chatCount")
@@ -1460,6 +1462,11 @@ object ConversationAggregation : ClickableFeature(),
     /** 叠加绘制文件夹标题为蓝色（盖在微信原生灰色标题上方，无状态残留） */
     private fun drawTitleOverlay(root: View, titleTv: TextView, canvas: Canvas) {
         runCatching {
+            val text = titleTv.text?.toString() ?: return@runCatching
+            if (text.isEmpty()) {
+                WeLogger.i(TAG, "drawTitleOverlay: title text empty, skip")
+                return@runCatching
+            }
             val paint = Paint(titleTv.paint)
             paint.color = MENTION_TITLE_BLUE
             val tvLoc = IntArray(2)
@@ -1468,8 +1475,8 @@ object ConversationAggregation : ClickableFeature(),
             root.getLocationInWindow(rootLoc)
             val x = (tvLoc[0] - rootLoc[0] + titleTv.paddingLeft).toFloat()
             val baseY = (tvLoc[1] - rootLoc[1] + titleTv.baseline).toFloat()
-            val text = titleTv.text?.toString() ?: return@runCatching
             canvas.drawText(text, x, baseY, paint)
+            WeLogger.i(TAG, "drawTitleOverlay: drawn text=${text.take(20)} x=$x baseY=$baseY")
         }
     }
 
