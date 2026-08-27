@@ -256,6 +256,9 @@ object ConversationAggregation : ClickableFeature(),
         diagFile("onEnable: begin")
         WeDatabaseListenerApi.addListener(this)
         WeStartActivityApi.addListener(this)
+        // 切换微信账号后 storage 重新初始化（新账号数据库），需要把归拢文件夹
+        // 对账写入新账号的库，否则新账号页面看不到归拢。
+        WeDatabaseApi.addDatabaseSwitchListener(::onDatabaseSwitched)
 
         startRefreshThread()
 
@@ -314,6 +317,7 @@ object ConversationAggregation : ClickableFeature(),
     override fun onDisable() {
         WeDatabaseListenerApi.removeListener(this)
         WeStartActivityApi.removeListener(this)
+        WeDatabaseApi.removeDatabaseSwitchListener(::onDatabaseSwitched)
         CustomLocalFriendAvatars.fallbackUsernameProvider = null
         stopRefreshThread()
 
@@ -328,6 +332,23 @@ object ConversationAggregation : ClickableFeature(),
      * removes all folder rows (rconversation / rcontact / img_flag). Mirrors deleting every folder
      * by hand, but keeps the on-disk config so the folders come back on the next onEnable.
      */
+    /**
+     * 微信切换账号后 WeDatabaseApi 已把 db 引用切到新账号：
+     * 重新对账 folder 行到新库（reconcile 是差异写入，新库无行则全量重建），
+     * 并刷新会话列表让归拢立即显示。
+     */
+    private fun onDatabaseSwitched() {
+        WeLogger.i(TAG, "account/database switched, re-syncing folders to new database")
+        runCatching {
+            if (WeDatabaseApi.isReady && isFolderSchemaReady()) {
+                syncFoldersToDatabase()
+                WeConversationApi.reloadConversations()
+            }
+        }.onFailure { e ->
+            WeLogger.e(TAG, "failed to re-sync folders after account switch", e)
+        }
+    }
+
     private fun releaseAllFolders() {
         if (!WeDatabaseApi.isReady) return
         runCatching {

@@ -318,11 +318,24 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
 
     override fun onEnable() {
         methodGetStorage.method.hookAfter {
-            if (::db.isInitialized) return@hookAfter
-
             val storageObj = result ?: return@hookAfter
-            initializeDatabase(storageObj)
+            val candidate = resolveDb(storageObj) ?: return@hookAfter
+            synchronized(this) {
+                if (::db.isInitialized) {
+                    // 微信"切换账号"（8.0.x 热切换不重启进程）时会重新初始化
+                    // storage，拿到的是新账号的数据库实例。若直接跳过，归拢/自动
+                    // 同意等会继续读写旧账号的库，导致新账号页面看不到归拢文件夹。
+                    if (candidate !== db) {
+                        WeLogger.i(TAG, "storage re-initialized (account switched), rebinding database")
+                        db = candidate
+                        notifyDatabaseSwitched()
+                    }
+                } else {
+                    db = candidate
+                }
+            }
         }
+
 
         if (Preferences.verboseLog) {
             SQLiteDatabase::class.reflekt().firstMethod {
@@ -342,22 +355,43 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
         }
     }
 
-    @Synchronized
-    private fun initializeDatabase(storageObj: Any) {
+    private fun resolveDb(storageObj: Any): SQLiteDatabase? = runCatching {
         val wrapperObj = storageObj.reflekt()
             .firstField {
                 type {
                     it == classSqliteDbWrapper.clazz ||
                             it == classSqliteDbWrapper.clazz.interfaces[0]
                 }
-            }.get() ?: return
+            }.get() ?: return@runCatching null
 
-        db = wrapperObj.reflekt()
+        wrapperObj.reflekt()
             .firstMethod {
                 parameterCount = 0
                 returnType = "com.tencent.wcdb.database.SQLiteDatabase"
-            }.invoke()!! as SQLiteDatabase
+            }.invoke() as? SQLiteDatabase
+    }.getOrNull()
+
+    // ---- 数据库切换（账号切换）监听 ----
+
+    private val databaseSwitchListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
+    fun addDatabaseSwitchListener(listener: () -> Unit) {
+        if (listener !in databaseSwitchListeners) databaseSwitchListeners.add(listener)
     }
+
+    fun removeDatabaseSwitchListener(listener: () -> Unit) {
+        databaseSwitchListeners.remove(listener)
+    }
+
+    private fun notifyDatabaseSwitched() {
+        WeLogger.i(TAG, "database switched, notifying ${databaseSwitchListeners.size} listeners")
+        databaseSwitchListeners.forEach { listener ->
+            runCatching { listener() }.onFailure { e ->
+                WeLogger.e(TAG, "database switch listener failed", e)
+            }
+        }
+    }
+
 
     @Suppress("NOTHING_TO_INLINE")
     inline fun rawQuery(sql: String, args: Array<Any>? = null): Cursor = db.rawQuery(sql, args)
