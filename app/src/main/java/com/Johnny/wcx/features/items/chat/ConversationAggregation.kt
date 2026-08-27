@@ -55,6 +55,7 @@ import com.Johnny.wcx.dexkit.abc.IResolveDex
 import com.Johnny.wcx.dexkit.dsl.dexMethod
 import com.Johnny.wcx.features.api.core.WeConversationApi
 import com.Johnny.wcx.features.api.core.WeDatabaseApi
+import com.Johnny.wcx.features.api.core.models.SelfProfileField
 import com.Johnny.wcx.features.api.core.WeDatabaseListenerApi
 import com.Johnny.wcx.features.api.core.models.IWeContact
 import com.Johnny.wcx.features.api.ui.WeStartActivityApi
@@ -87,6 +88,7 @@ import java.text.Collator
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.nio.file.Path
 import kotlin.io.path.div
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -128,7 +130,23 @@ object ConversationAggregation : ClickableFeature(),
     private val MENTION_YELLOW = 0xFFFFCC00.toInt()
     private val CHAT_COUNT_REGEX = Regex("\\[[^\\]]*\\u4e2a\\u804a\\u5929\\]")
 
-    private val foldersFile by lazy { KnownPaths.moduleData / "chat_folders.json" }
+    // 归拢配置按账号隔离：每个账号独立配置文件，避免切换账号后
+    // 显示其他账号的归拢文件夹（成员存的是该账号的联系人/群聊）。
+    private val legacyFoldersFile by lazy { KnownPaths.moduleData / "chat_folders.json" }
+
+    private fun foldersFileFor(wxid: String?) = if (!wxid.isNullOrBlank()) {
+        KnownPaths.moduleData / "chat_folders_$wxid.json"
+    } else {
+        legacyFoldersFile
+    }
+
+    private fun currentAccountWxid(): String? = runCatching {
+        WeDatabaseApi.getSelfProfileField(SelfProfileField.WXID)
+            ?.toString()
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
 
     private const val CONTAINER_UI_NAME = "com.tencent.mm.ui.conversation.ConvBoxServiceConversationUI"
     private val methodSqliteWrapperRawQuery by dexMethod(allowFailure = true) {
@@ -221,6 +239,9 @@ object ConversationAggregation : ClickableFeature(),
 
     @Volatile
     private var foldersCache: List<ChatFolder>? = null
+
+    @Volatile
+    private var foldersCacheWxid: String? = null
 
     private val folderMembersCache = ConcurrentHashMap<String, List<String>>()
 
@@ -340,6 +361,10 @@ object ConversationAggregation : ClickableFeature(),
     private fun onDatabaseSwitched() {
         WeLogger.i(TAG, "account/database switched, re-syncing folders to new database")
         runCatching {
+            // 配置按账号隔离：db 变化说明账号已切换，清缓存按新账号重新加载
+            foldersCache = null
+            foldersCacheWxid = null
+            folderMembersCache.clear()
             if (WeDatabaseApi.isReady && isFolderSchemaReady()) {
                 syncFoldersToDatabase()
                 WeConversationApi.reloadConversations()
@@ -2817,33 +2842,56 @@ object ConversationAggregation : ClickableFeature(),
     }
 
     private fun loadFolders(): List<ChatFolder> {
-        foldersCache?.let { return it }
+        val wxid = currentAccountWxid()
+        if (foldersCache != null && foldersCacheWxid == wxid) return foldersCache!!
+        val file = foldersFileFor(wxid)
         val folders = runCatching {
-            val file = foldersFile
-            if (!file.exists()) return emptyList()
-            val raw = file.readText()
-            DefaultJson.decodeFromString<List<ChatFolder>>(raw)
-                .map { folder ->
-                    folder.copy(members = folder.members.filter { it.isNotBlank() })
-                }
-                .filter { isFolderId(it.id) && it.name.isNotBlank() }
+            if (file.exists()) {
+                decodeFoldersFrom(file)
+            } else if (!wxid.isNullOrBlank() && legacyFoldersFile.exists()) {
+                // 账号首次使用：继承旧的共享配置（一次性迁移），之后各账号独立
+                decodeFoldersFrom(legacyFoldersFile)
+            } else {
+                emptyList()
+            }
         }.onFailure {
-            WeLogger.w(TAG, "failed to decode folders config from $foldersFile", it)
+            WeLogger.w(TAG, "failed to decode folders config from $file", it)
         }.getOrDefault(emptyList())
+        // 账号文件不存在但继承到了旧配置 -> 落盘到账号文件（一次性迁移）
+        if (folders.isNotEmpty() && !file.exists()) {
+            saveFoldersTo(file, folders)
+        }
         foldersCache = folders
+        foldersCacheWxid = wxid
         return folders
     }
 
-    private fun saveFolders(folders: List<ChatFolder>) {
-        foldersCache = folders
-        folderMembersCache.clear()
+    private fun decodeFoldersFrom(file: Path): List<ChatFolder> {
+        if (!file.exists()) return emptyList()
+        return DefaultJson.decodeFromString<List<ChatFolder>>(file.readText())
+            .map { folder ->
+                folder.copy(members = folder.members.filter { it.isNotBlank() })
+            }
+            .filter { isFolderId(it.id) && it.name.isNotBlank() }
+    }
+
+    private fun saveFoldersTo(file: Path, folders: List<ChatFolder>) {
         runCatching {
             val raw = DefaultJson.encodeToString(folders)
-            foldersFile.writeText(raw)
+            file.writeText(raw)
         }.onFailure {
-            WeLogger.w(TAG, "failed to save folders to $foldersFile", it)
+            WeLogger.w(TAG, "failed to save folders to $file", it)
         }
     }
+
+
+    private fun saveFolders(folders: List<ChatFolder>) {
+        foldersCache = folders
+        foldersCacheWxid = currentAccountWxid()
+        folderMembersCache.clear()
+        saveFoldersTo(foldersFileFor(foldersCacheWxid), folders)
+    }
+
 
     private fun folderById(folderId: String): ChatFolder? {
         return loadFolders().firstOrNull { it.id == folderId }

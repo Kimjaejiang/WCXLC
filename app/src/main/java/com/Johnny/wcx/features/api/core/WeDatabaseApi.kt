@@ -71,32 +71,36 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
 
     private const val TAG = "WeDatabaseApi"
 
-    val coreStorage by lazy {
+    // 账号切换（热切换/重启）后 MMKernel 内部 storage 会指向新账号，
+    // 这里必须每次实时获取，不能用 lazy 缓存旧账号的引用，
+    // 否则 getSelfProfileField(WXID) 等会读到切换前账号的数据。
+    private fun currentCoreStorage(): Any? = runCatching {
         classMmKernel.reflekt()
             .firstMethod {
                 parameterCount = 0
                 returnType = classCoreStorage.clazz
             }
-            .invokeStatic()!!
-    }
+            .invokeStatic()
+    }.getOrNull()
 
-    val configStorage by lazy {
-        coreStorage.reflekt()
-            .firstMethod {
+    private fun currentConfigStorage(): Any? = runCatching {
+        currentCoreStorage()?.reflekt()
+            ?.firstMethod {
                 parameterCount = 0
                 returnType = classConfigStorage.clazz
             }
-            .invoke()!!
-    }
+            ?.invoke()
+    }.getOrNull()
+
 
     fun getSelfProfileField(field: SelfProfileField, defValue: Any? = null): Any? =
         runCatching {
-            configStorage.reflekt()
-                .firstMethod {
+            currentConfigStorage()?.reflekt()
+                ?.firstMethod {
                     parameters(Int::class, Any::class)
                     returnType = Any::class
                 }
-                .invoke(field.code, defValue)
+                ?.invoke(field.code, defValue)
         }.getOrElse {
             WeLogger.w(TAG, "getSelfProfileField failed for ${field.name}", it)
             defValue
