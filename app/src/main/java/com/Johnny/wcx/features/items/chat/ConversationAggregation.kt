@@ -126,9 +126,13 @@ object ConversationAggregation : ClickableFeature(),
     private const val MAX_FOLDER_DISPLAY_NAME = 12
     // 括号内发送者名截断长度（Eatmelons → Eatm...），括号内空间小，比群名更短
     private const val MAX_SENDER_NAME_LEN = 4
-    private val MENTION_BLUE = 0xFF4285F4.toInt()
+    // 归拢摘要红绿灯配色：[@全体]/[有人@我] 红、[N个聊天]/[N个消息] 黄、[自己] 绿
+    private val MENTION_RED = 0xFFE53935.toInt()
     private val MENTION_YELLOW = 0xFFFFCC00.toInt()
-    private val CHAT_COUNT_REGEX = Regex("\\[[^\\]]*\\u4e2a\\u804a\\u5929\\]")
+    private val MENTION_GREEN = 0xFF00C853.toInt()
+    /** 归拢文件夹标题蓝色 */
+    private val MENTION_TITLE_BLUE = 0xFF4285F4.toInt()
+    private val CHAT_COUNT_REGEX = Regex("\\[[^\\]]*\\u4e2a(?:\\u804a\\u5929|\\u6d88\\u606f)\\]")
 
     // 归拢配置按账号隔离：每个账号独立配置文件，避免切换账号后
     // 显示其他账号的归拢文件夹（成员存的是该账号的联系人/群聊）。
@@ -1192,13 +1196,13 @@ object ConversationAggregation : ClickableFeature(),
             var x = baseX
             val atIdx = text.indexOf("[有人@我]")
             if (atIdx >= 0) {
-                paint.color = MENTION_BLUE
+                paint.color = MENTION_RED
                 canvas.drawText("[有人@我]", x, baseY, paint)
                 x += paint.measureText("[有人@我]")
             }
             val allIdx = text.indexOf("[@全体]")
             if (allIdx >= 0) {
-                paint.color = MENTION_BLUE
+                paint.color = MENTION_RED
                 canvas.drawText("[@全体]", x, baseY, paint)
                 x += paint.measureText("[@全体]")
             }
@@ -1206,20 +1210,28 @@ object ConversationAggregation : ClickableFeature(),
             if (m != null) {
                 paint.color = MENTION_YELLOW
                 canvas.drawText(m.value, x, baseY, paint)
+                x += paint.measureText(m.value)
+            }
+            val selfIdx = text.indexOf("[自己]")
+            if (selfIdx >= 0) {
+                paint.color = MENTION_GREEN
+                canvas.drawText("[自己]", x, baseY, paint)
             }
         }
     }
     /** 归拢摘要标记判断 */
     private fun isAggSummary(text: String): Boolean =
-        text.contains("[有人@我]") || text.contains("[@全体]") || CHAT_COUNT_REGEX.containsMatchIn(text)
+        text.contains("[有人@我]") || text.contains("[@全体]") || text.contains("[自己]") || CHAT_COUNT_REGEX.containsMatchIn(text)
 
     /** 归拢摘要 Spannable 上色：蓝 [有人@我]/[@全体]、黄 [N个聊天]（其余保持微信原生颜色） */
     private fun tintAggSummary(text: String): CharSequence {
         val sp = SpannableString(text)
         val atIdx = text.indexOf("[有人@我]")
-        if (atIdx >= 0) sp.setSpan(ForegroundColorSpan(MENTION_BLUE), atIdx, atIdx + "[有人@我]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (atIdx >= 0) sp.setSpan(ForegroundColorSpan(MENTION_RED), atIdx, atIdx + "[有人@我]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val allIdx = text.indexOf("[@全体]")
-        if (allIdx >= 0) sp.setSpan(ForegroundColorSpan(MENTION_BLUE), allIdx, allIdx + "[@全体]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (allIdx >= 0) sp.setSpan(ForegroundColorSpan(MENTION_RED), allIdx, allIdx + "[@全体]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val selfIdx = text.indexOf("[自己]")
+        if (selfIdx >= 0) sp.setSpan(ForegroundColorSpan(MENTION_GREEN), selfIdx, selfIdx + "[自己]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val m = CHAT_COUNT_REGEX.find(text)
         if (m != null) sp.setSpan(ForegroundColorSpan(MENTION_YELLOW), m.range.first, m.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         return sp
@@ -1255,16 +1267,19 @@ object ConversationAggregation : ClickableFeature(),
             val baseX = tv.paddingLeft.toFloat()
             val baseY = tv.baseline.toFloat()
             val maxWidth = tv.width - tv.paddingLeft - tv.paddingRight
-            val blue = 0xFF4285F4.toInt()
-            val yellow = 0xFFFFCC00.toInt()
+            val red = MENTION_RED
+            val yellow = MENTION_YELLOW
+            val green = MENTION_GREEN
 
             data class Seg(val start: Int, val end: Int, val color: Int)
             val segs = mutableListOf<Seg>()
             val atIdx = text.indexOf("[有人@我]")
-            if (atIdx >= 0) segs.add(Seg(atIdx, atIdx + "[有人@我]".length, blue))
+            if (atIdx >= 0) segs.add(Seg(atIdx, atIdx + "[有人@我]".length, red))
             val allIdx = text.indexOf("[@全体]")
-            if (allIdx >= 0) segs.add(Seg(allIdx, allIdx + "[@全体]".length, blue))
-            val m = Regex("""\[[^\]]*个聊天\]""").find(text)
+            if (allIdx >= 0) segs.add(Seg(allIdx, allIdx + "[@全体]".length, red))
+            val selfIdx = text.indexOf("[自己]")
+            if (selfIdx >= 0) segs.add(Seg(selfIdx, selfIdx + "[自己]".length, green))
+            val m = Regex("""\[[^\]]*个(?:聊天|消息)\]""").find(text)
             if (m != null) segs.add(Seg(m.range.first, m.range.last + 1, yellow))
             segs.sortBy { it.start }
 
@@ -1317,11 +1332,14 @@ object ConversationAggregation : ClickableFeature(),
     private const val TAG_KEY_STATE = 0x5A110002
     /** Item 根 View 的 Tag key：内部摘要 NoMeasuredTextView 引用 */
     private const val TAG_KEY_SUMMARY_TV = 0x5A110003
+    /** Item 根 View 的 Tag key：内部标题 TextView 引用（文件夹标题染蓝） */
+    private const val TAG_KEY_TITLE_TV = 0x5A110004
 
     /** 归拢摘要着色状态（bind 阶段解析，onDraw 阶段直接读取） */
     private class MergeUiState(
         val atAll: Boolean,
         val atMe: Boolean,
+        val self: Boolean,
         val chatCount: Int
     )
 
@@ -1338,16 +1356,20 @@ object ConversationAggregation : ClickableFeature(),
             val queue = java.util.ArrayDeque<View>()
             queue.add(root)
             var summaryTv: TextView? = null
+            var titleTv: TextView? = null
             var fullText = ""
             while (queue.isNotEmpty()) {
                 val v = queue.removeFirst()
                 if (v is TextView) {
                     val t = v.text?.toString().orEmpty()
+                    // 标题：非空、非摘要标记、字号最大的 TextView（文件夹标题控件特征）
+                    if (t.isNotBlank() && !isAggSummary(t) && (titleTv == null || v.textSize > titleTv.textSize)) {
+                        titleTv = v
+                    }
                     // 归拢摘要标记命中即识别（摘要控件不限于 NoMeasuredTextView）
-                    if (t.contains("有人@我]") || t.contains("@全体]") || t.contains("个聊天]")) {
+                    if (isAggSummary(t) && summaryTv == null) {
                         summaryTv = v
                         fullText = t
-                        break
                     }
                 }
                 if (v is ViewGroup) for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
@@ -1356,17 +1378,19 @@ object ConversationAggregation : ClickableFeature(),
                 root.setTag(TAG_KEY_VIRTUAL, null)
                 root.setTag(TAG_KEY_STATE, null)
                 root.setTag(TAG_KEY_SUMMARY_TV, null)
+                root.setTag(TAG_KEY_TITLE_TV, null)
                 return
             }
             val atAll = fullText.contains("[@全体]")
             val atMe = fullText.contains("[有人@我]")
             val chatCount = runCatching {
                 CHAT_COUNT_REGEX.find(fullText)?.value
-                    ?.trim('[', ']')?.replace("个聊天", "")?.toIntOrNull() ?: 0
+                    ?.trim('[', ']')?.replace("个聊天", "")?.replace("个消息", "")?.toIntOrNull() ?: 0
             }.getOrDefault(0)
             root.setTag(TAG_KEY_VIRTUAL, true)
-            root.setTag(TAG_KEY_STATE, MergeUiState(atAll, atMe, chatCount))
+            root.setTag(TAG_KEY_STATE, MergeUiState(atAll, atMe, fullText.contains("[自己]"), chatCount))
             root.setTag(TAG_KEY_SUMMARY_TV, summaryTv)
+            root.setTag(TAG_KEY_TITLE_TV, titleTv)
             ensureItemDispatchDrawHook(root.javaClass)
             if (tintHitSet.add(fullText)) {
                 diagFile("VIRTROW ${root.javaClass.simpleName} text=$fullText atAll=$atAll atMe=$atMe cnt=$chatCount")
@@ -1386,6 +1410,10 @@ object ConversationAggregation : ClickableFeature(),
                 if (summaryTv.width <= 0 || summaryTv.height <= 0) return@hookAfterDirectly
                 val canvas = args[0] as? Canvas ?: return@hookAfterDirectly
                 drawOverlay(root, summaryTv, state, canvas)
+                val titleTv = root.getTag(TAG_KEY_TITLE_TV) as? TextView
+                if (titleTv != null && titleTv.width > 0 && titleTv.height > 0) {
+                    drawTitleOverlay(root, titleTv, canvas)
+                }
             }
             diagFile("ItemDispatchDraw hook: ${cls.name}")
             WeLogger.i(TAG, "ItemDispatchDraw hook: ${cls.name}")
@@ -1411,7 +1439,7 @@ object ConversationAggregation : ClickableFeature(),
                 else -> ""
             }
             if (prefix.isNotEmpty()) {
-                paint.color = MENTION_BLUE
+                paint.color = MENTION_RED
                 canvas.drawText(prefix, x, baseY, paint)
                 x += paint.measureText(prefix)
             }
@@ -1419,8 +1447,29 @@ object ConversationAggregation : ClickableFeature(),
                 val s = "[${state.chatCount}个聊天]"
                 paint.color = MENTION_YELLOW
                 canvas.drawText(s, x, baseY, paint)
+                x += paint.measureText(s)
+            }
+            if (state.self) {
+                paint.color = MENTION_GREEN
+                canvas.drawText("[自己]", x, baseY, paint)
             }
             // 后缀不画：NoMeasuredTextView 原生灰色已输出全文，前缀区域被彩色覆盖，后缀区域保留原生
+        }
+    }
+
+    /** 叠加绘制文件夹标题为蓝色（盖在微信原生灰色标题上方，无状态残留） */
+    private fun drawTitleOverlay(root: View, titleTv: TextView, canvas: Canvas) {
+        runCatching {
+            val paint = Paint(titleTv.paint)
+            paint.color = MENTION_TITLE_BLUE
+            val tvLoc = IntArray(2)
+            val rootLoc = IntArray(2)
+            titleTv.getLocationInWindow(tvLoc)
+            root.getLocationInWindow(rootLoc)
+            val x = (tvLoc[0] - rootLoc[0] + titleTv.paddingLeft).toFloat()
+            val baseY = (tvLoc[1] - rootLoc[1] + titleTv.baseline).toFloat()
+            val text = titleTv.text?.toString() ?: return@runCatching
+            canvas.drawText(text, x, baseY, paint)
         }
     }
 
@@ -1444,14 +1493,23 @@ object ConversationAggregation : ClickableFeature(),
 
     private fun tintMention(text: String): CharSequence? {
         val atIdx = text.indexOf("[\u6709\u4eba@\u6211]")
+        val selfIdx = text.indexOf("[自己]")
         val chatMatch = CHAT_COUNT_REGEX.find(text)
-        if (atIdx < 0 && chatMatch == null) return null
+        if (atIdx < 0 && chatMatch == null && selfIdx < 0) return null
         val spannable = SpannableString(text)
         if (atIdx >= 0) {
             spannable.setSpan(
-                ForegroundColorSpan(MENTION_BLUE),
+                ForegroundColorSpan(MENTION_RED),
                 atIdx,
                 (atIdx + 6).coerceAtMost(text.length),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        if (selfIdx >= 0) {
+            spannable.setSpan(
+                ForegroundColorSpan(MENTION_GREEN),
+                selfIdx,
+                selfIdx + "[自己]".length,
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
             )
         }
