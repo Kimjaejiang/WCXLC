@@ -215,6 +215,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WEKIT_KEYSTORE_FILE: ${{ runner.temp }}/wekit-keystore.jks
           GRADLE_OPTS: -Djava.net.preferIPv4Stack=true
+          WCX_USE_ALIYUN: "false"
         run: |
           export JAVA_TOOL_OPTIONS="-Djava.net.preferIPv4Stack=true"
           source "$RUNNER_TEMP/keystore-creds.env"
@@ -227,6 +228,7 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WCX_USE_ALIYUN: "false"
         run: ./gradlew assembleRelease --warning-mode all --stacktrace
 
       - name: Collect APKs
