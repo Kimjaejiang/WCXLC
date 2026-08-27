@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 共享路径：覆盖 cacheDir（content:// 复制落点）与 DownloadManager 默认落点 -->
+<paths>
+    <cache-path name="cache" path="." />
+    <files-path name="files" path="." />
+    <external-path name="external_download" path="Download/" />
+</paths>

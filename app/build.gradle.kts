@@ -59,7 +59,7 @@ android {
         versionName = verTag
 
         buildConfigField("String", "COMMIT_HASH", "\"${gitHash}\"")
-        buildConfigField("String", "TAG", "\"WCX\"")
+        buildConfigField("String", "TAG", "\"WCXLC\"")
         buildConfigField("long", "BUILD_TIMESTAMP", "${System.currentTimeMillis()}L")
         buildConfigField("boolean", "BEAUTIFY_ENABLED", "true")
     }

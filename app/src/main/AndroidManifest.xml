@@ -75,6 +75,17 @@
             android:exported="true"
             android:theme="@style/Theme.Material3.DynamicColors.DayNight.NoActionBar" />
 
+        <!-- 模块内更新安装专用 FileProvider（旧实现复用微信 external.recovery.logprovider 会导致 uri 映射失败） -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <meta-data
             android:name="xposedmodule"
             android:value="true" />

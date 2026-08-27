@@ -259,9 +259,9 @@ object WeChatMessageContextMenuApi : ApiFeature(), IResolveDex {
                     .filter { it.isSupported(msgInfoWrapper) }
 
                 if (MergeChatMessageContextMenuItems.isEnabled) {
-                    // collapse everything into a single "WCX" entry backed by a Compose dialog
+                    // collapse everything into a single "WCXLC" entry backed by a Compose dialog
                     if (applicableItems.isNotEmpty()) {
-                        addMenuItem.invoke(MERGED_MENU_ITEM_ID, "WCX", ExtensionIcon)
+                        addMenuItem.invoke(MERGED_MENU_ITEM_ID, "WCXLC", ExtensionIcon)
                     }
                 } else {
                     for (item in applicableItems) {
@@ -338,8 +338,8 @@ object WeChatMessageContextMenuApi : ApiFeature(), IResolveDex {
                         returnType = android.view.MenuItem::class
                     }
 
-                // collapse everything into a single "WCX" entry backed by a Compose dialog
-                addMenuItem.invoke(MERGED_MENU_ITEM_ID, "WCX", ExtensionIcon)
+                // collapse everything into a single "WCXLC" entry backed by a Compose dialog
+                addMenuItem.invoke(MERGED_MENU_ITEM_ID, "WCXLC", ExtensionIcon)
             } catch (ex: Throwable) {
                 WeLogger.e(
                     TAG,
@@ -381,7 +381,7 @@ object WeChatMessageContextMenuApi : ApiFeature(), IResolveDex {
     ) {
         showComposeDialog(view.context) {
             AlertDialogContent(
-                title = { Text("WCX") },
+                title = { Text("WCXLC") },
                 text = {
                     LazyColumn(
                         Modifier
@@ -464,7 +464,7 @@ object WeChatMessageContextMenuApi : ApiFeature(), IResolveDex {
 
         showComposeDialog(view.context) {
             AlertDialogContent(
-                title = { Text("WCX (${msgInfos.size} 条消息)") },
+                title = { Text("WCXLC (${msgInfos.size} 条消息)") },
                 text = {
                     LazyColumn(
                         Modifier

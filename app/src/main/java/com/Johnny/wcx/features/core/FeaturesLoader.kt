@@ -57,7 +57,7 @@ object FeaturesLoader {
         WeLogger.i(TAG, "loading all features took $elapsed")
 
         if (TargetProcesses.isInMain && Preferences.showStartupToast) {
-            showToast("WCX 加载成功!")
+            showToast("WCXLC 加载成功!")
         }
     }
 

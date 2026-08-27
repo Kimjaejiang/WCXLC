@@ -462,7 +462,7 @@ object HomeSidePanelFeature : ClickableFeature() {
     /** 模块内置功能（用于 slot 选择） */
     private fun moduleTargets(): List<Triple<String, String, String>> {
         return listOf(
-            Triple("WCX 设置", "⚙", "com.Johnny.wcx.SettingsActivity"),
+            Triple("WCXLC 设置", "⚙", "com.Johnny.wcx.SettingsActivity"),
             Triple("清空未读", "✓", "__clear_unread__"),
             Triple("群成员变动提醒", "☻", "__group_member__")
         )
@@ -1488,11 +1488,11 @@ private fun isHomeTabClass(className: String): Boolean {
         if (clearUnreadEnabled) list.add(FeatureEntry(MaterialSymbols.OutlinedFilled.Check_circle, "清空未读") {
             try { Toast.makeText(act, "已尝试清空未读（占位）", Toast.LENGTH_SHORT).show() } catch (e: Throwable) { WeLogger.e(TAG, "清空未读异常", e) }
         })
-        if (wcxSettingsEnabled) list.add(FeatureEntry(MaterialSymbols.OutlinedFilled.Settings, "WCX 设置") {
+        if (wcxSettingsEnabled) list.add(FeatureEntry(MaterialSymbols.OutlinedFilled.Settings, "WCXLC 设置") {
             try {
                 val intent = Intent(act, Class.forName("com.Johnny.wcx.activity.settings.SettingsActivity")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                 act.startActivity(intent)
-            } catch (e: Throwable) { WeLogger.e(TAG, "WCX 设置启动异常", e); showToast("无法打开WCX设置") }
+            } catch (e: Throwable) { WeLogger.e(TAG, "WCXLC 设置启动异常", e); showToast("无法打开WCXLC设置") }
         })
         val customs = loadCustomFeatures()
         customs.forEach { cf ->

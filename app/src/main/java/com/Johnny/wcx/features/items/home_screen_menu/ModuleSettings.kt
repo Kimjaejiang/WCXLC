@@ -9,7 +9,7 @@ import com.Johnny.wcx.features.core.SwitchFeature
 import com.Johnny.wcx.ui.utils.ExtensionIcon
 import com.Johnny.wcx.utils.HookParam
 
-@Feature(name = "模块设置", categories = ["首页右上角菜单"], description = "在首页右上角菜单添加「WCX」选项")
+@Feature(name = "模块设置", categories = ["首页右上角菜单"], description = "在首页右上角菜单添加「WCXLC」选项")
 object ModuleSettings : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsProvider {
 
     override fun onEnable() {

@@ -10,7 +10,6 @@ import android.os.Environment
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import com.Johnny.wcx.BuildConfig
-import com.Johnny.wcx.constants.PackageNames
 import com.Johnny.wcx.utils.android.getSystemService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -21,6 +20,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -70,6 +70,7 @@ private const val RELEASES_PAGE = "https://github.com/Kimjaejiang/WCXLC/releases
 private val FLAVOR = BuildConfig.FLAVOR_SLUG
 private val ABI_LIST = listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
 private const val UNIVERSAL_APK_SUFFIX = "universal-release.apk"
+private val APK_RELEASE_NAME = Regex("""app-.*-release\.apk""")
 
 /**
  * 从 GitHub Release 的 asset 列表中选择最适合当前设备的 APK 下载地址
@@ -84,6 +85,8 @@ private fun selectApkUrl(assets: List<GitHubAsset>): String {
     // 兼容不带 ABI 段的命名（app-<flavor>-release.apk：release 单 ABI 无 splits 时 AGP 实际产物名）
     assets.firstOrNull { it.name == "app-$FLAVOR-release.apk" }?.let { return it.browser_download_url }
     assets.firstOrNull { it.name.endsWith(UNIVERSAL_APK_SUFFIX) }?.let { return it.browser_download_url }
+    // 兜底：匹配任意 app-*-release.apk（flavor 混用或命名漂移时仍可下载）
+    assets.firstOrNull { APK_RELEASE_NAME.matches(it.name) }?.let { return it.browser_download_url }
     return RELEASES_PAGE
 }
 
@@ -186,12 +189,22 @@ object AppUpdater {
      */
     suspend fun downloadAndInstall(context: Context, info: UpdateInfo) {
         val apkUrl = info.apkUrl.ifBlank { selectApkUrl(emptyList()) }
-        val fileName = "wcx-${info.versionName}.apk"
+        val fileName = buildApkFileName(info)
 
         val downloadId = enqueueDownload(context, apkUrl, fileName)
-        val apkFile = waitForDownload(context, downloadId)
+        val apkFile = waitForDownload(context, downloadId, fileName)
 
         install(context, apkFile)
+    }
+
+    /**
+     * 下载文件名：优先用 releaseTag（如 260826103759，无空格）。
+     * versionName 形如 "WCXLC 260826103759" 带空格，会导致文件系统路径处理潜在问题。
+     */
+    private fun buildApkFileName(info: UpdateInfo): String {
+        val base = info.releaseTag.ifBlank { info.versionName }
+        val safe = base.replace(Regex("""[\\/:*?"<>|\s]"""), "_")
+        return "wcx-$safe.apk"
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -255,7 +268,7 @@ object AppUpdater {
 
     private fun enqueueDownload(context: Context, url: String, fileName: String): Long {
         val request = DownloadManager.Request(url.toUri()).apply {
-            setTitle("WCX 更新")
+            setTitle("WCXLC 更新")
             setDescription("正在下载更新...")
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
@@ -266,7 +279,7 @@ object AppUpdater {
     }
 
     /** Suspends until [DownloadManager] broadcasts completion for [downloadId]. */
-    private suspend fun waitForDownload(context: Context, downloadId: Long): File =
+    private suspend fun waitForDownload(context: Context, downloadId: Long, apkFileName: String): File =
         withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { cont ->
                 val receiver = object : BroadcastReceiver() {
@@ -288,11 +301,25 @@ object AppUpdater {
                                     val localUriCol = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
                                     val localUriStr = cursor.getString(localUriCol)
 
-                                    runCatching {
-                                        val realFile = File(android.net.Uri.parse(localUriStr).path!!)
-                                        cont.resume(realFile)
-                                    }.getOrElse {
-                                        cont.resumeWithException(RuntimeException("Failed to resolve download path", it))
+                                    try {
+                                        val uri = android.net.Uri.parse(localUriStr)
+                                        if (uri.scheme == "content") {
+                                            // ColorOS/MediaProvider 场景：IO 线程复制到 cacheDir，完成后回主线程续体
+                                            thread {
+                                                try {
+                                                    val f = resolveDownloadedFile(context, uri, apkFileName)
+                                                    runCatching { cont.resume(f) }
+                                                } catch (t: Throwable) {
+                                                    runCatching {
+                                                        cont.resumeWithException(RuntimeException("Failed to resolve download path", t))
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            cont.resume(File(uri.path!!))
+                                        }
+                                    } catch (t: Throwable) {
+                                        cont.resumeWithException(RuntimeException("Failed to resolve download path", t))
                                     }
                                 } else {
                                     val reasonCol = cursor.getColumnIndex(DownloadManager.COLUMN_REASON)
@@ -321,24 +348,31 @@ object AppUpdater {
             }
         }
 
-    private fun install(context: Context, apk: File) {
-        /*
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:exported="false"
-            android:process=":recovery"
-            android:authorities="com.tencent.mm.external.recovery.logprovider"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/di"/>
-        </provider>
-         */
+    /**
+     * 解析 DownloadManager 实际文件。
+     * 部分厂商（ColorOS/MediaProvider）的 COLUMN_LOCAL_URI 返回 content:// 而非 file://，
+     * File(path) 得到无效路径导致"安装包解析失败"；此时经 ContentResolver 复制到
+     * cacheDir（file_paths.xml 已配 cache-path）再交给 FileProvider。
+     */
+    private fun resolveDownloadedFile(context: Context, uri: android.net.Uri, apkFileName: String): File {
+        if (uri.scheme == "content") {
+            val dir = File(context.cacheDir, "downloads").apply { mkdirs() }
+            val target = File(dir, apkFileName)
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            } ?: error("Cannot open content uri: $uri")
+            return target
+        }
+        return File(uri.path!!)
+    }
 
+    private fun install(context: Context, apk: File) {
+        // FileProvider 用模块自身 authority（manifest 已注册 ${applicationId}.provider，
+        // file_paths.xml 覆盖 cache-path / external-path Download），不再复用微信的 recovery provider
         val uri =
             FileProvider.getUriForFile(
                 context,
-                "${PackageNames.WECHAT}.external.recovery.logprovider",
+                "${context.packageName}.provider",
                 apk,
             )
 

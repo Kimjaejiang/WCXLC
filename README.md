@@ -21,6 +21,12 @@
 
 | 日期 | 模块 | 修改项 | 说明 |
 |---|---|---|---|
+| 2026-08-27 | 💰 红包与支付 | **修复私聊发红包「请求不成功」** | `允许领取私聊红包` 原实现 hook 发红包界面强制 `key_type=1`，导致个人会话红包发不出去；已停用该 hook（功能待改在红包详情层实现），发红包恢复正常 |
+| 2026-08-27 | 🔧 兼容适配 | **适配微信版本更新为 8.0.69 ~ 8.0.77** | 主页适配说明文案与版本范围更新（含 8.0.77 先行版） |
+| 2026-08-27 | 🛠️ 构建/CI | **本地构建打包 libwekit_native.so** | 本地 gradle 构建不跑 xtask native 编译导致 APK 缺 `libwekit_native.so` → StartupAgent 失败、模块无效果；现从 CI 产物（release tag=提交时间）提取 so 打包，模块恢复正常 |
+| 2026-08-27 | 💾 数据 | **配置迁移（对话归拢丢失修复）** | 数据目录名固定 `WCXLC`（与显示名 TAG 解耦，切换品牌不影响数据目录）；启动首次访问自动把旧 `.../WCX/` 目录数据合并到 `WCXLC/`（保留旧目录不删、同名文件保留新版本） |
+| 2026-08-27 | 🎨 界面美化 | **品牌名统一 WCXLC** | `BuildConfig.TAG` WCX→WCXLC（主页标题/微信内入口/侧边栏等自动跟随）；长按菜单/「N 条消息」对话框/下载通知/加载 toast/崩溃报告/主题分享/导出目录等硬编码统一为 WCXLC；桌面图标名 `app_name` 已是 WCXLC |
+| 2026-08-27 | 🛠️ 构建/CI | **模块内更新安装加固（3 处）** | ①`selectApkUrl` 兜底匹配任意 `app-*-release.apk`（flavor 命名漂移仍可下载）②下载文件名改用 `releaseTag`（剔除空格/非法字符，不再出现 `wcx-WCXLC 260826103759.apk`）③`waitForDownload` 遇 ColorOS/MediaProvider 返回的 `content://` URI 时复制到 `cacheDir` 再交给 FileProvider（修复"安装包解析失败"）；`install()` 改用模块自身 FileProvider（`com.Johnny.wcx.provider`，manifest 注册 + `file_paths.xml` 覆盖 cache/external Download），不再复用微信 recovery provider |
 | 2026-08-26 | 💬 聊天增强 | **聊天工具栏修复（相册/收藏/动态定位）** | ①相册入口平铺场景不显示：微信第一屏 grid 不在 AppPanel 视图树（快照读不到），注入显示 ②收藏点击错位打开相册：微信 onItemClick 按 position 语义触发（与 view/tag 无关，实测 tag.p=favorite 传 position 0 仍打开相册），收藏改走微信全局收藏页 `com.tencent.mm.plugin.fav.ui.FavoriteIndexUI` ③点击统一在含相册的第一屏 grid 中按名字动态定位 position，不再硬编码映射 ④语音通话/接龙按会话实际格子显示（普通聊天无格子不显示、群聊快照有则正常），群聊无视频通话格子不再误显示 |
 | 2026-08-26 | 🛠️ 构建/CI | **模块内更新 asset 匹配兼容单 ABI 命名** | AppUpdater 期望 `app-<flavor>-<abi>-release.apk`（带 ABI 段），CI 实际产物 `app-<flavor>-release.apk`（release 单 ABI 无 splits）匹配不到 → 更新只能跳转 releases 页面；现兼容两种命名，保证装 standard 更新 standard、装 legacy 更新 legacy |
 | 2026-08-26 | 🎨 界面美化 | **桌面图标重制** | 指定图片去白底 + 红色 `#E53935` 自适应背景图标，webp→png（5 档 DPI） |
