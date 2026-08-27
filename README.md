@@ -19,35 +19,101 @@
 
 ## 🛠️ 下游修改项（本仓库优化/修复，均同步上游）
 
-| 日期 | 模块 | 修改项 | 说明 |
-|---|---|---|---|
-| 2026-08-27 | 🔧 兼容适配 | **适配微信版本更新为 8.0.76 ~ 8.0.77** | 主页适配说明文案与 README 版本范围更新（推荐 8.0.76~8.0.77，维护 8.0.69~8.0.75） |
-| 2026-08-27 | 🛠️ 构建/CI | **本地构建打包 libwekit_native.so** | 本地 gradle 构建不跑 xtask native 编译导致 APK 缺 `libwekit_native.so` → StartupAgent 失败、模块无效果；现从 CI 产物（release tag=提交时间）提取 so 打包，模块恢复正常 |
-| 2026-08-27 | 💾 数据 | **配置迁移（对话归拢丢失修复）** | 数据目录名固定 `WCXLC`（与显示名 TAG 解耦，切换品牌不影响数据目录）；启动首次访问自动把旧 `.../WCX/` 目录数据合并到 `WCXLC/`（保留旧目录不删、同名文件保留新版本） |
-| 2026-08-27 | 🎨 界面美化 | **品牌名统一 WCXLC** | `BuildConfig.TAG` WCX→WCXLC（主页标题/微信内入口/侧边栏等自动跟随）；长按菜单/「N 条消息」对话框/下载通知/加载 toast/崩溃报告/主题分享/导出目录等硬编码统一为 WCXLC；桌面图标名 `app_name` 已是 WCXLC |
-| 2026-08-27 | 🛠️ 构建/CI | **模块内更新安装加固（3 处）** | ①`selectApkUrl` 兜底匹配任意 `app-*-release.apk`（flavor 命名漂移仍可下载）②下载文件名改用 `releaseTag`（剔除空格/非法字符，不再出现 `wcx-WCXLC 260826103759.apk`）③`waitForDownload` 遇 ColorOS/MediaProvider 返回的 `content://` URI 时复制到 `cacheDir` 再交给 FileProvider（修复"安装包解析失败"）；`install()` 改用模块自身 FileProvider（`com.Johnny.wcx.provider`，manifest 注册 + `file_paths.xml` 覆盖 cache/external Download），不再复用微信 recovery provider |
-| 2026-08-26 | 💬 聊天增强 | **聊天工具栏修复（相册/收藏/动态定位）** | ①相册入口平铺场景不显示：微信第一屏 grid 不在 AppPanel 视图树（快照读不到），注入显示 ②收藏点击错位打开相册：微信 onItemClick 按 position 语义触发（与 view/tag 无关，实测 tag.p=favorite 传 position 0 仍打开相册），收藏改走微信全局收藏页 `com.tencent.mm.plugin.fav.ui.FavoriteIndexUI` ③点击统一在含相册的第一屏 grid 中按名字动态定位 position，不再硬编码映射 ④语音通话/接龙按会话实际格子显示（普通聊天无格子不显示、群聊快照有则正常），群聊无视频通话格子不再误显示 |
-| 2026-08-26 | 🛠️ 构建/CI | **模块内更新 asset 匹配兼容单 ABI 命名** | AppUpdater 期望 `app-<flavor>-<abi>-release.apk`（带 ABI 段），CI 实际产物 `app-<flavor>-release.apk`（release 单 ABI 无 splits）匹配不到 → 更新只能跳转 releases 页面；现兼容两种命名，保证装 standard 更新 standard、装 legacy 更新 legacy |
-| 2026-08-26 | 🎨 界面美化 | **桌面图标重制** | 指定图片去白底 + 红色 `#E53935` 自适应背景图标，webp→png（5 档 DPI） |
-| 2026-08-26 | 💬 聊天增强 | **归拢头像稳定性修复（3 项）** | ①直接 hook `ImageView.setImageDrawable` 防微信异步占位覆盖（DexKit 扫不到系统类）②持久化文件名加时间戳+UUID 防同名覆盖（修"改一个全变同一张"）③avatar hit 清 RecyclerView 残留 tag 防串图；hook 回调以映射当前值为准（移除/更换后不拉回旧头像）+ onDisable 可卸载 |
-| 2026-08-26 | 💬 聊天增强 | **选择器默认按最近消息排序** | 默认排序改新-旧（最近消息时间），首次进入自动加载时间数据，DB 未就绪时轮询重试 |
-| 2026-08-26 | 🛠️ 构建/CI | **AppUpdater 版本解析 + CI 版本号对齐** | ①12 位时间戳 tag（YYMMDDHHMMSS）正确解析取后 6 位，修复模块主页"一直提示有更新" ②Release tag 复用 build job 版本号（与 APK 内 versionName 一致），ver.txt 随 artifact 上传 |
-| 2026-08-25 | 💬 聊天增强 | **群聊归拢摘要染色** | 归拢文件夹摘要 `[N个聊天]` 黄色、`[有人@我]`/`[@全体]` 蓝色。摘要控件为 `NoMeasuredTextView`（extends X2CView，getText 为空），hook 其 `setText(CharSequence)` 注入 Spannable 上色 |
-| 2026-08-25 | 📞 联系人与群组 | **本地好友头像持久化** | 相册 `content://` 复制到模块私有目录存 `file://`，重启微信后不再空白；旧头像自动迁移 |
-| 2026-08-25 | 🎨 界面美化 | **侧边栏修复（4 项）** | ①入口可见性轮询（Tab 切换及时隐藏/恢复）②触发按钮挂载条件增强 ③离开首页保留挂载改隐藏 ④微信 LauncherUI 非 androidx FragmentActivity 兼容（ActionBarOverlayLayout 识别 Tab） |
-| 2026-08-25 | 🎨 界面美化 | **莫奈引擎异常防护** | 主题色解析（`materialScheme`/`primaryColor`/`onPrimaryColor`）包 try-catch，设备不支持动态取色时回退默认色不崩溃 |
-| 2026-08-25 | 🔔 通知 | **通知演进优化** | ①发送者头像缓存 + 异步预取（MessagingStyle 头像）②同一会话多条通知合并（notify id 统一为会话哈希）③修复已读消息通知带出：微信 cancel 用原始 id 找不到合并后 id → 建立原 id→会话映射 + hook cancel 转换 id 并清空该会话 history |
-| 更早 | 💬 聊天增强 | **归拢@提醒优化** | 入口行被@时摘要显示「有人@我」（atMeCount 聚合到 folder 行）；染绿 hook 扩展双适配器；剥离摘要 WXID 前缀（后因稳定性回退，保留归拢基础功能） |
-| 更早 | 💬 聊天增强 | **解除消息多选数量限制 8.0.77** | DexKit 适配（ChattingDataAdapterV3 移除，allowFailure + placeholder 降级，onEnable guard） |
-| 更早 | 💬 聊天增强 | **自动同意好友申请 8.0.77** | hook 目标改构造器（p3.<init> 接受入口，DexMethodDelegate 无法解析构造器导致 NoSuchMethodException） |
-| 更早 | 💬 聊天增强 | **预见性返回动画 8.0.77** | hook 回调 null 保护 + ActivityInfo.name 为 null 降级 + 字段查找异常容错 |
-| 更早 | 🎨 界面美化 | **侧边栏头像加载提速** | 解码按目标尺寸缩小（192px）+ 缓存读写缩小图 + selfWxId 等待 10s→4s + 重试 15→3 次，首次加载从 20s+ 降至秒级 |
-| 更早 | 🎨 界面美化 | **天气卡片（3 项）** | ①Open-Meteo API 格式识别（parseWeatherJson 增加 current 字段）②湿度/风速独立行左右分布防挤压 ③加载占位紧凑化、温度 48sp→40sp、湿度补 %/风速补 km/h |
-| 更早 | 🎨 界面美化 | **fork 品牌化** | 版本号统一加 LC 后缀（Kimjaejiang/WCXLC），模块主页 WCX→WCXLC，设置页 GitHub/官方链接与作者署名改为 fork |
-| 更早 | 🎨 界面美化 | **v245 UI 层对齐 + 侧边栏/主题商城** | 整体替换 UI（69 文件）+ 新增侧边栏 HomeSidePanelFeature / 主题商城，适配 hook 抽象 / DexKit / agent API |
-| 更早 | 🔧 兼容适配 | **8.0.77 通话栈/防御性加固** | PipVoip 通话栈 27 处 dex 解析批量 allowFailure；hook 回调 null 保护 / lazy 链式解析容错 / 微信类硬引用降级 |
-| 更早 | 🔧 兼容适配 | **版本号对齐 fork Releases** | 默认版本号 v244.12→v252.1（本地构建 verCode 252001，可被 CI 自动发布覆盖升级） |
-| 更早 | 🛠️ 构建/CI | **native/R8/CI 修复** | mp3lame-sys 改用 cc 编译、xtask bindgen versioned target、R8 保留 compose 类、Gradle IPv4 优先等 |
+> 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
+
+### 2026-08-27
+
+- **🔧 兼容适配 · 适配微信版本更新为推荐 8.0.76 ~ 8.0.77**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/activity/MainActivity.kt`、`README.md`
+  - `MainActivity.getAdaptedWeChatVersions()` 三处文案（完整支持/推荐/异常兜底）与 README「适配版本」表同步改为：推荐 8.0.76~8.0.77、维护 8.0.69~8.0.75、低版本 <8.0.69。
+
+- **🛠️ 构建/CI · 本地构建打包 libwekit_native.so**
+  - 涉及文件：`app/build.gradle.kts`、`app/src/main/jniLibs/{arm64-v8a,armeabi-v7a}/libwekit_native.so`
+  - 背景：本地 gradle 构建不跑 xtask native 编译，产物 APK 缺 `libwekit_native.so` → `StartupAgent` 加载原生库失败、模块整体无效果。
+  - 方案：从 CI 发布产物（release tag = 提交时间戳）提取对应 ABI 的 so 放入 `jniLibs` 随包打包，本地构建与 CI 行为一致。
+
+- **💾 数据 · 配置迁移（对话归拢丢失修复）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/utils/fs/KnownPaths.kt` 等数据路径入口
+  - 数据目录名固定为 `WCXLC`（与显示名 `BuildConfig.TAG` 解耦——品牌切换不再导致目录漂移）；启动首次访问自动把旧 `.../WCX/` 目录数据合并进 `WCXLC/`（保留旧目录不删，同名文件保留新版本），修复品牌改名后归拢等配置丢失。
+
+- **🎨 界面美化 · 品牌名统一 WCXLC**
+  - 涉及文件：`app/build.gradle.kts`（`buildConfigField TAG`）、`MainActivity.kt`、`WeChatMessageContextMenuApi.kt`、`WeSettingsInjector.kt`、`FeaturesLoader.kt`、`ExportChatHistory.kt`、`HomeSidePanelFeature.kt`、`TabTheme.kt`、`AndroidManifest.xml` 等
+  - `BuildConfig.TAG` 由 WCX → WCXLC（主页标题/微信内入口/侧边栏等自动跟随）；长按菜单、「N 条消息」对话框、下载通知、加载 toast、崩溃报告、主题分享、导出目录等硬编码文案/目录名统一为 WCXLC。
+
+- **🛠️ 构建/CI · 模块内更新安装加固（3 处）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/utils/AppUpdater.kt`、`app/src/main/AndroidManifest.xml`、`app/src/main/res/xml/file_paths.xml`
+  - ① `selectApkUrl` 兜底匹配任意 `app-*-release.apk`（flavor 命名漂移仍可下载）；
+  - ② 下载文件名改用 `releaseTag`（剔除空格/非法字符，不再出现 `wcx-WCXLC 260826103759.apk`）；
+  - ③ `waitForDownload` 遇 ColorOS/MediaProvider 返回的 `content://` URI 时复制到 `cacheDir` 再交给 FileProvider（修复「安装包解析失败」）；`install()` 改用模块自身 FileProvider（`com.Johnny.wcx.provider`，manifest 注册 + `file_paths.xml` 覆盖 cache/external Download），不再复用微信 recovery provider。
+
+### 2026-08-26
+
+- **💬 聊天增强 · 聊天工具栏修复（相册/收藏/动态定位）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ChatToolbar.kt`
+  - ① 相册入口平铺场景不显示：微信第一屏 grid 不在 AppPanel 视图树（快照读不到），改为注入显示；
+  - ② 收藏点击错位打开相册：微信 `onItemClick` 按 position 语义触发（与 view/tag 无关，实测 `tag.p=favorite` 传 position 0 仍打开相册），收藏改走微信全局收藏页 `com.tencent.mm.plugin.fav.ui.FavoriteIndexUI`；
+  - ③ 点击统一在含相册的第一屏 grid 中按名字动态定位 position，不再硬编码映射（微信重建 grid 后快照 index/弱引用 itemView 失效的兜底）；
+  - ④ 语音通话/接龙按会话实际格子显示（普通聊天无格子不显示、群聊快照有则正常），群聊无视频通话格子不再误显示。
+
+- **🛠️ 构建/CI · 模块内更新 asset 匹配兼容单 ABI 命名**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/utils/AppUpdater.kt`
+  - AppUpdater 原期望 `app-<flavor>-<abi>-release.apk`（带 ABI 段），CI 实际产物为 `app-<flavor>-release.apk`（release 单 ABI 无 splits）匹配不到 → 更新只能跳转 releases 页面；现兼容两种命名，保证装 standard 更新 standard、装 legacy 更新 legacy。
+
+- **🎨 界面美化 · 桌面图标重制**
+  - 涉及资源：`app/src/main/res/mipmap-*/ic_launcher*.png`（5 档 DPI）
+  - 指定图片去白底 + 红色 `#E53935` 自适应背景图标，webp → png 换源。
+
+- **💬 聊天增强 · 归拢头像稳定性修复（3 项）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/contacts/CustomLocalFriendAvatars.kt`
+  - ① 直接 hook `ImageView.setImageDrawable` 防微信异步占位覆盖（DexKit 扫不到系统类）；
+  - ② 持久化文件名加时间戳 + UUID 防同名覆盖（修「改一个全变同一张」）；
+  - ③ avatar hit 时清 RecyclerView 复用残留 tag 防串图（系统会话/其他文件夹串图）；
+  - hook 回调以 `avatarMap` 当前值为准（移除/更换后不拉回旧头像），`onDisable` 可卸载（unhook）。
+
+- **💬 聊天增强 · 选择器默认按最近消息排序**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/ui/content/ContactSelectors.kt`
+  - 默认排序改新-旧（最近消息时间），首次进入自动加载时间数据，DB 未就绪时轮询重试。
+
+- **🛠️ 构建/CI · AppUpdater 版本解析 + CI 版本号对齐**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/utils/AppUpdater.kt`、`.github/workflows/ci.yml`
+  - ① 12 位时间戳 tag（YYMMDDHHMMSS）正确解析取后 6 位，修复模块主页「一直提示有更新」；
+  - ② Release tag 复用 build job 版本号（与 APK 内 versionName 一致），`ver.txt` 随 artifact 上传（否则 release 必挂）。
+
+### 2026-08-25
+
+- **💬 聊天增强 · 群聊归拢摘要染色**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
+  - 归拢文件夹摘要 `[N个聊天]` 黄色、`[有人@我]`/`[@全体]` 蓝色；摘要控件为 `NoMeasuredTextView`（extends X2CView，`getText()` 为空），hook 其 `setText(CharSequence)` 注入 Spannable 上色。
+
+- **📞 联系人与群组 · 本地好友头像持久化**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/contacts/CustomLocalFriendAvatars.kt`
+  - 相册 `content://` 复制到模块私有目录存 `file://`，重启微信后不再空白；旧头像自动迁移。
+
+- **🎨 界面美化 · 侧边栏修复（4 项）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/beautify/HomeSidePanelFeature.kt`
+  - ① 入口可见性轮询（Tab 切换及时隐藏/恢复）；② 触发按钮挂载条件增强；③ 离开首页保留挂载改隐藏；④ 微信 LauncherUI 非 androidx FragmentActivity 兼容（ActionBarOverlayLayout 识别 Tab）。
+
+- **🎨 界面美化 · 莫奈引擎异常防护**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/beautify/ThemeStore.kt`
+  - 主题色解析（`materialScheme`/`primaryColor`/`onPrimaryColor`）包 try-catch，设备不支持动态取色时回退默认色不崩溃。
+
+- **🔔 通知 · 通知演进优化**
+  - 涉及文件：通知相关 feature（MessagingStyle 构建/通知取消 hook）
+  - ① 发送者头像缓存 + 异步预取（MessagingStyle 头像）；② 同一会话多条通知合并（notify id 统一为会话哈希）；③ 修复已读消息通知带出：微信 cancel 用原始 id 找不到合并后 id → 建立原 id→会话映射 + hook cancel 转换 id 并清空该会话 history。
+
+### 更早
+
+- **💬 聊天增强 · 归拢@提醒优化** — `ConversationAggregation.kt`：入口行被@时摘要显示「有人@我」（atMeCount 聚合到 folder 行）；染绿 hook 扩展双适配器；剥离摘要 WXID 前缀（后因稳定性回退，保留归拢基础功能）。
+- **💬 聊天增强 · 解除消息多选数量限制 8.0.77** — `RemoveMessageSelectionLimit.kt`：DexKit 适配（ChattingDataAdapterV3 移除，allowFailure + placeholder 降级，onEnable guard）。
+- **💬 聊天增强 · 自动同意好友申请 8.0.77** — hook 目标改构造器（`p3.<init>` 接受入口，DexMethodDelegate 无法解析构造器导致 `NoSuchMethodException`）。
+- **💬 聊天增强 · 预见性返回动画 8.0.77** — hook 回调 null 保护 + `ActivityInfo.name` 为 null 降级 + 字段查找异常容错。
+- **🎨 界面美化 · 侧边栏头像加载提速** — `HomeSidePanelFeature.kt`：解码按目标尺寸缩小（192px）+ 缓存读写缩小图 + selfWxId 等待 10s→4s + 重试 15→3 次，首次加载从 20s+ 降至秒级。
+- **🎨 界面美化 · 天气卡片（3 项）** — `HomeSidePanelFeature.kt`：① Open-Meteo API 格式识别（`parseWeatherJson` 增加 `current` 字段）；② 湿度/风速独立行左右分布防挤压；③ 加载占位紧凑化、温度 48sp→40sp、湿度补 %/风速补 km/h。
+- **🎨 界面美化 · fork 品牌化** — 版本号统一加 LC 后缀（Kimjaejiang/WCXLC），模块主页 WCX→WCXLC，设置页 GitHub/官方链接与作者署名改为 fork。
+- **🎨 界面美化 · v245 UI 层对齐 + 侧边栏/主题商城** — 整体替换 UI（69 文件）+ 新增侧边栏 `HomeSidePanelFeature` / 主题商城，适配 hook 抽象 / DexKit / agent API。
+- **🔧 兼容适配 · 8.0.77 通话栈/防御性加固** — PipVoip 通话栈 27 处 dex 解析批量 allowFailure；hook 回调 null 保护 / lazy 链式解析容错 / 微信类硬引用降级。
+- **🔧 兼容适配 · 版本号对齐 fork Releases** — 默认版本号 v244.12→v252.1（本地构建 verCode 252001，可被 CI 自动发布覆盖升级）。
+- **🛠️ 构建/CI · native/R8/CI 修复** — mp3lame-sys 改用 cc 编译、xtask bindgen versioned target、R8 保留 compose 类、Gradle IPv4 优先等。
 
 ---
 ## ✨ 功能特性
