@@ -124,9 +124,9 @@ jobs:
 
       - name: Test network to repos
         run: |
-          for u in "https://services.gradle.org" "https://repo.maven.apache.org" "https://jitpack.io" "https://api.xposed.info" "https://maven.pkg.github.com" "https://dl.google.com"; do
+          for u in "https://services.gradle.org" "https://repo.maven.apache.org" "https://jitpack.io" "https://api.xposed.info" "https://dl.google.com" "https://maven.aliyun.com/repository/public"; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 "$u" 2>/dev/null || echo "FAIL")
-            echo "::error::NET $u -> $code"
+            echo "NET $u -> $code (probe only; 301/302 are redirects Gradle follows; GitHubPackages source removed)"
           done
       - name: Pre-download Gradle distribution
         run: |
