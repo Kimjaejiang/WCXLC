@@ -40,6 +40,10 @@
   - 问题：微信 8.0.77 数据库走 WCDB（`com.tencent.wcdb`），framework `SQLiteDatabase.insertWithOnConflict` 不被触发 → `onInsert` 收不到好友申请消息 → 自动同意永久无效。
   - 方案：insert hook 同时覆盖 `android.database.sqlite.SQLiteDatabase`、`com.tencent.wcdb.compat.SQLiteDatabase`、`com.tencent.wcdb.database.SQLiteDatabase` 三个类（WCDB 同名方法签名兼容，runCatching 防 404）；`onInsert` 解析 `fromContentValues` 失败时输出 error 日志便于排查。
 
+- **💰 红包 · 私聊红包可领 + 分裂群组假红包仅假群注入**
+  - 涉及文件：红包相关 feature
+  - 恢复红包功能原始实现，允许领取私聊红包（此前误限制为群聊）；分裂群组假红包仅对假群（`@@chatroom`）注入 key_type，普通群/私聊不受影响。
+
 - **🛠️ 系统与工具 · 微信内模块首页「有更新」模块内自动下载安装**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/activity/settings/HomePager.kt`
   - `ActivationCard` 在「有更新」时点击弹 Miuix 确认框（`UpdateConfirmDialog`），确认后直接调用 `AppUpdater.downloadAndInstall`，无需跳转浏览器 releases 页。
@@ -83,6 +87,10 @@
   - ② 收藏点击错位打开相册：微信 `onItemClick` 按 position 语义触发（与 view/tag 无关，实测 `tag.p=favorite` 传 position 0 仍打开相册），收藏改走微信全局收藏页 `com.tencent.mm.plugin.fav.ui.FavoriteIndexUI`；
   - ③ 点击统一在含相册的第一屏 grid 中按名字动态定位 position，不再硬编码映射（微信重建 grid 后快照 index/弱引用 itemView 失效的兜底）；
   - ④ 语音通话/接龙按会话实际格子显示（普通聊天无格子不显示、群聊快照有则正常），群聊无视频通话格子不再误显示。
+
+- **🔧 兼容适配 · 8.0.76 Dex 扫描兼容（通话记录/朋友圈视频）**
+  - 涉及文件：`HideContacts.kt`、`WeMomentsApi.kt` 等
+  - 8.0.76 下 `HideContacts` voip 通话记录插入存在双路径（Multiple methods found，allowMultiple 取第一个 ZIDL 与 8.0.77 同目标）；`WeMomentsApi` 朋友圈视频 `addSightObjectByPath` 在 8.0.76 不存在（allowFailure 降级，调用处 try/catch 兜底）。
 
 - **🛠️ 构建/CI · 模块内更新 asset 匹配兼容单 ABI 命名**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/utils/AppUpdater.kt`
@@ -133,7 +141,7 @@
   - 涉及文件：`NotificationsEvolved.kt`、`WeDatabaseApi.kt`、`ContactSelectors.kt`
   - `toRoundedBitmap()` 圆角矩形裁剪（25% 半径，微信默认样式）；头像加载修复：磁盘缓存/本地路径/CDN 兜底；选择器排序按联系人 id IN 限定查询（批量取最近消息时间）加速。
 
-### 更早
+### 2026-08-24
 
 - **💬 聊天增强 · 归拢@提醒优化** — `ConversationAggregation.kt`：入口行被@时摘要显示「有人@我」（atMeCount 聚合到 folder 行）；染绿 hook 扩展双适配器；剥离摘要 WXID 前缀（后因稳定性回退，保留归拢基础功能）。
 - **💬 聊天增强 · 解除消息多选数量限制 8.0.77** — `RemoveMessageSelectionLimit.kt`：DexKit 适配（ChattingDataAdapterV3 移除，allowFailure + placeholder 降级，onEnable guard）。
@@ -146,6 +154,15 @@
 - **🔧 兼容适配 · 8.0.77 通话栈/防御性加固** — PipVoip 通话栈 27 处 dex 解析批量 allowFailure；hook 回调 null 保护 / lazy 链式解析容错 / 微信类硬引用降级。
 - **🔧 兼容适配 · 版本号对齐 fork Releases** — 默认版本号 v244.12→v252.1（本地构建 verCode 252001，可被 CI 自动发布覆盖升级）。
 - **🛠️ 构建/CI · native/R8/CI 修复** — mp3lame-sys 改用 cc 编译、xtask bindgen versioned target、R8 保留 compose 类、Gradle IPv4 优先等。
+- **🛠️ 构建/CI · 新功能分类生成器** — 复刻上游 GenerateNewFeaturesTask，按分类自动生成功能入口。
+
+### 2026-08-23
+
+- **📵 隐私与安全 · 禁止主页下滑（v244.7 → v246，最终回退干净版）**
+  - 涉及文件：主页下滑拦截相关 feature
+  - 迭代 4 版：① DOWN 直接消费顶部下拉手势（v244.7）→ ② DOWN 放行保顶栏手势 + MOVE 消费拦面板（v244.9）→ ③ 面板拦截改 DOWN 消费 + 入口模拟手势（v245.1）→ ④ v246 回退干净版（无 DexKit，onEnable 空 hook）。因拦截手势影响顶栏/搜索框滑动体验，保留基础实现。
+- **🎨 界面美化 · 微信进程弹窗改系统 AlertDialog** — AppCompat 主题冲突改用系统 AlertDialog。
+- **🛠️ 构建/CI · verCode 防撞号 + .gitignore 清理** — verCode 主号×1000+次号（单段补×1000），支持 `V244.1-100` 序列；APK/构建日志/备份/调试临时文件不入库。
 
 ### 📊 变更对照表（按模块分组）
 
@@ -155,71 +172,79 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | 归拢染色可配置 | 标题橙 / 提及蓝 / 聊天数黄 / 自己深灰 / 成员括号浅灰，5 色均可配置；`NoMeasuredTextView` setText 注入 Spannable + dispatchDraw 兜底 | `ConversationAggregation.kt` |
-| 08-27 | 切换账号归拢隔离 | 配置按账号分文件 + storage 实时化 + db 切换重载对账，各账号互不串扰 | `ConversationAggregation.kt`、`WeDatabaseApi.kt` |
-| 08-27 | 自动同意好友申请 | insert hook 覆盖 framework + WCDB compat/database 三类，WCDB 下生效 | `WeDatabaseListenerApi.kt`、`AutoAcceptFriendRequests.kt` |
-| 08-27 | 选择器排序加速 | 按联系人 id IN 限定查询（批量取最近消息时间）加速 | `ContactSelectors.kt` |
-| 08-26 | 聊天工具栏 | 相册注入显示 / 收藏走 `FavoriteIndexUI` / 点击动态定位 / 按实际格子显示 | `ChatToolbar.kt` |
-| 08-26 | 联系人/群聊选择器 | 默认按最近消息时间新-旧排序，DB 未就绪轮询重试 | `ContactSelectors.kt` |
-| 08-25 | 群聊归拢摘要 | `[N个聊天]` 黄、`[有人@我]`/`[@全体]` 蓝（hook `setText` 注入 Spannable） | `ConversationAggregation.kt` |
-| 更早 | 群聊归拢@提醒 | 被@时摘要显示「有人@我」（后因稳定性回退，保留归拢基础功能） | `ConversationAggregation.kt` |
-| 更早 | 消息多选 | DexKit 适配 8.0.77 + allowFailure/placeholder 降级 | `RemoveMessageSelectionLimit.kt` |
-| 更早 | 自动同意好友申请 | hook 目标改构造器（`p3.<init>` 接受入口） | 好友申请 feature |
-| 更早 | 预见性返回动画 | hook 回调 null 保护 + 降级 + 字段查找容错 | 返回动画 feature |
+| 08-27 | **归拢染色可配置** | 标题橙/提及蓝/聊天数黄/自己深灰/成员括号浅灰，5 色设置页可调；NMTV setText 注入 Spannable + dispatchDraw 兜底 | `ConversationAggregation.kt` |
+| 08-27 | **切换账号归拢隔离** | 配置按账号分文件 + storage 实时化 + db 切换重载对账，各账号互不串扰 | `ConversationAggregation.kt`、`WeDatabaseApi.kt` |
+| 08-27 | **自动同意好友申请** | insert hook 覆盖 framework + WCDB compat/database 三类，WCDB 下生效 | `WeDatabaseListenerApi.kt` |
+| 08-27 | **选择器排序加速** | 联系人 id IN 限定查询（批量取最近消息时间）加速 | `ContactSelectors.kt` |
+| 08-26 | **聊天工具栏修复** | 相册注入显示/收藏走收藏页/点击动态定位/按实际格子显示 | `ChatToolbar.kt` |
+| 08-26 | **选择器默认排序** | 默认按最近消息时间新-旧排序，DB 未就绪轮询重试 | `ContactSelectors.kt` |
+| 08-25 | **归拢摘要染色** | `[N个聊天]` 黄、`[有人@我]`/`[@全体]` 蓝（setText 注入 Spannable） | `ConversationAggregation.kt` |
+| 08-24 | **归拢@提醒** | 被@时摘要显示「有人@我」（因稳定性回退，保留基础功能） | `ConversationAggregation.kt` |
+| 08-24 | **解除消息多选限制** | DexKit 适配 8.0.77 + allowFailure/placeholder 降级 | `RemoveMessageSelectionLimit.kt` |
+| 08-24 | **自动同意（构造器）** | hook 目标改构造器（`p3.<init>` 接受入口） | 好友申请 feature |
+| 08-24 | **预见性返回动画** | hook 回调 null 保护 + 降级 + 字段查找容错 | 返回动画 feature |
+
+#### 💰 红包与支付
+
+| 日期 | 功能 | 变更说明 | 涉及文件 |
+|---|---|---|---|
+| 08-27 | **私聊红包可领** | 恢复红包原始实现允许领取私聊红包；分裂群组假红包仅假群注入 key_type | 红包 feature |
 
 #### 🔔 通知
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | 通知头像（微信默认样式） | 圆角矩形 25% 裁剪（微信默认）；加载修复：磁盘缓存/本地路径/CDN 兜底 | `NotificationsEvolved.kt`、`WeDatabaseApi.kt` |
-| 08-25 | 新消息通知 | 头像缓存+异步预取 / 同会话通知合并 / cancel 转换 id 清空 history | 通知相关 feature |
+| 08-27 | **通知头像（圆角矩形）** | 25% 半径圆角裁剪（微信默认样式）；磁盘缓存/本地路径/CDN 兜底 | `NotificationsEvolved.kt` |
+| 08-25 | **新消息通知** | 头像缓存+异步预取 / 同会话合并 / cancel 转换 id 清空 history | 通知相关 feature |
 
 #### 📞 联系人与群组
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-26 | 本地好友头像（归拢） | hook `setImageDrawable` / 文件名时间戳+UUID / 清残留 tag / `onDisable` 可卸载 | `CustomLocalFriendAvatars.kt` |
-| 08-25 | 本地好友头像持久化 | `content://` 复制到私有目录存 `file://` + 旧头像自动迁移 | `CustomLocalFriendAvatars.kt` |
+| 08-26 | **本地好友头像（归拢）** | hook `setImageDrawable` / 文件名时间戳+UUID / 清残留 tag / `onDisable` 可卸载 | `CustomLocalFriendAvatars.kt` |
+| 08-25 | **本地好友头像持久化** | `content://` 复制到私有目录存 `file://` + 旧头像自动迁移 | `CustomLocalFriendAvatars.kt` |
 
 #### 🎨 界面美化
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | 品牌名 | 主页/微信内入口/侧边栏/通知等文案统一 WCXLC（`BuildConfig.TAG` + 9 处硬编码） | `BuildConfig.TAG` 等 9 文件 |
-| 08-26 | 桌面图标 | 去白底 + 红色 `#E53935` 自适应背景 png（5 档 DPI） | `res/mipmap-*` |
-| 08-25 | 侧边栏 | 入口可见性轮询 / 挂载条件增强 / 离开改隐藏 / LauncherUI 兼容 | `HomeSidePanelFeature.kt` |
-| 08-25 | 莫奈引擎（主题取色） | 主题色解析 try-catch，设备不支持动态取色回退默认色 | `ThemeStore.kt` |
-| 更早 | 侧边栏头像加载 | 解码缩小 192px + 缓存缩小图 + 等待 4s + 重试 3 次，秒级加载 | `HomeSidePanelFeature.kt` |
-| 更早 | 天气卡片 | 识别 `current` 字段 / 湿度风速分行 / 占位紧凑 | `HomeSidePanelFeature.kt` |
-| 更早 | 品牌化 | WCXLC 品牌 + LC 版本后缀（Kimjaejiang/WCXLC） | 多处 |
-| 更早 | v245 UI + 侧边栏/主题商城 | 整体替换 UI（69 文件）+ 新增侧边栏与主题商城 | UI 层 69 文件 |
+| 08-27 | **品牌名统一 WCXLC** | 主页/微信内入口/侧边栏/通知等文案统一 WCXLC（`BuildConfig.TAG` + 9 处硬编码） | `BuildConfig.TAG` 等 |
+| 08-26 | **桌面图标重制** | 去白底 + 红色 `#E53935` 自适应背景 png（5 档 DPI） | `res/mipmap-*` |
+| 08-25 | **侧边栏修复** | 入口可见性轮询 / 挂载条件增强 / 离开改隐藏 / LauncherUI 兼容 | `HomeSidePanelFeature.kt` |
+| 08-25 | **莫奈引擎防护** | 主题色解析 try-catch，设备不支持动态取色回退默认色 | `ThemeStore.kt` |
+| 08-24 | **侧边栏头像加载提速** | 解码缩小 192px + 缓存缩小图 + 等待 4s + 重试 3 次，秒级加载 | `HomeSidePanelFeature.kt` |
+| 08-24 | **天气卡片** | 识别 `current` 字段 / 湿度风速分行 / 占位紧凑 | `HomeSidePanelFeature.kt` |
+| 08-24 | **fork 品牌化** | WCXLC 品牌 + LC 版本后缀（Kimjaejiang/WCXLC） | 多处 |
+| 08-24 | **v245 UI 对齐** | 整体替换 UI（69 文件）+ 新增侧边栏与主题商城 | UI 层 69 文件 |
 
 #### 🛠️ 构建/CI
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | Maven 构建源 | 阿里云镜像置前 + 移除 GitHub Packages + CI 探测错误改纯文本 | `settings.gradle.kts`、`ci.yml` |
-| 08-27 | CI 海外镜像 502 | CI 设 `WCX_USE_ALIYUN=false` 直连官方源，本地默认镜像不受影响 | `settings.gradle.kts`、`ci.yml` |
-| 08-27 | 模块内更新入口 | 首页「有更新」点击确认后模块内自动下载安装 | `HomePager.kt` |
-| 08-27 | 模块核心加载 StartupAgent | 本地构建打包 `libwekit_native.so` 随 APK，与 CI 行为一致 | `app/build.gradle.kts`、`jniLibs` |
-| 08-27 | 模块内更新安装 | 兜底匹配 `app-*-release.apk` / `releaseTag` 文件名 / `content://` 转 cacheDir + 自身 FileProvider | `AppUpdater.kt`、`AndroidManifest.xml`、`file_paths.xml` |
-| 08-26 | 模块内更新下载 | 兼容带 ABI 与不带 ABI 两种 APK 命名 | `AppUpdater.kt` |
-| 08-26 | 模块内更新版本检测 | 12 位时间戳 tag 解析 / `ver.txt` 随 artifact 上传 | `AppUpdater.kt`、`ci.yml` |
-| 更早 | native/R8/CI | cc 编译 / versioned target / R8 保留 compose 类 / Gradle IPv4 优先 | 构建配置 |
+| 08-27 | **Maven 构建源** | 阿里云镜像置前 + 移除 GitHub Packages + CI 探测错误改纯文本 | `settings.gradle.kts` |
+| 08-27 | **CI 海外镜像 502** | CI 设 `WCX_USE_ALIYUN=false` 直连官方源，本地默认镜像不受影响 | `settings.gradle.kts`、`ci.yml` |
+| 08-27 | **模块内更新入口** | 首页「有更新」点击确认后模块内自动下载安装 | `HomePager.kt` |
+| 08-27 | **本地打包 so** | 本地构建打包 `libwekit_native.so` 随 APK，与 CI 行为一致 | `build.gradle.kts` |
+| 08-27 | **模块内更新安装加固** | 兜底匹配 APK 命名 / `releaseTag` 文件名 / `content://` 转 cacheDir + 自身 FileProvider | `AppUpdater.kt` |
+| 08-26 | **模块内更新下载** | 兼容带 ABI 与不带 ABI 两种 APK 命名 | `AppUpdater.kt` |
+| 08-26 | **模块内更新版本检测** | 12 位时间戳 tag 解析 / `ver.txt` 随 artifact 上传 | `AppUpdater.kt` |
+| 08-24 | **native/R8/CI 修复** | cc 编译 / versioned target / R8 保留 compose 类 / Gradle IPv4 优先 | 构建配置 |
 
 #### 💾 数据与配置
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | 配置存储（对话归拢等） | 数据目录固定 `WCXLC`，首次访问自动合并旧 `WCX/`（不删旧、同名留新） | `KnownPaths.kt` 等路径入口 |
-| 更早 | 版本号 | v244.12 → v252.1（本地 verCode 252001，可被 CI 自动发布覆盖升级） | `app/build.gradle.kts` |
+| 08-27 | **配置存储迁移** | 数据目录固定 `WCXLC`，首次访问自动合并旧 `WCX/`（不删旧、同名留新） | `KnownPaths.kt` 等 |
+| 08-24 | **版本号对齐 fork** | v244.12 → v252.1（本地 verCode 252001，可被 CI 自动发布覆盖升级） | `app/build.gradle.kts` |
 
 #### 🔧 兼容适配
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | 适配微信版本 | 推荐 8.0.76~8.0.77 / 维护 8.0.69~8.0.75 / 低版本 <8.0.69 | `MainActivity.kt`、`README.md` |
-| 更早 | 8.0.77 通话栈（PipVoip） | 27 处 dex 解析批量 allowFailure + 回调 null 保护 + 懒加载容错 | PipVoip 通话栈 |
+| 08-27 | **适配微信版本** | 推荐 8.0.76~8.0.77 / 维护 8.0.69~8.0.75 / 低版本 <8.0.69 | `MainActivity.kt` |
+| 08-26 | **8.0.76 Dex 兼容** | HideContacts voip 双路径 allowMultiple + WeMomentsApi 朋友圈视频 allowFailure 降级 | `HideContacts.kt`、`WeMomentsApi.kt` |
+| 08-24 | **8.0.77 通话栈加固** | PipVoip 27 处 dex 解析批量 allowFailure + 回调 null 保护 + 懒加载容错 | PipVoip 通话栈 |
+| 08-24 | **禁止主页下滑** | v244.7→v246 迭代 4 版后回退干净版（拦截手势影响顶栏滑动体验） | 主页下滑 feature |
 
 ---
 ## ✨ 功能特性
