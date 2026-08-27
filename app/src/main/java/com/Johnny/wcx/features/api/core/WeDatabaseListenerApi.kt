@@ -97,26 +97,41 @@ object WeDatabaseListenerApi : ApiFeature() {
     // ==================== Insert Hook ====================
 
     private fun hookDatabaseInsert() {
-        SQLiteDatabase::class.reflekt()
-            .firstMethod {
-                name = "insertWithOnConflict"
-                parameters(String::class, String::class, ContentValues::class, Int::class)
-            }.hookAfter {
-                try {
-                    if (insertListeners.isEmpty()) return@hookAfter
+    // 微信 8.0.77 数据库走 WCDB（com.tencent.wcdb），framework 的
+    // insertWithOnConflict 不会被触发——必须连同 WCDB compat/database 一起 hook，
+    // 否则 WeDatabaseListenerApi.onInsert 永远收不到消息插入事件
+    // （自动同意好友申请、归拢刷新等都依赖它）。
+    listOf(
+        "android.database.sqlite.SQLiteDatabase",
+        "com.tencent.wcdb.compat.SQLiteDatabase",
+        "com.tencent.wcdb.database.SQLiteDatabase"
+    ).forEach { className ->
+        runCatching {
+            className.toClass().reflekt()
+                .firstMethod {
+                    name = "insertWithOnConflict"
+                    parameters(String::class, String::class, ContentValues::class, Int::class)
+                }.hookAfter {
+                    try {
+                        if (insertListeners.isEmpty()) return@hookAfter
 
-                    val table = args[0] as String
-                    val values = args[2] as ContentValues
+                        val table = args[0] as String
+                        val values = args[2] as ContentValues
 
-                    logWithStack("Insert", table, args, result)
-                    insertListeners.forEach { it.onInsert(table, values) }
-                } catch (e: Throwable) {
-                    WeLogger.e(TAG, "Insert dispatch failed", e)
+                        logWithStack("Insert", table, args, result)
+                        insertListeners.forEach { it.onInsert(table, values) }
+                    } catch (e: Throwable) {
+                        WeLogger.e(TAG, "Insert dispatch failed", e)
+                    }
                 }
-            }
+        }.onFailure {
+            WeLogger.e(TAG, "insert hook init failed for $className", it)
+        }
     }
+}
 
-    // ==================== Update Hook ====================
+// ==================== Update Hook ====================
+// ==================== Update Hook ====================
 
     private fun hookDatabaseUpdate() {
         listOf(

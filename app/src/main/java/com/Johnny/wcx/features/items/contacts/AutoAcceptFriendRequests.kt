@@ -253,7 +253,9 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
         if (table != "message") return
         if (!masterEnabled) return
 
-        val msgInfo = runCatching { MessageInfo.fromContentValues(values) }.getOrNull() ?: return
+        val msgInfo = runCatching { MessageInfo.fromContentValues(values) }
+            .onFailure { WeLogger.e(TAG, "MessageInfo.fromContentValues failed", it) }
+            .getOrNull() ?: return
         if (msgInfo.isSelfSender) return
         if (msgInfo.typeCode != MessageType.FRIEND_VERIFY.code) return
 
