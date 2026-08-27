@@ -1,4 +1,4 @@
-﻿# WCX · 微信增强模块 💠
+# WCX · 微信增强模块 💠
 
 ## ⚠️ 下游仓库声明
 
@@ -11,7 +11,7 @@
 - 🔄 **回馈上游**：所有修改的源代码会同步回上游仓库（PR / 提交）
 
 > 本仓库功能特性以本仓库实际代码为准（含下游优化），上游更新持续合并。
-一款基于 Xposed 框架的开源微信增强模块，提供**美化主题、聊天增强、隐私防护、AI 自动回复、红包助手**等丰富的功能定制能力。
+> 一款基于 Xposed 框架的开源微信增强模块，提供**美化主题、聊天增强、隐私防护、AI 自动回复、红包助手**等丰富的功能定制能力。
 
 > 🚀 **项目定位**：不仅仅是一个微信模块，更是一个集成了**去混淆分析工具 (deobf)** 的综合项目 —— 从逆向分析到功能实现，一站式搞定。
 
@@ -31,9 +31,9 @@
     - `WeDatabaseApi.coreStorage/configStorage` 由 `lazy` 缓存改为每次实时获取，避免切换后读到旧账号 self 信息；
     - `methodGetStorage` 检测到 storage 重初始化（账号切换）时重建 db 引用并派发 `notifyDatabaseSwitched`，归拢清缓存按新账号重载配置并重新对账到新库 + 刷新会话列表。
 
-- **💬 聊天增强 · 归拢摘要红绿灯染色 + 文件夹标题蓝色**
+- **💬 聊天增强 · 归拢染色（标题橙 / 摘要提及蓝黄灰）+ 颜色可配置**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
-  - 归拢文件夹摘要按红绿灯配色：`[@全体]`/`[有人@我]` 红（`#E53935`）、`[N个聊天]`/`[N个消息]` 黄（`#FFCC00`）、`[自己]` 绿（`#00C853`）；归拢文件夹标题叠加绘制蓝色（`#4285F4`）。摘要控件为 `NoMeasuredTextView`，dispatchDraw 阶段叠加彩色绘制覆盖原生灰色，无状态残留。
+  - 归拢文件夹标题默认橙色（`#FF8800`）、摘要 `[@全体]`/`[有人@我]` 蓝（`#2E78E6`）、`[N个聊天]`/`[N个消息]` 黄（`#F2D200`）、`[自己]` 深灰（`#222222`）、群成员括号浅灰（`#E8E8E8`）；标题/摘要控件为 `NoMeasuredTextView`（extends X2CView，非 TextView，`getText()` 为空），hook 其 `setText` 注入 Spannable 上色，会话列表 `dispatchDraw` 循环染色兜底；5 项颜色均可在模块设置页配置（WePrefs 持久化，重启微信生效）；标题识别排除未读数角标等纯数字控件。
 
 - **💬 聊天增强 · 自动同意好友申请修复（WCDB insert hook）**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/api/core/WeDatabaseListenerApi.kt`、`app/src/main/java/com/Johnny/wcx/features/items/contacts/AutoAcceptFriendRequests.kt`
@@ -155,7 +155,7 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | 归拢摘要红绿灯染色 | `[@全体]`/`[有人@我]` 红、`[N个聊天]`/`[N个消息]` 黄、`[自己]` 绿；文件夹标题蓝色 | `ConversationAggregation.kt` |
+| 08-27 | 归拢染色可配置 | 标题橙 / 提及蓝 / 聊天数黄 / 自己深灰 / 成员括号浅灰，5 色均可配置；`NoMeasuredTextView` setText 注入 Spannable + dispatchDraw 兜底 | `ConversationAggregation.kt` |
 | 08-27 | 切换账号归拢隔离 | 配置按账号分文件 + storage 实时化 + db 切换重载对账，各账号互不串扰 | `ConversationAggregation.kt`、`WeDatabaseApi.kt` |
 | 08-27 | 自动同意好友申请 | insert hook 覆盖 framework + WCDB compat/database 三类，WCDB 下生效 | `WeDatabaseListenerApi.kt`、`AutoAcceptFriendRequests.kt` |
 | 08-27 | 选择器排序加速 | 按联系人 id IN 限定查询（批量取最近消息时间）加速 | `ContactSelectors.kt` |
@@ -392,8 +392,8 @@ wcx/
 
 ```bash
 # 克隆项目（含子模块）
-git clone --recursive https://github.com/Johnny520/wcx.git
-cd wcx
+git clone --recursive https://github.com/Kimjaejiang/WCXLC.git
+cd WCXLC
 
 # 构建 Release 版本
 ./gradlew assembleRelease
