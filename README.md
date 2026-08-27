@@ -23,6 +23,27 @@
 
 ### 2026-08-27
 
+- **💬 聊天增强 · 切换微信账号后归拢按账号隔离 + 自动对账**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`、`app/src/main/java/com/Johnny/wcx/features/api/core/WeDatabaseApi.kt`
+  - 问题：微信 8.0.77 切换账号后，归拢文件夹仍显示其他账号的归拢（配置与自账号缓存跨账号共享）。
+  - 方案：
+    - 归拢配置按账号分文件存储（`chat_folders_<wxid>.json`），旧共享 `chat_folders.json` 首次使用时一次性迁移继承，之后各账号独立；
+    - `WeDatabaseApi.coreStorage/configStorage` 由 `lazy` 缓存改为每次实时获取，避免切换后读到旧账号 self 信息；
+    - `methodGetStorage` 检测到 storage 重初始化（账号切换）时重建 db 引用并派发 `notifyDatabaseSwitched`，归拢清缓存按新账号重载配置并重新对账到新库 + 刷新会话列表。
+
+- **💬 聊天增强 · 自动同意好友申请修复（WCDB insert hook）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/api/core/WeDatabaseListenerApi.kt`、`app/src/main/java/com/Johnny/wcx/features/items/contacts/AutoAcceptFriendRequests.kt`
+  - 问题：微信 8.0.77 数据库走 WCDB（`com.tencent.wcdb`），framework `SQLiteDatabase.insertWithOnConflict` 不被触发 → `onInsert` 收不到好友申请消息 → 自动同意永久无效。
+  - 方案：insert hook 同时覆盖 `android.database.sqlite.SQLiteDatabase`、`com.tencent.wcdb.compat.SQLiteDatabase`、`com.tencent.wcdb.database.SQLiteDatabase` 三个类（WCDB 同名方法签名兼容，runCatching 防 404）；`onInsert` 解析 `fromContentValues` 失败时输出 error 日志便于排查。
+
+- **🛠️ 系统与工具 · 微信内模块首页「有更新」模块内自动下载安装**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/activity/settings/HomePager.kt`
+  - `ActivationCard` 在「有更新」时点击弹 Miuix 确认框（`UpdateConfirmDialog`），确认后直接调用 `AppUpdater.downloadAndInstall`，无需跳转浏览器 releases 页。
+
+- **🛠️ 构建/CI · Maven 源 301/302/403 根治**
+  - 涉及文件：`settings.gradle.kts`、`.github/workflows/ci.yml`
+  - 阿里云 `public`/`google`/`gradle-plugin` 镜像置前，移除返回 403 的 `maven.pkg.github.com`；CI 网络探测 `::error::NET` 错误 annotation 改纯文本（避免 GitHub 误判 workflow 错误）。
+
 - **🔧 兼容适配 · 适配微信版本更新为推荐 8.0.76 ~ 8.0.77**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/activity/MainActivity.kt`、`README.md`
   - `MainActivity.getAdaptedWeChatVersions()` 三处文案（完整支持/推荐/异常兜底）与 README「适配版本」表同步改为：推荐 8.0.76~8.0.77、维护 8.0.69~8.0.75、低版本 <8.0.69。
@@ -121,6 +142,10 @@
 
 | 日期 | 模块功能名 | 改动前 | 改动后 | 涉及文件 |
 |---|---|---|---|---|
+| 08-27 | 切换账号归拢 | 归拢配置/缓存跨账号共享，切换后显示其他账号的归拢 | 配置按账号分文件（`chat_folders_<wxid>.json`，旧配置一次性迁移）；coreStorage/configStorage 实时获取；db 重建时清缓存重载新账号配置并重新对账 | `ConversationAggregation.kt`、`WeDatabaseApi.kt` |
+| 08-27 | 自动同意好友申请 | 8.0.77 WCDB 数据库下 insert hook 永不触发，自动同意无效 | insert hook 覆盖 framework + WCDB compat/database 三个类；`onInsert` 失败加 error 日志 | `WeDatabaseListenerApi.kt`、`AutoAcceptFriendRequests.kt` |
+| 08-27 | 模块内更新入口 | 首页「有更新」仅展示提示 | 点击弹确认框 → `AppUpdater.downloadAndInstall` 模块内自动下载安装 | `HomePager.kt` |
+| 08-27 | Maven 构建源 | GitHub Packages 403、镜像缺失导致拉依赖失败 | 阿里云 public/google/gradle-plugin 置前，移除 `maven.pkg.github.com`；CI 探测错误改纯文本 | `settings.gradle.kts`、`.github/workflows/ci.yml` |
 | 08-27 | 主页「已适配微信版本」 | 文案 8.0.69~8.0.77（含 8.0.77 先行版）、8.0.65 以下失效 | 推荐 8.0.76~8.0.77，维护 8.0.69~8.0.75，低版本 <8.0.69 | `MainActivity.kt`、`README.md` |
 | 08-27 | 模块核心加载 StartupAgent | 本地构建 APK 缺 `libwekit_native.so`，模块整体无效果 | 从 CI 产物提取 so 放入 `jniLibs` 随包打包，本地构建与 CI 行为一致 | `app/build.gradle.kts`、`jniLibs/{arm64-v8a,armeabi-v7a}` |
 | 08-27 | 配置存储（对话归拢等） | 品牌改名后数据目录漂移，归拢等配置丢失 | 数据目录固定 `WCXLC`，首次访问自动合并旧 `WCX/` 目录（不删旧、同名留新） | `KnownPaths.kt` 等路径入口 |
