@@ -11,6 +11,10 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Shader
 import android.graphics.drawable.Icon
 import androidx.core.content.ContextCompat
 import dev.ujhhgtg.reflekt.reflekt
@@ -37,8 +41,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.io.path.div
 import kotlin.io.path.exists
 import kotlin.io.path.pathString
@@ -91,7 +98,9 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
     private lateinit var meAvatarIcon: Icon
 
-    private val meAvatarPath by lazy { KnownPaths.moduleData / "me_avatar" }
+    // sender 头像磁盘缓存目录：微信头像（CDN 或本地路径）落盘，二次进入通知直接读盘，
+    // 避免每次都要网络下载导致头像加载不出来/缓慢
+    private val avatarCacheDir by lazy { KnownPaths.moduleData / "notif_avatars" }
 
     private val notificationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -140,31 +149,17 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
     override fun onEnable() {
         CoroutineScope(Dispatchers.IO).launch {
-            runCatching {
-                val bitmap: Bitmap
-                if (meAvatarPath.exists()) {
-                    bitmap = BitmapFactory.decodeFile(meAvatarPath.pathString)
-                } else {
-                    while (runCatching { WeApi.selfWxId.isEmpty() }
-                            .getOrDefault(true)) {
-                        delay(2000.milliseconds)
-                    }
-
-                    val urlString = WeDatabaseApi.getAvatarUrl(WeApi.selfWxId)
-                    val connection = URL(urlString).openConnection()
-                            as HttpURLConnection
-                    connection.doInput = true
-
-                    connection.inputStream.use { input ->
-                        val bytes = input.readBytes()
-                        meAvatarPath.writeBytes(bytes)
-                        bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    }
-                }
-                return@runCatching Icon.createWithBitmap(bitmap)
-            }.onFailure { e ->
-                WeLogger.e(TAG, "failed to fetch me avatar", e)
-            }.onSuccess { meAvatarIcon = it }
+            while (runCatching { WeApi.selfWxId.isEmpty() }
+                    .getOrDefault(true)) {
+                delay(2000.milliseconds)
+            }
+            // 复用统一头像加载（磁盘缓存 → 本地路径 → CDN 下载 + 圆角裁剪）
+            val meIcon = runCatching { loadAvatarIcon(WeApi.selfWxId) }.getOrNull()
+            if (meIcon != null) {
+                meAvatarIcon = Icon.createWithBitmap(meIcon)
+            } else {
+                WeLogger.w(TAG, "failed to fetch me avatar")
+            }
         }
 
         val filter = IntentFilter().apply {
@@ -454,24 +449,130 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
                 val wxid = resolveSenderWxid(convWxId, senderName) ?: return@runCatching
-                val url = WeDatabaseApi.getAvatarUrl(wxid)
-                if (url.isBlank()) return@runCatching
-                val connection = URL(url).openConnection() as HttpURLConnection
-                connection.connectTimeout = 5000
-                connection.readTimeout = 5000
-                connection.doInput = true
-                val bytes = connection.inputStream.use { it.readBytes() }
-                if (bytes.isEmpty()) return@runCatching
-                var bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching
-                val maxSize = 192
-                if (bmp.width > maxSize || bmp.height > maxSize) {
-                    val scale = maxSize.toFloat() / maxOf(bmp.width, bmp.height)
-                    bmp = Bitmap.createScaledBitmap(
-                        bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true
-                    )
-                }
+                val bmp = loadAvatarIcon(wxid) ?: return@runCatching
                 senderAvatarCache[key] = Icon.createWithBitmap(bmp)
             }.onFailure { /* 头像失败静默，不影响通知本身 */ }
         }
+    }
+
+    // ==================== 头像加载：磁盘缓存 → 本地路径 → CDN 下载 + 圆角 ====================
+
+    private fun avatarCacheFileFor(wxid: String): Path =
+        avatarCacheDir / (wxid.replace(Regex("[^\\w@.-]"), "_") + ".png")
+
+    /**
+     * 统一头像加载（圆角化）：
+     * 1. 磁盘缓存命中直接读盘（二次进入通知立即显示，不再网络下载）；
+     * 2. 微信数据库返回的头像 URL 可能是本地缓存路径（img_flag.reserved2），直接 decodeFile；
+     * 3. 否则按 CDN URL 下载（带 UA/重定向/超时，失败时用 rcontact 兜底）。
+     * 返回已缩放 + 圆角裁剪的 Bitmap。
+     */
+    private fun loadAvatarIcon(wxid: String): Bitmap? {
+        if (wxid.isBlank()) return null
+
+        // 1. 磁盘缓存
+        val cacheFile = avatarCacheFileFor(wxid)
+        runCatching {
+            if (cacheFile.exists() && cacheFile.toFile().length() > 0) {
+                BitmapFactory.decodeFile(cacheFile.pathString)?.let { return it }
+            }
+        }
+
+        // 2. 微信头像 URL（可能是 CDN 地址或本地缓存路径）
+        var bmp: Bitmap? = null
+        var urlStr = runCatching { WeDatabaseApi.getAvatarUrl(wxid) }.getOrNull() ?: ""
+        if (urlStr.isBlank()) urlStr = queryContactAvatarFallback(wxid)
+
+        if (urlStr.isNotEmpty()) {
+            if (urlStr.startsWith("http://") || urlStr.startsWith("https://")) {
+                bmp = downloadAvatarBitmap(urlStr)
+            } else {
+                // 本地缓存路径（如 /data/data/.../avatar/xxx 或文件名）
+                runCatching {
+                    val f = File(urlStr)
+                    if (f.exists()) bmp = BitmapFactory.decodeFile(f.path)
+                }
+            }
+        }
+
+        // 3. CDN 兜底：img_flag 没有时查 rcontact（bigHeadImgUrl/smallHeadImgUrl/avatarUrl）
+        if (bmp == null) {
+            val fallback = queryContactAvatarFallback(wxid)
+            if (fallback.startsWith("http://") || fallback.startsWith("https://")) {
+                bmp = downloadAvatarBitmap(fallback)
+            }
+        }
+
+        if (bmp == null) return null
+
+        // 4. 缩放至通知头像尺寸
+        val maxSize = 192
+        if (bmp.width > maxSize || bmp.height > maxSize) {
+            val scale = maxSize.toFloat() / maxOf(bmp.width, bmp.height)
+            bmp = Bitmap.createScaledBitmap(
+                bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true
+            )
+        }
+
+        // 5. 圆角裁剪（群聊/私聊头像统一圆角显示）
+        val rounded = toRoundedBitmap(bmp)
+
+        // 6. 落盘缓存，下次直接读盘
+        runCatching {
+            Files.createDirectories(avatarCacheDir)
+            val baos = java.io.ByteArrayOutputStream()
+            rounded.compress(Bitmap.CompressFormat.PNG, 100, baos)
+            cacheFile.writeBytes(baos.toByteArray())
+        }
+        return rounded
+    }
+
+    /** 圆形裁剪（微信通知样式：MessagingStyle 头像按正圆显示） */
+    private fun toRoundedBitmap(src: Bitmap): Bitmap {
+        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        val radius = minOf(src.width, src.height) / 2f
+        canvas.drawCircle(src.width / 2f, src.height / 2f, radius, paint)
+        return out
+    }
+
+    /** 头像 CDN 下载（UA/重定向/超时，与侧边栏一致的行为） */
+    private fun downloadAvatarBitmap(urlStr: String): Bitmap? {
+        var connection: HttpURLConnection? = null
+        return try {
+            val url = URL(urlStr)
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 5000
+                readTimeout = 5000
+                doInput = true
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0")
+            }
+            connection.connect()
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                null
+            } else {
+                connection.inputStream.use { BitmapFactory.decodeStream(it) }
+            }
+        } catch (e: Throwable) {
+            WeLogger.w(TAG, "下载头像失败: ${e.message}")
+            null
+        } finally {
+            runCatching { connection?.disconnect() }
+        }
+    }
+
+    /** fallback: rcontact 表里读头像 URL */
+    private fun queryContactAvatarFallback(wxid: String): String = try {
+        val rows = WeDatabaseApi.executeQuery(
+            "SELECT COALESCE(bigHeadImgUrl, smallHeadImgUrl, avatarUrl, '') AS u " +
+                    "FROM rcontact WHERE username='" + wxid.replace("'", "''") + "'"
+        )
+        if (rows.isNotEmpty()) rows[0]["u"]?.toString() ?: "" else ""
+    } catch (e: Throwable) {
+        WeLogger.w(TAG, "queryContactAvatarFallback 失败", e)
+        ""
     }
 }

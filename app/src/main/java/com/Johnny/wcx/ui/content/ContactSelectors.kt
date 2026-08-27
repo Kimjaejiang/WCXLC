@@ -45,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -196,6 +197,7 @@ fun BaseContactSelector(
 
     // 默认按「新-旧」（最近消息时间）排序：首次进入自动加载时间数据，DB 未就绪时轮询重试，
     // 加载完成前保持传入顺序（与手动切换共用 isSortLoading，避免重复查询）
+    val currentFiltered = rememberUpdatedState(filteredContacts)
     LaunchedEffect(Unit) {
         if (sortMode == SortMode.LAST_MESSAGE_TIME && lastMessageTimes == null && !isSortLoading) {
             isSortLoading = true
@@ -203,7 +205,13 @@ fun BaseContactSelector(
                 var times: Map<String, Long>? = null
                 repeat(60) { // 最多等约 30 秒（微信数据库初始化完成前不放弃）
                     times = withContext(Dispatchers.IO) {
-                        if (WeDatabaseApi.isReady) WeDatabaseApi.getLastMessageTimes() else null
+                        // 只查当前列表集合（IN 限定），比全表 GROUP BY message 快得多
+                        val list = currentFiltered.value
+                        if (WeDatabaseApi.isReady && list.isNotEmpty()) {
+                            WeDatabaseApi.getLastMessageTimesFor(list.map { it.wxId })
+                        } else {
+                            null
+                        }
                     }
                     if (times != null) return@repeat
                     delay(500)

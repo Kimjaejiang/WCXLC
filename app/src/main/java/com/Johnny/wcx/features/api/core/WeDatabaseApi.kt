@@ -297,6 +297,14 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
             GROUP BY talker
         """.trimIndent()
 
+        /** 限定会话子集的最近消息时间（talkerIn 为已转义的单引号包裹的 wxid 逗号列表） */
+        fun lastMessageTimesFor(talkerIn: String) = """
+            SELECT talker, MAX(createTime) AS lastTime
+            FROM message
+            WHERE talker IN ($talkerIn)
+            GROUP BY talker
+        """.trimIndent()
+
         /** 获取头像 URL */
         fun avatar(wxid: String) = """
             SELECT i.reserved2 AS avatarUrl
@@ -687,6 +695,28 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
             }
         } catch (e: Exception) {
             WeLogger.e(TAG, "failed to get last message times", e)
+            emptyMap()
+        }
+    }
+
+    /**
+     * 查询指定会话集合的最近消息时间（新-旧排序加速版）。
+     * 相比 [getLastMessageTimes] 对 message 表全表 GROUP BY，这里用 IN 限定当前列表子集，
+     * 大幅减少扫描行数；集合过大时按 800 个一组分段查询合并。
+     */
+    fun getLastMessageTimesFor(wxIds: Collection<String>): Map<String, Long> {
+        if (wxIds.isEmpty()) return emptyMap()
+        return try {
+            val result = HashMap<String, Long>()
+            wxIds.chunked(800).forEach { chunk ->
+                val quoted = chunk.joinToString(",") { "'${it.replace("'", "''")}'" }
+                executeQuery(SqlStatements.lastMessageTimesFor(quoted)).forEach { row ->
+                    result[row.str("talker")] = row.long("lastTime")
+                }
+            }
+            result
+        } catch (e: Exception) {
+            WeLogger.e(TAG, "failed to get last message times for subset", e)
             emptyMap()
         }
     }
