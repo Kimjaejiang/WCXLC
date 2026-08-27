@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -50,10 +51,16 @@ import com.Johnny.wcx.utils.UpdateResult
 import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.Intent
 import com.Johnny.wcx.utils.formatEpoch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 
 // ---------------------------------------------------------------------------
@@ -196,6 +203,8 @@ fun HomePager(onOpenFeatures: () -> Unit) {
     var latestVersion by remember { mutableStateOf<String?>(null) }
     var isLatest by remember { mutableStateOf(false) }
     var isChecking by remember { mutableStateOf(true) }
+    var updateInfo by remember { mutableStateOf<UpdateResult.UpdateAvailable?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
 
     // 设备信息：微信版本和运行环境在重组间保持稳定
     val wechatVersion = remember { safeGetWeChatVersionInfo(context) }
@@ -210,6 +219,7 @@ fun HomePager(onOpenFeatures: () -> Unit) {
                     val tag = result.info.releaseTag.removePrefix("v").ifEmpty { null }
                     latestVersion = tag
                     isLatest = false
+                    updateInfo = result
                 }
                 is UpdateResult.UpToDate -> {
                     latestVersion = null
@@ -259,7 +269,25 @@ fun HomePager(onOpenFeatures: () -> Unit) {
         // ---- 大状态卡片 ----
         item {
             Spacer(Modifier.height(8.dp))
-            ActivationCard(latestVersion, isLatest, isChecking)
+            ActivationCard(
+                latestVersion = latestVersion,
+                isLatest = isLatest,
+                isChecking = isChecking,
+                onClick = {
+                    if (updateInfo != null) showUpdateDialog = true
+                    else openLsposedManager(context)
+                },
+            )
+        }
+
+        // 有更新时点击卡片 → 模块内自动更新（下载并安装，无需跳转外链）
+        item {
+            UpdateConfirmDialog(
+                info = updateInfo,
+                show = showUpdateDialog,
+                onDismiss = { showUpdateDialog = false },
+                context = context,
+            )
         }
 
         // ---- 统计卡片 ----
@@ -325,9 +353,13 @@ fun HomePager(onOpenFeatures: () -> Unit) {
 }
 
 @Composable
-private fun ActivationCard(latestVersion: String?, isLatest: Boolean, isChecking: Boolean) {
+private fun ActivationCard(
+    latestVersion: String?,
+    isLatest: Boolean,
+    isChecking: Boolean,
+    onClick: () -> Unit,
+) {
     val isDark = isSystemInDarkTheme()
-    val context = LocalContext.current
     val accentColor = if (MiuixTheme.isDynamicColor) {
         MiuixTheme.colorScheme.primary
     } else {
@@ -336,7 +368,7 @@ private fun ActivationCard(latestVersion: String?, isLatest: Boolean, isChecking
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        onClick = { openLsposedManager(context) },
+        onClick = onClick,
     ) {
         Column(
             modifier = Modifier
@@ -624,6 +656,49 @@ private fun InfoRow(
                     .height(0.5.dp)
                     .background(MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.15f)),
             )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  Update confirm dialog (module-internal download & install)
+// ---------------------------------------------------------------------------
+
+/**
+ * 微信内模块首页检测到新版本时，点击卡片弹出确认框，确定后由模块自身
+ * （DownloadManager + FileProvider）下载并安装，无需跳转浏览器/GitHub。
+ */
+@Composable
+private fun UpdateConfirmDialog(
+    info: UpdateResult.UpdateAvailable?,
+    show: Boolean,
+    onDismiss: () -> Unit,
+    context: Context,
+) {
+    WindowDialog(show = show && info != null, title = "检测到新版本", onDismissRequest = onDismiss) {
+        Column {
+            Text(
+                text = if (info != null) {
+                    "当前版本: ${BuildConfig.VERSION_NAME}\n新版本: ${info.info.versionName}\n是否下载并安装?"
+                } else ""
+            )
+            Spacer(Modifier.height(20.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "确定",
+                    onClick = {
+                        val target = info ?: return@TextButton
+                        onDismiss()
+                        CoroutineScope(Dispatchers.Default).launch {
+                            AppUpdater.downloadAndInstall(context, target.info)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
         }
     }
 }
