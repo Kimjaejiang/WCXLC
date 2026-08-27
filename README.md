@@ -33,7 +33,7 @@
 
 - **💬 聊天增强 · 归拢染色（标题橙 / 摘要提及蓝黄灰）+ 颜色可配置**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
-  - 归拢文件夹标题默认橙色（`#FF8800`）、摘要 `[@全体]`/`[有人@我]` 蓝（`#2E78E6`）、`[N个聊天]`/`[N个消息]` 黄（`#F2D200`）、`[自己]` 深灰（`#222222`）、群成员括号浅灰（`#E8E8E8`）；标题/摘要控件为 `NoMeasuredTextView`（extends X2CView，非 TextView，`getText()` 为空），hook 其 `setText` 注入 Spannable 上色，会话列表 `dispatchDraw` 循环染色兜底；5 项颜色均可在模块设置页配置（WePrefs 持久化，重启微信生效）；标题识别排除未读数角标等纯数字控件。
+  - 归拢文件夹标题默认橙色（`#FF8800`）、摘要 `[@全体]`/`[有人@我]` 蓝（`#2E78E6`）、`[N个聊天]`/`[N个消息]` 黄（`#F2D200`）、`[自己]` 深灰（`#222222`）、群成员括号浅灰（`#E8E8E8`）；标题/摘要控件为 `NoMeasuredTextView`（extends X2CView，非 TextView，`getText()` 为空），hook 其 `setText` 注入 Spannable 上色，会话列表 `dispatchDraw` 循环染色兜底；5 项颜色均可在模块设置页通过取色器选取（`WeColorField` 色块 + 取色器弹窗，WePrefs 持久化，重启微信生效）；标题识别排除未读数角标等纯数字控件。
 
 - **💬 聊天增强 · 自动同意好友申请修复（WCDB insert hook）**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/api/core/WeDatabaseListenerApi.kt`、`app/src/main/java/com/Johnny/wcx/features/items/contacts/AutoAcceptFriendRequests.kt`
@@ -172,7 +172,7 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | **归拢染色可配置** | 标题橙/提及蓝/聊天数黄/自己深灰/成员括号浅灰，5 色设置页可调；NMTV setText 注入 Spannable + dispatchDraw 兜底 | `ConversationAggregation.kt` |
+| 08-27 | **归拢染色可配置** | 标题橙/提及蓝/聊天数黄/自己深灰/成员括号浅灰，5 色设置页取色器可调；NMTV setText 注入 Spannable + dispatchDraw 兜底 | `ConversationAggregation.kt` |
 | 08-27 | **切换账号归拢隔离** | 配置按账号分文件 + storage 实时化 + db 切换重载对账，各账号互不串扰 | `ConversationAggregation.kt`、`WeDatabaseApi.kt` |
 | 08-27 | **自动同意好友申请** | insert hook 覆盖 framework + WCDB compat/database 三类，WCDB 下生效 | `WeDatabaseListenerApi.kt` |
 | 08-27 | **选择器排序加速** | 联系人 id IN 限定查询（批量取最近消息时间）加速 | `ContactSelectors.kt` |
