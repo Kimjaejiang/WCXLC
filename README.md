@@ -123,7 +123,7 @@
   - ① 发送者头像缓存 + 异步预取（MessagingStyle 头像）；② 同一会话多条通知合并（notify id 统一为会话哈希）；③ 修复已读消息通知带出：微信 cancel 用原始 id 找不到合并后 id → 建立原 id→会话映射 + hook cancel 转换 id 并清空该会话 history。
 - **🔔 通知 · 头像微信通知样式（正圆）+ 加载修复**
   - 涉及文件：`NotificationsEvolved.kt`、`WeDatabaseApi.kt`、`ContactSelectors.kt`
-  - `toRoundedBitmap()` 由圆角矩形（25% 半径）改为正圆裁剪（`drawCircle`，半径=短边/2），与微信/Android MessagingStyle 通知头像显示一致；头像加载修复：磁盘缓存/本地路径/CDN 兜底；选择器排序按联系人 id IN 限定查询（批量取最近消息时间）加速。
+  - `toRoundedBitmap()` 圆角矩形裁剪（25% 半径，微信默认样式）；头像加载修复：磁盘缓存/本地路径/CDN 兜底；选择器排序按联系人 id IN 限定查询（批量取最近消息时间）加速。
 
 ### 更早
 
@@ -145,7 +145,7 @@
 
 | 日期 | 模块功能名 | 改动前 | 改动后 | 涉及文件 |
 |---|---|---|---|---|
-| 08-27 | 通知头像（微信通知样式） | 头像圆角矩形裁剪（25% 半径） | 正圆裁剪（`drawCircle`，半径=短边/2）与微信 MessagingStyle 通知头像一致；加载修复：磁盘缓存/本地路径/CDN 兜底 | `NotificationsEvolved.kt`、`WeDatabaseApi.kt` |
+| 08-27 | 通知头像（微信默认样式） | 头像正圆裁剪（MessagingStyle 样式） | 圆角矩形裁剪（25% 半径，微信默认样式）；加载修复：磁盘缓存/本地路径/CDN 兜底 | `NotificationsEvolved.kt`、`WeDatabaseApi.kt` |
 | 08-27 | 选择器排序加速 | 排序查询逐条命中 | 按联系人 id IN 限定查询（批量取最近消息时间）加速 | `ContactSelectors.kt` |
 | 08-27 | 切换账号归拢 | 归拢配置/缓存跨账号共享，切换后显示其他账号的归拢 | 配置按账号分文件（`chat_folders_<wxid>.json`，旧配置一次性迁移）；coreStorage/configStorage 实时获取；db 重建时清缓存重载新账号配置并重新对账 | `ConversationAggregation.kt`、`WeDatabaseApi.kt` |
 | 08-27 | 自动同意好友申请 | 8.0.77 WCDB 数据库下 insert hook 永不触发，自动同意无效 | insert hook 覆盖 framework + WCDB compat/database 三个类；`onInsert` 失败加 error 日志 | `WeDatabaseListenerApi.kt`、`AutoAcceptFriendRequests.kt` |

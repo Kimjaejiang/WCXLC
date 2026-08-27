@@ -527,14 +527,14 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
         return rounded
     }
 
-    /** 圆形裁剪（微信通知样式：MessagingStyle 头像按正圆显示） */
+    /** 圆角矩形裁剪（微信默认样式：头像按圆角矩形显示，25% 半径） */
     private fun toRoundedBitmap(src: Bitmap): Bitmap {
         val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         paint.shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-        val radius = minOf(src.width, src.height) / 2f
-        canvas.drawCircle(src.width / 2f, src.height / 2f, radius, paint)
+        val radius = minOf(src.width, src.height) * 0.25f
+        canvas.drawRoundRect(0f, 0f, src.width.toFloat(), src.height.toFloat(), radius, radius, paint)
         return out
     }
 
