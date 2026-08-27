@@ -115,6 +115,40 @@
 - **🔧 兼容适配 · 版本号对齐 fork Releases** — 默认版本号 v244.12→v252.1（本地构建 verCode 252001，可被 CI 自动发布覆盖升级）。
 - **🛠️ 构建/CI · native/R8/CI 修复** — mp3lame-sys 改用 cc 编译、xtask bindgen versioned target、R8 保留 compose 类、Gradle IPv4 优先等。
 
+### 📊 变更对照表（模块功能名 × 改动前后）
+
+> 与上文详细条目一一对应，快速浏览每个功能改了什么。
+
+| 日期 | 模块功能名 | 改动前 | 改动后 | 涉及文件 |
+|---|---|---|---|---|
+| 08-27 | 主页「已适配微信版本」 | 文案 8.0.69~8.0.77（含 8.0.77 先行版）、8.0.65 以下失效 | 推荐 8.0.76~8.0.77，维护 8.0.69~8.0.75，低版本 <8.0.69 | `MainActivity.kt`、`README.md` |
+| 08-27 | 模块核心加载 StartupAgent | 本地构建 APK 缺 `libwekit_native.so`，模块整体无效果 | 从 CI 产物提取 so 放入 `jniLibs` 随包打包，本地构建与 CI 行为一致 | `app/build.gradle.kts`、`jniLibs/{arm64-v8a,armeabi-v7a}` |
+| 08-27 | 配置存储（对话归拢等） | 品牌改名后数据目录漂移，归拢等配置丢失 | 数据目录固定 `WCXLC`，首次访问自动合并旧 `WCX/` 目录（不删旧、同名留新） | `KnownPaths.kt` 等路径入口 |
+| 08-27 | 品牌名 | 主页/微信内入口/侧边栏/通知等文案混杂 WCX | 全部统一 WCXLC（`BuildConfig.TAG` + 9 处硬编码） | `BuildConfig.TAG`、`MainActivity.kt` 等 9 文件 |
+| 08-27 | 模块内更新安装 | APK 匹配不到 / 下载文件名含空格 / 安装包解析失败 | 兜底匹配 `app-*-release.apk` / 文件名用 `releaseTag` / `content://` 转 cacheDir + 模块自身 FileProvider 安装 | `AppUpdater.kt`、`AndroidManifest.xml`、`file_paths.xml` |
+| 08-26 | 聊天工具栏 | 相册入口不显示 / 收藏点击错位打开相册 / 语音通话、接龙误显示 | 相册注入显示 / 收藏走 `FavoriteIndexUI` / 点击按名字动态定位 / 按实际格子显示 | `ChatToolbar.kt` |
+| 08-26 | 模块内更新下载 | 匹配不到 `app-<flavor>-release.apk`（无 ABI 段），只能跳转 releases 页 | 兼容带 ABI 与不带 ABI 两种命名，standard/legacy 各自正确更新 | `AppUpdater.kt` |
+| 08-26 | 桌面图标 | 旧 webp 图标（白底） | 去白底 + 红色 `#E53935` 自适应背景 png（5 档 DPI） | `res/mipmap-*/ic_launcher*.png` |
+| 08-26 | 本地好友头像（归拢） | 微信异步占位覆盖 / 改一个全变同一张 / 系统会话串图 | hook `ImageView.setImageDrawable` / 文件名加时间戳+UUID / 清 RecyclerView 残留 tag / `onDisable` 可卸载 | `CustomLocalFriendAvatars.kt` |
+| 08-26 | 联系人/群聊选择器 | 默认按旧-新排序 | 默认按最近消息时间新-旧排序，DB 未就绪轮询重试 | `ContactSelectors.kt` |
+| 08-26 | 模块内更新版本检测 | 一直提示有更新 / Release tag 与 APK 版本不一致 | 12 位时间戳 tag 正确解析 / Release tag 复用 build 版本号 / `ver.txt` 随 artifact 上传 | `AppUpdater.kt`、`.github/workflows/ci.yml` |
+| 08-25 | 群聊归拢摘要 | 摘要纯文本无色 | `[N个聊天]` 黄色、`[有人@我]`/`[@全体]` 蓝色（hook `setText` 注入 Spannable） | `ConversationAggregation.kt` |
+| 08-25 | 本地好友头像持久化 | 相册 `content://` 引用重启后空白 | 复制到模块私有目录存 `file://` 持久化 + 旧头像自动迁移 | `CustomLocalFriendAvatars.kt` |
+| 08-25 | 侧边栏 | Tab 切换不隐藏 / 触发按钮挂载异常 / 离开首页残留 / 部分机型不兼容 | 入口可见性轮询 / 挂载条件增强 / 离开改隐藏 / LauncherUI 兼容 | `HomeSidePanelFeature.kt` |
+| 08-25 | 莫奈引擎（主题取色） | 设备不支持动态取色时崩溃 | 主题色解析包 try-catch，回退默认色 | `ThemeStore.kt` |
+| 08-25 | 新消息通知 | 无发送者头像 / 同会话多条通知 / 已读后通知带出 | 头像缓存+异步预取 / notify id 统一会话哈希合并 / cancel 转换 id 清空 history | 通知相关 feature |
+| 更早 | 群聊归拢@提醒 | 入口行被@无提示 | 摘要显示「有人@我」（atMeCount 聚合；后因稳定性回退，保留归拢基础功能） | `ConversationAggregation.kt` |
+| 更早 | 消息多选 | 微信 8.0.77 移除 `ChattingDataAdapterV3` 导致功能失效 | DexKit 适配 + allowFailure/placeholder 降级 + onEnable guard | `RemoveMessageSelectionLimit.kt` |
+| 更早 | 自动同意好友申请 | 8.0.77 hook 方法抛 `NoSuchMethodException` | hook 目标改构造器（`p3.<init>` 接受入口） | 好友申请 feature |
+| 更早 | 预见性返回动画 | 回调 null / `ActivityInfo.name` 为 null 崩溃 | hook 回调 null 保护 + 降级 + 字段查找容错 | 返回动画 feature |
+| 更早 | 侧边栏头像加载 | 首次加载 20s+ | 解码缩小 192px + 缓存缩小图 + selfWxId 等待 4s + 重试 3 次，降至秒级 | `HomeSidePanelFeature.kt` |
+| 更早 | 天气卡片 | Open-Meteo 新格式解析失败 / 湿度风速挤压 / 占位臃肿 | 识别 `current` 字段 / 湿度风速分行 / 占位紧凑、温度 40sp | `HomeSidePanelFeature.kt` |
+| 更早 | 品牌化 | 上游品牌 + 版本号 | WCXLC 品牌 + LC 版本后缀（Kimjaejiang/WCXLC） | 多处 |
+| 更早 | 侧边栏/主题商城（v245 UI） | 旧 UI 层 | 整体替换 UI（69 文件）+ 新增侧边栏与主题商城 | UI 层 69 文件 |
+| 更早 | 8.0.77 通话栈（PipVoip） | 27 处 dex 解析失败崩溃 | 批量 allowFailure + 回调 null 保护 + 懒加载容错 + 硬引用降级 | PipVoip 通话栈 |
+| 更早 | 版本号 | v244.12 | v252.1（本地 verCode 252001，可被 CI 自动发布覆盖升级） | `app/build.gradle.kts` |
+| 更早 | native/R8/CI | mp3lame-sys 编译失败 / bindgen target 问题 / R8 裁剪 compose / IPv6 抖动 | cc 编译 + versioned target + R8 保留 compose 类 + Gradle IPv4 优先 | 构建配置 |
+
 ---
 ## ✨ 功能特性
 
