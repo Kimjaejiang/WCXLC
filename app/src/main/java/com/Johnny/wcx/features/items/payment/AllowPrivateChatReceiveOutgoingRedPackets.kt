@@ -1,14 +1,26 @@
 package com.Johnny.wcx.features.items.payment
 
+import android.app.Activity
+import dev.ujhhgtg.reflekt.utils.toClass
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.features.core.SwitchFeature
 
-@Feature(name = "允许领取私聊红包", categories = ["红包与支付"], description = "允许打开私聊中自己发出的红包")
+@Feature(name = "分裂群组假红包", categories = ["红包与支付"], description = "在分裂群组产生的假群中发送红包(假红包)\n仅对分裂假群(@@chatroom)生效, 不影响真实私聊/群聊发红包")
 object AllowPrivateChatReceiveOutgoingRedPackets : SwitchFeature() {
 
     override fun onEnable() {
-        // 原实现 hook 发红包界面(LuckyMoneyPrepareUI/LuckyMoneyNewPrepareUI)强制 key_type=1，
-        // 会导致私聊发红包提示「请求不成功」（个人会话发不出去），已停用。
-        // 恢复此功能需在红包详情/领取层(如 LuckyMoneyDetailUI)放行自己发出的红包，而非修改发送类型。
+        listOf(
+            "com.tencent.mm.plugin.luckymoney.ui.LuckyMoneyPrepareUI",
+            "com.tencent.mm.plugin.luckymoney.ui.LuckyMoneyNewPrepareUI"
+        ).forEach {
+            it.toClass().hookBeforeOnCreate {
+                val activity = thisObject as Activity
+                val chatUser = activity.intent.getStringExtra("Chat_User")
+                // 仅分裂群组产生的假群(@@chatroom)注入 key_type=1, 使假红包可发送;
+                // 真实私聊/群聊不注入, 避免发红包「请求不成功」
+                if (chatUser == null || !chatUser.contains("@chatroom")) return@hookBeforeOnCreate
+                activity.intent.putExtra("key_type", 1)
+            }
+        }
     }
 }
