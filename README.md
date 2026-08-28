@@ -31,9 +31,11 @@
     - `WeDatabaseApi.coreStorage/configStorage` 由 `lazy` 缓存改为每次实时获取，避免切换后读到旧账号 self 信息；
     - `methodGetStorage` 检测到 storage 重初始化（账号切换）时重建 db 引用并派发 `notifyDatabaseSwitched`，归拢清缓存按新账号重载配置并重新对账到新库 + 刷新会话列表。
 
-- **💬 聊天增强 · 归拢摘要红绿灯染色 + 文件夹标题蓝色**
+- **💬 聊天增强 · 归拢染色 5 色可配置（取色器选取）**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
-  - 归拢文件夹摘要按红绿灯配色：`[@全体]`/`[有人@我]` 红（`#E53935`）、`[N个聊天]`/`[N个消息]` 黄（`#FFCC00`）、`[自己]` 绿（`#00C853`）；归拢文件夹标题叠加绘制蓝色（`#4285F4`）。摘要控件为 `NoMeasuredTextView`，dispatchDraw 阶段叠加彩色绘制覆盖原生灰色，无状态残留。
+  - 归拢文件夹摘要/标题 5 色全部可配置（设置页取色器 `WeColorField` 色块弹窗选取，`WePrefs` 持久化）：
+    - 标题（默认橙 `#FF8800`）/ `[@全体]`、`[有人@我]` 提及（默认蓝 `#2E78E6`）/ `[N个聊天]`、`[N个消息]` 聊天数（默认黄 `#F2D200`）/ `[自己]`（默认深灰 `#222222`）/ `(群成员)` 括号（默认浅灰 `#E8E8E8`）；
+    - 摘要为 `NoMeasuredTextView`，dispatchDraw 阶段叠加彩色绘制覆盖原生灰色，无状态残留。
 
 - **💬 聊天增强 · 自动同意好友申请修复（WCDB insert hook）**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/api/core/WeDatabaseListenerApi.kt`、`app/src/main/java/com/Johnny/wcx/features/items/contacts/AutoAcceptFriendRequests.kt`
@@ -155,7 +157,7 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | 归拢摘要红绿灯染色 | `[@全体]`/`[有人@我]` 红、`[N个聊天]`/`[N个消息]` 黄、`[自己]` 绿；文件夹标题蓝色 | `ConversationAggregation.kt` |
+| 08-27 | 归拢染色 5 色可配置 | 标题/提及/聊天数/自己/成员括号 5 色取色器可调（默认橙/蓝/黄/深灰/浅灰），摘要叠加绘制 | `ConversationAggregation.kt` |
 | 08-27 | 切换账号归拢隔离 | 配置按账号分文件 + storage 实时化 + db 切换重载对账，各账号互不串扰 | `ConversationAggregation.kt`、`WeDatabaseApi.kt` |
 | 08-27 | 自动同意好友申请 | insert hook 覆盖 framework + WCDB compat/database 三类，WCDB 下生效 | `WeDatabaseListenerApi.kt`、`AutoAcceptFriendRequests.kt` |
 | 08-27 | 选择器排序加速 | 按联系人 id IN 限定查询（批量取最近消息时间）加速 | `ContactSelectors.kt` |
