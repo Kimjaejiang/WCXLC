@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.Johnny.wcx.dexkit.abc.IResolveDex
+import com.Johnny.wcx.dexkit.dsl.dexClass
 import com.Johnny.wcx.dexkit.dsl.dexConstructor
 import com.Johnny.wcx.dexkit.dsl.dexMethod
 import com.Johnny.wcx.features.api.core.WeApi
@@ -80,6 +81,7 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
     private var welcomeText by prefOption("aafr_welcome_text", "你好，我已通过你的好友申请")
     private var sendWelcome by prefOption("aafr_send_welcome", true)
     private var blacklistJson by prefOption("aafr_blacklist", "[]")
+    private var autoAddFriend by prefOption("aafr_auto_add_friend", true)
 
     // 已处理的好友请求（防重复处理）
     private val processedRequests = mutableSetOf<String>()
@@ -136,6 +138,13 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
         }
     }
 
+    // 主动添加好友 NetScene（同意后回加申请者）：NetSceneAddContact，锚定 CGI 路径
+    private val classNetSceneAddContact by dexClass(allowFailure = true) {
+        matcher {
+            usingEqStrings("/cgi-bin/micromsg-bin/addcontact")
+        }
+    }
+
     override fun resolveDex(dexKit: DexKitBridge) {
         // 8.0.76+：NetSceneVerifyUser 混淆为 m3，<init> 含 MM_VERIFYUSER_VERIFYOK 断言日志
         methodVerifyAccept.find(dexKit, allowFailure = true) {
@@ -164,6 +173,11 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
                     "MicroMsg.VerifyUserUtil",
                     "verify ok clicked"
                 )
+            }
+        }
+        classNetSceneAddContact.find(dexKit, allowFailure = true) {
+            matcher {
+                usingEqStrings("/cgi-bin/micromsg-bin/addcontact")
             }
         }
     }
@@ -315,6 +329,12 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
                     delay(delayMs)
                 }
                 acceptFriendRequest(encryptUsername, ticket, scene)
+
+                // 自动添加对方为好友（回加申请者）
+                if (autoAddFriend) {
+                    delay(2500) // 等待好友关系建立后再回加
+                    addContactBack(encryptUsername)
+                }
                 WeLogger.i(TAG, "friend request accepted: encryptUsername=$encryptUsername")
 
                 // 发送欢迎语
@@ -371,6 +391,39 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
         }
     }
 
+    /// 自动回加：向申请者主动发起好友申请（NetSceneAddContact）
+    private fun addContactBack(encryptUsername: String) {
+        if (classNetSceneAddContact.isPlaceholder) return
+        runCatching {
+            val cls = classNetSceneAddContact.clazz
+            val wxId = findNewFriendWxId(encryptUsername)
+            if (wxId.isEmpty()) {
+                WeLogger.w(TAG, "add contact back skipped: no wxId for " + encryptUsername)
+                return@runCatching
+            }
+            var sent = false
+            for (ctor in cls.declaredConstructors) {
+                runCatching {
+                    val params = ctor.parameterTypes
+                    if (params.size !in 4..6) return@runCatching
+                    if (params[1] != String::class.java) return@runCatching
+                    val args = when (params.size) {
+                        4 -> arrayOf<Any>(1, wxId, "", 3)
+                        5 -> arrayOf<Any>(1, wxId, "", 3, "")
+                        else -> arrayOf<Any>(1, wxId, "", 3, "", 0)
+                    }
+                    ctor.isAccessible = true
+                    val scene = ctor.newInstance(*args)
+                    WeNetSceneApi.sendNetScene(scene)
+                    sent = true
+                    WeLogger.i(TAG, "add contact back sent: wxId=" + wxId + " ctorArgs=" + params.size)
+                }.onFailure { WeLogger.w(TAG, "add contact back ctor attempt failed", it) }
+                if (sent) break
+            }
+            if (!sent) WeLogger.w(TAG, "no NetSceneAddContact ctor matched for wxId=" + wxId)
+        }.onFailure { WeLogger.e(TAG, "addContactBack failed", it) }
+    }
+
     private fun fallbackAccept(encryptUsername: String, ticket: String, scene: String) {
         // 回退方案：使用 WeChat 的 AddContact 或 VerifyUser 相关的 NetScene
         // 由于无法确定具体的 DexKit 签名，这里记录日志供用户参考
@@ -423,6 +476,7 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
             var localSendWelcome by remember { mutableStateOf(sendWelcome) }
             var localBlacklistJson by remember { mutableStateOf(blacklistJson) }
             var localBlacklist by remember { mutableStateOf(getBlacklist().joinToString("\n")) }
+            var localAutoAddFriend by remember { mutableStateOf(autoAddFriend) }
 
             AlertDialogContent(
                 title = { Text("自动同意好友申请") },
@@ -529,6 +583,16 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
 
                             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
+                            // 自动添加对方为好友
+                            ListItem(
+                                modifier = Modifier.clickable { localAutoAddFriend = !localAutoAddFriend },
+                                trailingContent = {
+                                    Switch(checked = localAutoAddFriend, onCheckedChange = null)
+                                },
+                                headlineContent = { Text("自动添加对方为好友") },
+                                supportingContent = { Text("通过申请后自动向对方发起好友申请（回加）") }
+                            )
+
                             // 黑名单
                             Text("黑名单管理", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                             Text(
@@ -565,6 +629,7 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
                         randomDelayMaxMs = localRandomMaxMs
                         welcomeText = localWelcomeText
                         sendWelcome = localSendWelcome
+                        autoAddFriend = localAutoAddFriend
                         blacklistJson = json.encodeToString(newBlacklist)
                         showToast("设置已保存")
                         onDismiss()
