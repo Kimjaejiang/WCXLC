@@ -758,7 +758,7 @@ object ConversationAggregation : ClickableFeature(),
 
         methodShowPopupMenu.hookBefore {
             val folderId = activeFolderId ?: return@hookBefore
-            val menuContext = (thisObject as? android.view.View)?.context ?: return@hookBefore
+            val menuContext = (args[0] as? android.view.View)?.context ?: return@hookBefore
             val folder = folderById(folderId) ?: return@hookBefore
             if (folder.type != FolderType.MANUAL) return@hookBefore
 
@@ -2198,7 +2198,7 @@ object ConversationAggregation : ClickableFeature(),
             } else {
                 FolderSummary(
                     digest = (
-                        if (isEveryoneMention(latest.digest, latest.content)) "[全体]"
+                        if (isEveryoneMention(latest.digest, latest.content)) "[@全体]"
                         else if (state.atMeCount > 0) "[有人@我]"
                         else ""
                     ) + (
@@ -2229,9 +2229,11 @@ object ConversationAggregation : ClickableFeature(),
     private fun isEveryoneMention(digest: String, content: String): Boolean =
         containsEveryone(digest) || containsEveryone(content)
 
-    private fun containsEveryone(s: String): Boolean =
-            s.contains("所有人") || s.contains("全体") || s.contains("@all", ignoreCase = true)
-
+    private fun containsEveryone(s: String): Boolean {
+        val t = s.lowercase()
+        return t.contains("所有人") || t.contains("全体") || t.contains("@all") ||
+            t.contains("@everyone") || t.contains("all members")
+    }
     /**
      * Prefixes the folder digest with the originating conversation's display name, so the
      * homepage folder row reads like "群聊名: 最新一条消息" instead of a bare message whose
