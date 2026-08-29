@@ -132,7 +132,7 @@ object ConversationAggregation : ClickableFeature(),
     private const val MAX_FOLDER_DISPLAY_NAME = 12
     // 括号内发送者名截断长度（Eatmelons → Eatm...），括号内空间小，比群名更短
     private const val MAX_SENDER_NAME_LEN = 4
-    // 归拢摘要红绿灯配色：[@全体]/[有人@我] 红、[N个聊天]/[N个消息] 黄、[自己] 绿
+    // 归拢摘要红绿灯配色：[全体]/[有人@我] 红、[N个聊天]/[N个消息] 黄、[自己] 绿
     private const val DEFAULT_AT_COLOR = "#FF2E78E6"
     private const val DEFAULT_COUNT_COLOR = "#FFF2D200"
     private const val DEFAULT_SELF_COLOR = "#FF222222"
@@ -1095,19 +1095,19 @@ object ConversationAggregation : ClickableFeature(),
     /**
      * 归拢摘要彩色（FunBox 叠加模式）：hook NoMeasuredTextView.onDraw **after**，
      * 不拦截原生绘制（灰色原文照常输出），在原绘制完成后用同一 Canvas 叠加彩色标签
-     * （蓝 [有人@我]/[@全体]、黄 [N个聊天]），彩色文字盖在灰色文字上方。
+     * （蓝 [有人@我]/[全体]、黄 [N个聊天]），彩色文字盖在灰色文字上方。
      * 优点：不依赖 Item 根类 / adapter 渲染路径 / Tag 向上遍历，摘要文本出现即染色。
      */
     /**
      * 归拢摘要彩色（FunBox 叠加模式）：全局 hook TextView.onDraw **after**。
      * 已证实微信主列表摘要不经过 NoMeasuredTextView（其 onDraw 从不触发），改为捕获所有
-     * TextView 子类绘制：文本含归拢标记（[有人@我]/[@全体]/[N个聊天]）即用控件本地坐标
+     * TextView 子类绘制：文本含归拢标记（[有人@我]/[全体]/[N个聊天]）即用控件本地坐标
      * 画布叠加彩色标签（原生灰色保留）。同时全量输出绘制诊断以定位真实摘要控件类名。
      */
     private fun hookAllTextViewDraw() {
         // 归拢摘要染色（微信主列表）：摘要控件 = NoMeasuredTextView（extends X2CView，非 TextView，
         // getText() 为空）。归拢摘要经 setText(CharSequence) 注入；hookBefore 直接替换为 Spannable
-        // 上色（蓝 [有人@我]/[@全体]、黄 [N个聊天]），微信自绘渲染 span 颜色即上色。
+        // 上色（蓝 [有人@我]/[全体]、黄 [N个聊天]），微信自绘渲染 span 颜色即上色。
         // 已实测：系统 Framework 类 hook（View.draw/onAttachedToWindow）对微信无效，不再使用。
         runCatching {
             val nmtCls = Class.forName("com.tencent.mm.ui.base.NoMeasuredTextView")
@@ -1254,15 +1254,15 @@ object ConversationAggregation : ClickableFeature(),
 
     /** 归拢摘要标记判断 */
     private fun isAggSummary(text: String): Boolean =
-        text.contains("[有人@我]") || text.contains("[@全体]") || text.contains("[自己]") || CHAT_COUNT_REGEX.containsMatchIn(text)
+        text.contains("[有人@我]") || text.contains("[全体]") || text.contains("[自己]") || CHAT_COUNT_REGEX.containsMatchIn(text)
 
-    /** 归拢摘要 Spannable 上色：蓝 [有人@我]/[@全体]、黄 [N个聊天]（其余保持微信原生颜色） */
+    /** 归拢摘要 Spannable 上色：蓝 [有人@我]/[全体]、黄 [N个聊天]（其余保持微信原生颜色） */
     private fun tintAggSummary(text: String, ctx: Context?): CharSequence {
         val sp = SpannableString(text)
         val atIdx = text.indexOf("[有人@我]")
         if (atIdx >= 0) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_RED)), atIdx, atIdx + "[有人@我]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-        val allIdx = text.indexOf("[@全体]")
-        if (allIdx >= 0) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_RED)), allIdx, allIdx + "[@全体]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val allIdx = text.indexOf("[全体]")
+        if (allIdx >= 0) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_RED)), allIdx, allIdx + "[全体]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val selfIdx = text.indexOf("[自己]")
         if (selfIdx >= 0 && mentionSelfEnabled) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_GREEN)), selfIdx, selfIdx + "[自己]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val m = CHAT_COUNT_REGEX.find(text)
@@ -1311,8 +1311,8 @@ object ConversationAggregation : ClickableFeature(),
             val segs = mutableListOf<Seg>()
             val atIdx = text.indexOf("[有人@我]")
             if (atIdx >= 0) segs.add(Seg(atIdx, atIdx + "[有人@我]".length, red))
-            val allIdx = text.indexOf("[@全体]")
-            if (allIdx >= 0) segs.add(Seg(allIdx, allIdx + "[@全体]".length, red))
+            val allIdx = text.indexOf("[全体]")
+            if (allIdx >= 0) segs.add(Seg(allIdx, allIdx + "[全体]".length, red))
             val selfIdx = text.indexOf("[自己]")
             if (selfIdx >= 0 && mentionSelfEnabled) segs.add(Seg(selfIdx, selfIdx + "[自己]".length, green))
             val m = Regex("""\[[^\]]*个(?:聊天|消息)\]""").find(text)
@@ -1361,7 +1361,7 @@ object ConversationAggregation : ClickableFeature(),
 
     // ==================== FunBox 同款：归拢摘要叠加染色（Item 根 View dispatchDraw after） ====================
     // 方案：不拦截 NoMeasuredTextView 原生绘制（灰色原文照常输出），
-    // 在 Item 根 View dispatchDraw 之后用 Canvas 叠加彩色标签（蓝 [有人@我]/[@全体]、黄 [N个聊天]），
+    // 在 Item 根 View dispatchDraw 之后用 Canvas 叠加彩色标签（蓝 [有人@我]/[全体]、黄 [N个聊天]），
     // 彩色文字盖在灰色文字上方。bind 阶段（getView）给 Item 根 setTag，无需向上遍历父布局。
 
     /** Item 根 View 的 Tag key：标记归拢虚拟行 */
@@ -1389,7 +1389,7 @@ object ConversationAggregation : ClickableFeature(),
 
     /**
      * bind 阶段（getView 后）识别归拢虚拟行：找内部 NoMeasuredTextView 摘要控件，
-     * 文本含 [有人@我]/[@全体]/[N个聊天] 归拢标记即标记该行为虚拟行并记录着色状态。
+     * 文本含 [有人@我]/[全体]/[N个聊天] 归拢标记即标记该行为虚拟行并记录着色状态。
      * RecyclerView 复用旧 item 时先清 tag（未命中即普通会话）。
      */
     private fun markVirtualRow(root: ViewGroup) {
@@ -1423,7 +1423,7 @@ object ConversationAggregation : ClickableFeature(),
                 root.setTag(TAG_KEY_TITLE_TV, null)
                 return
             }
-            val atAll = fullText.contains("[@全体]")
+            val atAll = fullText.contains("[全体]")
             val atMe = fullText.contains("[有人@我]")
             val chatCount = runCatching {
                 CHAT_COUNT_REGEX.find(fullText)?.value
@@ -2146,7 +2146,7 @@ object ConversationAggregation : ClickableFeature(),
             } else {
                 FolderSummary(
                     digest = (
-                        if (isEveryoneMention(latest.digest, latest.content)) "[@全体]"
+                        if (isEveryoneMention(latest.digest, latest.content)) "[全体]"
                         else if (state.atMeCount > 0) "[有人@我]"
                         else ""
                     ) + (
@@ -2171,14 +2171,14 @@ object ConversationAggregation : ClickableFeature(),
         }
     }
 
-    /** 判断最新摘要/消息是否为「@所有人」群发提及，用于把 [有人@我] 换成 [@全体]。
+    /** 判断最新摘要/消息是否为「@所有人」群发提及，用于把 [有人@我] 换成 [全体]。
      *  微信摘要的 @所有人 形式多样（"@所有人"、"所有人:"、"全体成员" 等），
      *  因此按「所有人/全体」关键词匹配而非要求带 @ 符号。 */
     private fun isEveryoneMention(digest: String, content: String): Boolean =
         containsEveryone(digest) || containsEveryone(content)
 
     private fun containsEveryone(s: String): Boolean =
-        s.contains("所有人") || s.contains("全体")
+            s.contains("所有人") || s.contains("全体") || s.contains("@all", ignoreCase = true)
 
     /**
      * Prefixes the folder digest with the originating conversation's display name, so the
@@ -2394,7 +2394,7 @@ object ConversationAggregation : ClickableFeature(),
                             item {
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text("摘要颜色")
-                                    WeColorField(label = "[@全体]/[有人@我]", value = atColor, onValueChange = { atColor = it })
+                                    WeColorField(label = "[全体]/[有人@我]", value = atColor, onValueChange = { atColor = it })
                                     WeColorField(label = "[N个聊天]/[N个消息]", value = countColor, onValueChange = { countColor = it })
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("[自己]", modifier = Modifier.weight(1f))
@@ -2681,6 +2681,64 @@ object ConversationAggregation : ClickableFeature(),
                                 }) {
                                     Text(if (hasAvatar) "更换头像" else "设置头像")
                                 }
+                            }
+                            val context = LocalContext.current
+                            Button(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    if (members.isEmpty()) {
+                                        showToast("文件夹暂无成员可移出")
+                                        return@Button
+                                    }
+                                    val others = loadFolders().filter { it.id != folderId && it.type == FolderType.MANUAL }
+                                    if (others.isEmpty()) {
+                                        showToast("没有其他手动文件夹可移出")
+                                        return@Button
+                                    }
+                                    showComposeDialog(context) {
+                                        val dismiss = this.onDismiss
+                                        ContactsSelector(
+                                            title = "选择要移出的对话",
+                                            contacts = remember { WeDatabaseApi.getContacts().filter { it.wxId in members } },
+
+                                            initialSelectedWxIds = emptySet(),
+                                            onDismiss = dismiss,
+                                            onConfirm = { toMove ->
+                                                dismiss()
+                                                showComposeDialog(context) {
+                                                    val innerDismiss = this.onDismiss
+                                                    AlertDialogContent(
+                                                        title = { Text("移出到其他文件夹") },
+                                                        text = {
+                                                            LazyColumn {
+                                                                items(others) { target ->
+                                                                    Text(
+                                                                        target.name,
+                                                                        modifier = Modifier
+                                                                            .fillMaxWidth()
+                                                                            .clickable {
+                                                                                val current = loadFolders()
+                                                                                val curList = current.map { if (it.id == folderId) it.copy(members = it.members - toMove) else it }
+                                                                                val finalList = curList.map { if (it.id == target.id) it.copy(members = (it.members + toMove).distinct().sorted()) else it }
+                                                                                saveFolders(finalList)
+                                                                                members = members - toMove
+                                                                                innerDismiss()
+                                                                                dismiss()
+                                                                                onSave(folder!!.copy(members = (members - toMove).sorted()))
+                                                                            }
+                                                                            .padding(12.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            ) {
+                                Text("移出到其他文件夹")
                             }
                         }
 
