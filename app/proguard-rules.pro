@@ -45,7 +45,7 @@
 -dontwarn androidx.room.paging.**
 
 # ─── Compose ────────────────────────────────────────────────────────
--keep class androidx.compose.** { *; }
+# -keep class androidx.compose.** { *; }
 -dontwarn androidx.compose.**
 
 # ─── Third-party (dontwarn only, allow R8 optimization) ──────────────
