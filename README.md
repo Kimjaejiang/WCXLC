@@ -21,6 +21,18 @@
 
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 
+### 2026-08-29
+
+- **💬 聊天增强 · 归拢文件夹长按菜单修复 + 摘要标签增强**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
+  - ① 文件夹容器长按菜单修复：`menuContext` 从 `args[0]`（anchor View）获取（`MMPopupMenu` 不是 View，`thisObject` 取不到），「移到/移出文件夹」菜单项在文件夹容器的长按菜单正常弹出；
+  - ② 摘要标签 `[全体]` 改为 `[@全体]`；
+  - ③ `@所有人` 识别增强（所有人/全体/@all/@everyone/all members），仅存在 @所有人 提及时不再误显示 `[有人@我]`。
+
+- **🛠️ 构建/CI · APK 体积优化 -37%（35.4MB → 22.4MB）**
+  - 涉及文件：`app/proguard-rules.pro`
+  - 移除 `-keep class androidx.compose.** { *; }` 全量保留规则，让 R8 正常裁剪未使用的 Compose 代码（dex 3 个文件减为 2 个）；已实机验证设置页、归拢文件夹长按菜单、对话框均正常，功能与上一版完全一致。
+
 ### 2026-08-28
 
 - **💬 聊天增强 · 自动同意好友申请完整打通（8.0.77 接受链路）**
@@ -189,6 +201,7 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
+| 08-29 | 归拢文件夹长按菜单 + 摘要标签 | 文件夹容器长按菜单修复（menuContext 取 anchor View）+ `[全体]`→`[@全体]` + @所有人识别增强 | `ConversationAggregation.kt` |
 | 08-28 | 自动同意好友申请（完整打通） | 双路径捕获 + 属性 XML 解析 + `NetSceneVerifyUser` opcode=3 接受 + 去重 key 改 `encryptUsername`（ticket 每次插入都变）+ 欢迎语单发 | `AutoAcceptFriendRequests.kt` |
 | 08-27 | 归拢染色 5 色可配置 | 标题/提及/聊天数/自己/成员括号 5 色取色器可调（默认橙/蓝/黄/深灰/浅灰），标题/自己/成员括号可开关，暗色自动提亮 | `ConversationAggregation.kt` |
 | 08-27 | 切换账号归拢隔离 | 配置按账号分文件 + storage 实时化 + db 切换重载对账，各账号互不串扰 | `ConversationAggregation.kt`、`WeDatabaseApi.kt` |
@@ -238,6 +251,7 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
+| 08-29 | **APK 体积优化 -37%** | 移除 Compose 全量 keep，R8 裁剪未用 Compose 代码：35.4MB → 22.4MB | `proguard-rules.pro` |
 | 08-27 | **Maven 构建源** | 阿里云镜像置前 + 移除 GitHub Packages + CI 探测错误改纯文本 | `settings.gradle.kts` |
 | 08-27 | **CI 海外镜像 502** | CI 设 `WCX_USE_ALIYUN=false` 直连官方源，本地默认镜像不受影响 | `settings.gradle.kts`、`ci.yml` |
 | 08-27 | **模块内更新入口** | 首页「有更新」点击确认后模块内自动下载安装 | `HomePager.kt` |
