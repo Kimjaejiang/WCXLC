@@ -112,6 +112,8 @@ object ConversationAggregation : ClickableFeature(),
     private const val TAG = "AggregateChats"
     const val FOLDER_PREFIX = "wekit_folder_"
     private const val FOLDER_CONFIG_MENU_ID = 0x0721C0DE
+    private const val MOVE_TO_FOLDER_MENU_ID = 777021
+    private const val MOVE_TO_FOLDER_MENU_ORDER = 1001
     private const val REMOVE_FROM_FOLDER_MENU_ID = 777020
 
     // Order pushes our item to the end of the container's context menu (its own items use 0).
@@ -500,6 +502,49 @@ object ConversationAggregation : ClickableFeature(),
         syncFoldersToDatabase()
         showToast("已移出「${folder.name}」")
     }
+    /** Long-press menu "move to folder": move talker from its current manual folder to another manual folder. */
+    private fun showMoveToFolderDialog(context: Context, talker: String) {
+        val source = loadFolders().firstOrNull { talker in it.members && it.type == FolderType.MANUAL } ?: run {
+            showToast("该对话不在手动文件夹中!")
+            return
+        }
+        val targets = loadFolders().filter { it.id != source.id && it.type == FolderType.MANUAL }
+        if (targets.isEmpty()) {
+            showToast("没有其他手动文件夹可移入!")
+            return
+        }
+        showComposeDialog(context) {
+            val dismiss = this.onDismiss
+            AlertDialogContent(
+                title = { Text("移到文件夹") },
+                text = {
+                    LazyColumn {
+                        items(targets) { target ->
+                            Text(
+                                target.name,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val current = loadFolders()
+                                        val srcRemoved = current.map {
+                                            if (it.id == source.id) it.copy(members = it.members.filterNot { m -> m == talker }) else it
+                                        }
+                                        val finalList = srcRemoved.map {
+                                            if (it.id == target.id) it.copy(members = (it.members + talker).distinct().sorted()) else it
+                                        }
+                                        saveFolders(finalList)
+                                        syncFoldersToDatabase()
+                                        showToast("已移到「${target.name}」")
+                                        dismiss()
+                                    }
+                                    .padding(12.dp)
+                            )
+                        }
+                    }
+                }
+            )
+        }
+    }
 
     // Called by WeDatabaseListenerApi when WeChat inserts a conversation row
     override fun onInsert(table: String, values: ContentValues) {
@@ -713,6 +758,7 @@ object ConversationAggregation : ClickableFeature(),
 
         methodShowPopupMenu.hookBefore {
             val folderId = activeFolderId ?: return@hookBefore
+            val menuContext = (thisObject as? android.view.View)?.context ?: return@hookBefore
             val folder = folderById(folderId) ?: return@hookBefore
             if (folder.type != FolderType.MANUAL) return@hookBefore
 
@@ -731,6 +777,7 @@ object ConversationAggregation : ClickableFeature(),
                 createListener.onCreateContextMenu(menu, view, menuInfo)
                 runCatching {
                     menu.add(0, REMOVE_FROM_FOLDER_MENU_ID, REMOVE_FROM_FOLDER_MENU_ORDER, "移出文件夹")
+                    menu.add(0, MOVE_TO_FOLDER_MENU_ID, MOVE_TO_FOLDER_MENU_ORDER, "移到文件夹")
                 }.onFailure { WeLogger.e(TAG, "failed to add folder menu item", it) }
             }
 
@@ -744,6 +791,11 @@ object ConversationAggregation : ClickableFeature(),
                     if (menuItem?.itemId == REMOVE_FROM_FOLDER_MENU_ID) {
                         runCatching { removeMemberFromFolder(folderId, talker) }
                             .onFailure { WeLogger.e(TAG, "failed to remove from folder", it) }
+                        return@newProxyInstance null
+                    }
+                    if (menuItem?.itemId == MOVE_TO_FOLDER_MENU_ID) {
+                        runCatching { showMoveToFolderDialog(menuContext, talker) }
+                            .onFailure { WeLogger.e(TAG, "failed to move to folder", it) }
                         return@newProxyInstance null
                     }
                 }
