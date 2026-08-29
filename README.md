@@ -23,6 +23,16 @@
 
 ### 2026-08-29
 
+- **🎨 界面美化 · 隐藏对话列表分割线（会话/归拢文件夹/搜索页）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/beautify/HideConversationListDividers.kt`
+  - 隐藏微信 8.0.77 对话列表的分割线，按当前前台 Activity 限定处理范围，不影响通讯录/发现/我的/设置：
+    - 会话页：ListView/RecyclerView item 内线 View（1~6px 高全宽）尺寸识别后 GONE + 锁定（`setVisibility` 拦截 + `OnGlobalLayout` 持续强制，对抗微信 bind/post 恢复可见性）；
+    - 归拢文件夹（`ConvBoxServiceConversationUI`）：item 根 9-patch 背景替换为页面同色（深色模式取深灰背景、亮色兜底白——亮度阈值只认深色，防止中灰误判）；
+    - 搜索页（`FTSMainUI`）：item 底部 `clipBounds` 裁剪 1px；
+    - 兜底：`ListView.dividerHeight` 恒置 0 + `setDivider` 透明；Canvas `draw` 拦截未锁定的 1~6px 全宽线 View 不绘制。
+
+- **💬 聊天增强 · 归拢文件夹长按菜单修复 + 摘要标签增强**
+
 - **💬 聊天增强 · 归拢文件夹长按菜单修复 + 摘要标签增强**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
   - ① 文件夹容器长按菜单修复：`menuContext` 从 `args[0]`（anchor View）获取（`MMPopupMenu` 不是 View，`thisObject` 取不到），「移到/移出文件夹」菜单项在文件夹容器的长按菜单正常弹出；
@@ -238,6 +248,7 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
+| 08-29 | **隐藏对话列表分割线** | 会话页线 View GONE 锁定 + 归拢文件夹 9-patch 背景替换（深色取灰/亮色白）+ 搜索页 clipBounds 裁剪，按 Activity 限定不误伤其他页 | `HideConversationListDividers.kt` |
 | 08-27 | **品牌名统一 WCXLC** | 主页/微信内入口/侧边栏/通知等文案统一 WCXLC（`BuildConfig.TAG` + 9 处硬编码） | `BuildConfig.TAG` 等 |
 | 08-26 | **桌面图标重制** | 去白底 + 红色 `#E53935` 自适应背景 png（5 档 DPI） | `res/mipmap-*` |
 | 08-25 | **侧边栏修复** | 入口可见性轮询 / 挂载条件增强 / 离开改隐藏 / LauncherUI 兼容 | `HomeSidePanelFeature.kt` |
@@ -298,6 +309,7 @@
 - **虚拟视频通话**：自定义视频通话画面
 
 ### 🎨 界面美化
+- **隐藏对话列表分割线**：隐藏会话列表/归拢文件夹/搜索页的分割线，界面更清爽
 - **莫奈引擎 (Monet)**：动态取色，让微信界面更协调
 - **Tab 主题背景**：为微信主页、通讯录、发现、我四个界面分别设置背景图片
 - **主题导入导出**：支持主题包的导入导出，方便分享和备份
