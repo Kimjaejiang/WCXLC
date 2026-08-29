@@ -3,6 +3,7 @@ package com.Johnny.wcx.features.items.chat
 import android.app.Activity
 import android.content.ContentValues
 import android.content.Context
+import android.content.res.Configuration
 import android.content.Intent
 import android.os.Handler
 import android.os.HandlerThread
@@ -34,6 +35,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -140,8 +143,23 @@ object ConversationAggregation : ClickableFeature(),
     private var mentionSelfColor by WePrefs.prefOption("agg_mention_self_color", DEFAULT_SELF_COLOR)
     private var mentionMemberColor by WePrefs.prefOption("agg_mention_member_color", DEFAULT_MEMBER_COLOR)
     private var folderTitleColor by WePrefs.prefOption("agg_folder_title_color", DEFAULT_TITLE_COLOR)
+    private var folderTitleEnabled by WePrefs.prefOption("agg_folder_title_enabled", true)
+    private var mentionSelfEnabled by WePrefs.prefOption("agg_mention_self_enabled", true)
+    private var mentionMemberEnabled by WePrefs.prefOption("agg_mention_member_enabled", true)
     private fun parseColor(value: String, fallback: String): Int =
         runCatching { value.toColorInt() }.getOrElse { fallback.toColorInt() }
+    /** 暗色/亮色模式适配：暗色模式将染色提亮（HSV 明度下限 0.78），保证深底可读（类似微信原生暗色白字）；亮色模式返回原色 */
+    private fun adaptNight(ctx: Context?, color: Int): Int {
+        if (ctx == null) return color
+        val night = ctx.resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        if (!night) return color
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(color, hsv)
+        hsv[2] = maxOf(hsv[2], 0.78f)
+        return android.graphics.Color.HSVToColor(android.graphics.Color.alpha(color), hsv)
+    }
+
     private val MENTION_RED: Int get() = parseColor(mentionAtColor, DEFAULT_AT_COLOR)
     private val MENTION_YELLOW: Int get() = parseColor(mentionCountColor, DEFAULT_COUNT_COLOR)
     private val MENTION_GREEN: Int get() = parseColor(mentionSelfColor, DEFAULT_SELF_COLOR)
@@ -1041,7 +1059,7 @@ object ConversationAggregation : ClickableFeature(),
             cls.getMethod("setText", java.lang.CharSequence::class.java).hookAfterDirectly {
                 val tv = thisObject as? TextView ?: return@hookAfterDirectly
                 val s = tv.text?.toString().orEmpty()
-                val tinted = tintMention(s)
+                val tinted = tintMention(s, tv.context)
                 if (tinted != null) setTextSpanDirect(tv, tinted)
             }
         }.onFailure { diagFile("clsSetText FAILED ${cls.name}: $it") }
@@ -1050,7 +1068,7 @@ object ConversationAggregation : ClickableFeature(),
             cls.getMethod("setText", java.lang.CharSequence::class.java, bufType).hookAfterDirectly {
                 val tv = thisObject as? TextView ?: return@hookAfterDirectly
                 val s = tv.text?.toString().orEmpty()
-                val tinted = tintMention(s)
+                val tinted = tintMention(s, tv.context)
                 if (tinted != null) {
                     setTextSpanDirect(tv, tinted)
                 }
@@ -1097,13 +1115,18 @@ object ConversationAggregation : ClickableFeature(),
                 m.apply { isAccessible = true }.hookBeforeDirectly {
                     val text = args.getOrNull(0)?.toString() ?: return@hookBeforeDirectly
                     if (folderTitleNames().contains(text.trim())) {
+                        if (folderTitleEnabled) {
                         args[0] = android.text.SpannableString(text).apply {
                             setSpan(android.text.style.ForegroundColorSpan(MENTION_TITLE_BLUE), 0, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
                         }
                         return@hookBeforeDirectly
                     }
                     if (isAggSummary(text)) {
-                        args[0] = tintAggSummary(text)
+                        args[0] = tintAggSummary(text, (thisObject as? View)?.context)
+                    }
+                    if (CHAT_COUNT_REGEX.containsMatchIn(text)) {
+                        tintFolderTitle(thisObject as? View, text)
                     }
                     if (CHAT_COUNT_REGEX.containsMatchIn(text)) {
                         tintFolderTitle(thisObject as? View, text)
@@ -1120,6 +1143,12 @@ object ConversationAggregation : ClickableFeature(),
 
     private fun tintFolderTitleByText(root: ViewGroup) {
         runCatching {
+            if (!folderTitleEnabled) {
+                val orig = root.getTag(TAG_KEY_TITLE_ORIG) as? Int
+                val title = root.getTag(TAG_KEY_TITLE_TV) as? TextView
+                if (orig != null && title != null && title.currentTextColor != orig) title.setTextColor(orig)
+                return
+            }
             val queue = java.util.ArrayDeque<View>()
             queue.add(root)
             var guard = 0
@@ -1127,12 +1156,17 @@ object ConversationAggregation : ClickableFeature(),
                 val v = queue.removeFirst()
                 if (v is TextView) {
                     val t = v.text?.toString()?.trim().orEmpty()
-                    if (t.isNotEmpty() && folderTitleNames().contains(t) && v.currentTextColor != MENTION_TITLE_BLUE) {
-                        v.setTextColor(MENTION_TITLE_BLUE)
+                    if (t.isNotEmpty() && folderTitleNames().contains(t) && v.currentTextColor != adaptNight(root.context, MENTION_TITLE_BLUE)) {
+                        v.setTextColor(adaptNight(root.context, MENTION_TITLE_BLUE))
                     }
                 }
                 if (v is ViewGroup) for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
             }
+            diagFile("ConversationList dispatchDraw hooked")
+            WeLogger.i(TAG, "ConversationList dispatchDraw hooked")
+        }.onFailure {
+            diagFile("ConversationList dispatchDraw FAILED: $it")
+            WeLogger.w(TAG, "ConversationList dispatchDraw hook fail", it)
         }
     }
     /** Hook WeChat conversation list dispatchDraw: tint folder-title rows every frame (idempotent) */
@@ -1194,6 +1228,7 @@ object ConversationAggregation : ClickableFeature(),
                     val t = title.text?.toString() ?: continue
                     if (!folderTitleNames().contains(t)) { diagFile("tintFolderTitle: skip not-whitelist: " + t.take(15)); continue }
                     title.setTextColor(MENTION_TITLE_BLUE)
+                    if (folderTitleEnabled) title.setTextColor(adaptNight(summaryView.context, MENTION_TITLE_BLUE))
                     diagFile("tintFolderTitle: tinted " + t.take(20) + " color=" + Integer.toHexString(MENTION_TITLE_BLUE))
                     return@runCatching
                 }
@@ -1222,18 +1257,18 @@ object ConversationAggregation : ClickableFeature(),
         text.contains("[有人@我]") || text.contains("[@全体]") || text.contains("[自己]") || CHAT_COUNT_REGEX.containsMatchIn(text)
 
     /** 归拢摘要 Spannable 上色：蓝 [有人@我]/[@全体]、黄 [N个聊天]（其余保持微信原生颜色） */
-    private fun tintAggSummary(text: String): CharSequence {
+    private fun tintAggSummary(text: String, ctx: Context?): CharSequence {
         val sp = SpannableString(text)
         val atIdx = text.indexOf("[有人@我]")
-        if (atIdx >= 0) sp.setSpan(ForegroundColorSpan(MENTION_RED), atIdx, atIdx + "[有人@我]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (atIdx >= 0) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_RED)), atIdx, atIdx + "[有人@我]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val allIdx = text.indexOf("[@全体]")
-        if (allIdx >= 0) sp.setSpan(ForegroundColorSpan(MENTION_RED), allIdx, allIdx + "[@全体]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (allIdx >= 0) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_RED)), allIdx, allIdx + "[@全体]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val selfIdx = text.indexOf("[自己]")
-        if (selfIdx >= 0) sp.setSpan(ForegroundColorSpan(MENTION_GREEN), selfIdx, selfIdx + "[自己]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (selfIdx >= 0 && mentionSelfEnabled) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_GREEN)), selfIdx, selfIdx + "[自己]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val m = CHAT_COUNT_REGEX.find(text)
-        if (m != null) sp.setSpan(ForegroundColorSpan(MENTION_YELLOW), m.range.first, m.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (m != null) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_YELLOW)), m.range.first, m.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val member = MEMBER_PAREN_REGEX.find(text)
-        if (member != null) sp.setSpan(ForegroundColorSpan(MENTION_MEMBER), member.range.first, member.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (member != null && mentionMemberEnabled) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_MEMBER)), member.range.first, member.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         return sp
     }
 
@@ -1267,10 +1302,10 @@ object ConversationAggregation : ClickableFeature(),
             val baseX = tv.paddingLeft.toFloat()
             val baseY = tv.baseline.toFloat()
             val maxWidth = tv.width - tv.paddingLeft - tv.paddingRight
-            val red = MENTION_RED
-            val yellow = MENTION_YELLOW
-            val green = MENTION_GREEN
-            val memberColor = MENTION_MEMBER
+            val red = adaptNight(tv.context, MENTION_RED)
+            val yellow = adaptNight(tv.context, MENTION_YELLOW)
+            val green = adaptNight(tv.context, MENTION_GREEN)
+            val memberColor = adaptNight(tv.context, MENTION_MEMBER)
 
             data class Seg(val start: Int, val end: Int, val color: Int)
             val segs = mutableListOf<Seg>()
@@ -1279,12 +1314,12 @@ object ConversationAggregation : ClickableFeature(),
             val allIdx = text.indexOf("[@全体]")
             if (allIdx >= 0) segs.add(Seg(allIdx, allIdx + "[@全体]".length, red))
             val selfIdx = text.indexOf("[自己]")
-            if (selfIdx >= 0) segs.add(Seg(selfIdx, selfIdx + "[自己]".length, green))
+            if (selfIdx >= 0 && mentionSelfEnabled) segs.add(Seg(selfIdx, selfIdx + "[自己]".length, green))
             val m = Regex("""\[[^\]]*个(?:聊天|消息)\]""").find(text)
             if (m != null) segs.add(Seg(m.range.first, m.range.last + 1, yellow))
             segs.sortBy { it.start }
             val member = MEMBER_PAREN_REGEX.find(text)
-            if (member != null) segs.add(Seg(member.range.first, member.range.last + 1, memberColor))
+            if (member != null && mentionMemberEnabled) segs.add(Seg(member.range.first, member.range.last + 1, memberColor))
 
             var x = baseX
             var cur = 0
@@ -1337,6 +1372,7 @@ object ConversationAggregation : ClickableFeature(),
     private const val TAG_KEY_SUMMARY_TV = 0x5A110003
     /** Item 根 View 的 Tag key：内部标题 TextView 引用（文件夹标题染蓝） */
     private const val TAG_KEY_TITLE_TV = 0x5A110004
+    private const val TAG_KEY_TITLE_ORIG = 0x5A110005
 
     /** 归拢摘要着色状态（bind 阶段解析，onDraw 阶段直接读取） */
     private class MergeUiState(
@@ -1397,6 +1433,7 @@ object ConversationAggregation : ClickableFeature(),
             root.setTag(TAG_KEY_STATE, MergeUiState(atAll, atMe, fullText.contains("[自己]"), chatCount, MEMBER_PAREN_REGEX.find(fullText)?.value, fullText))
             root.setTag(TAG_KEY_SUMMARY_TV, summaryTv)
             root.setTag(TAG_KEY_TITLE_TV, titleTv)
+            root.setTag(TAG_KEY_TITLE_ORIG, titleTv?.currentTextColor)
             ensureItemDispatchDrawHook(root.javaClass)
         }
     }
@@ -1442,7 +1479,7 @@ object ConversationAggregation : ClickableFeature(),
         }
     }
 
-    private fun tintMention(text: String): CharSequence? {
+    private fun tintMention(text: String, ctx: Context?): CharSequence? {
         val atIdx = text.indexOf("[\u6709\u4eba@\u6211]")
         val selfIdx = text.indexOf("[自己]")
         val chatMatch = CHAT_COUNT_REGEX.find(text)
@@ -1456,7 +1493,7 @@ object ConversationAggregation : ClickableFeature(),
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
             )
         }
-        if (selfIdx >= 0) {
+        if (selfIdx >= 0 && mentionSelfEnabled) {
             spannable.setSpan(
                 ForegroundColorSpan(MENTION_GREEN),
                 selfIdx,
@@ -1486,7 +1523,7 @@ object ConversationAggregation : ClickableFeature(),
                 tvCount++
                 hookTextViewClass(v)
                 val text = v.text?.toString().orEmpty()
-                val tinted = tintMention(text)
+                val tinted = tintMention(text, root.context)
                 if (tinted != null) {
                     hit++
                     v.setText(tinted)
@@ -1545,10 +1582,12 @@ object ConversationAggregation : ClickableFeature(),
             val text = a.getOrNull(0) as? CharSequence ?: return@hookBefore
             val s0 = text.toString()
             if (folderTitleNames().contains(s0)) {
+                if (folderTitleEnabled) {
                 a[0] = android.text.SpannableString(s0).apply { setSpan(android.text.style.ForegroundColorSpan(MENTION_TITLE_BLUE), 0, s0.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+                }
                 return@hookBefore
             }
-            val tinted = tintMention(s0)
+            val tinted = tintMention(s0, (thisObject as? View)?.context)
             if (tinted != null) {
                 a[0] = tinted
             }
@@ -1561,7 +1600,7 @@ object ConversationAggregation : ClickableFeature(),
             baseSetText.hookBeforeDirectly {
                 val a = args ?: return@hookBeforeDirectly
                 val text = a.getOrNull(0) as? CharSequence ?: return@hookBeforeDirectly
-                val tinted = tintMention(text.toString())
+                val tinted = tintMention(text.toString(), (thisObject as? View)?.context)
                 if (tinted != null) {
                     a[0] = tinted
                 }
@@ -2337,6 +2376,9 @@ object ConversationAggregation : ClickableFeature(),
             var selfColor by remember { mutableStateOf(mentionSelfColor) }
             var memberColor by remember { mutableStateOf(mentionMemberColor) }
             var titleColor by remember { mutableStateOf(folderTitleColor) }
+            var titleEnabled by remember { mutableStateOf(folderTitleEnabled) }
+            var selfEnabled by remember { mutableStateOf(mentionSelfEnabled) }
+            var memberEnabled by remember { mutableStateOf(mentionMemberEnabled) }
 
             AlertDialogContent(
                 modifier = Modifier
@@ -2354,9 +2396,27 @@ object ConversationAggregation : ClickableFeature(),
                                     Text("摘要颜色")
                                     WeColorField(label = "[@全体]/[有人@我]", value = atColor, onValueChange = { atColor = it })
                                     WeColorField(label = "[N个聊天]/[N个消息]", value = countColor, onValueChange = { countColor = it })
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("[自己]", modifier = Modifier.weight(1f))
+                                        Switch(checked = selfEnabled, onCheckedChange = { selfEnabled = it })
+                                    }
+                                    if (selfEnabled) {
                                     WeColorField(label = "[自己]", value = selfColor, onValueChange = { selfColor = it })
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("(群成员)", modifier = Modifier.weight(1f))
+                                        Switch(checked = memberEnabled, onCheckedChange = { memberEnabled = it })
+                                    }
+                                    if (memberEnabled) {
                                     WeColorField(label = "(群成员)", value = memberColor, onValueChange = { memberColor = it })
-                                    WeColorField(label = "文件夹标题", value = titleColor, onValueChange = { titleColor = it })
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("文件夹标题染色", modifier = Modifier.weight(1f))
+                                        Switch(checked = titleEnabled, onCheckedChange = { titleEnabled = it })
+                                    }
+                                    if (titleEnabled) {
+                                        WeColorField(label = "文件夹标题", value = titleColor, onValueChange = { titleColor = it })
+                                    }
                                 }
                             }
                             if (folders.isEmpty()) {
@@ -2396,6 +2456,9 @@ object ConversationAggregation : ClickableFeature(),
                         mentionSelfColor = selfColor
                         mentionMemberColor = memberColor
                         folderTitleColor = titleColor
+                        folderTitleEnabled = titleEnabled
+                        mentionSelfEnabled = selfEnabled
+                        mentionMemberEnabled = memberEnabled
                         saveFolders(folders)
                         syncFoldersToDatabase()
                         showToast(context, "已保存, 重启微信生效")

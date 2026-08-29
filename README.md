@@ -21,6 +21,19 @@
 
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 
+### 2026-08-28
+
+- **💬 聊天增强 · 自动同意好友申请完整打通（8.0.77 接受链路）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/contacts/AutoAcceptFriendRequests.kt`
+  - 问题：8.0.77 同一申请会在 `VerifyRecordMsgInfo`/`fmessage_msginfo` 连插多条且 **ticket 每次插入都变**（一次性防重放），旧去重 key 含 ticket 导致重复接受/重复欢迎语；`NetSceneVerifyUser` 构造器校验 `opcode == MM_VERIFYUSER_VERIFYOK`，传 1/2 均报 `MUST use opcode == MM_VERIFYUSER_VERIFYOK`，实测通过值为 **3**。
+  - 方案：
+    - 双路径捕获申请：`onInsert`（VerifyRecordMsgInfo/fmessage_msginfo）+ message type=37 轮询；
+    - 解析 8.0.77 属性形式 XML（`extractAttr` 属性解析，兼容子标签 `extractXmlValue`）；
+    - 接受走 `NetSceneVerifyUser` 构造器 + `sendNetScene`，opcode 遍历 1..8 找到 3 通过校验（兼容其他版本，成功即止）；
+    - 去重 key 改用 `encryptUsername`（稳定标识，ticket 不入 key），同申请只接受一次；
+    - 欢迎语统一在 `acceptFriendRequest` 发送（移除 hookAfter 双发路径），实测 1 次 accept + 1 条欢迎语；
+    - 免验证（type=1）仅记录日志不干预（纯净版）。
+
 ### 2026-08-27
 
 - **💬 聊天增强 · 切换微信账号后归拢按账号隔离 + 自动对账**
@@ -31,9 +44,13 @@
     - `WeDatabaseApi.coreStorage/configStorage` 由 `lazy` 缓存改为每次实时获取，避免切换后读到旧账号 self 信息；
     - `methodGetStorage` 检测到 storage 重初始化（账号切换）时重建 db 引用并派发 `notifyDatabaseSwitched`，归拢清缓存按新账号重载配置并重新对账到新库 + 刷新会话列表。
 
-- **💬 聊天增强 · 归拢染色（标题橙 / 摘要提及蓝黄灰）+ 颜色可配置**
+- **💬 聊天增强 · 归拢染色 5 色可配置（取色器选取）+ 暗色/亮色自动适配**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
-  - 归拢文件夹标题默认橙色（`#FF8800`）、摘要 `[@全体]`/`[有人@我]` 蓝（`#2E78E6`）、`[N个聊天]`/`[N个消息]` 黄（`#F2D200`）、`[自己]` 深灰（`#222222`）、群成员括号浅灰（`#E8E8E8`）；标题/摘要控件为 `NoMeasuredTextView`（extends X2CView，非 TextView，`getText()` 为空），hook 其 `setText` 注入 Spannable 上色，会话列表 `dispatchDraw` 循环染色兜底；5 项颜色均可在模块设置页通过取色器选取（`WeColorField` 色块 + 取色器弹窗，WePrefs 持久化，重启微信生效）；标题识别排除未读数角标等纯数字控件。
+  - 归拢文件夹摘要/标题 5 色全部可配置（设置页取色器 `WeColorField` 色块弹窗选取，`WePrefs` 持久化）：
+    - 标题（默认橙 `#FF8800`）/ `[@全体]`、`[有人@我]` 提及（默认蓝 `#2E78E6`）/ `[N个聊天]`、`[N个消息]` 聊天数（默认黄 `#F2D200`）/ `[自己]`（默认深灰 `#222222`）/ `(群成员)` 括号（默认浅灰 `#E8E8E8`）；
+    - 标题 / `[自己]` / `(群成员)` 3 项可单独开关（默认开，关闭回微信原生色）；
+    - 暗色模式染色自动提亮（HSV 明度下限 0.78），保证深底可读（类似微信原生暗色白字），亮色模式用原色；
+    - 摘要为 `NoMeasuredTextView`，dispatchDraw 阶段叠加彩色绘制覆盖原生灰色，无状态残留。
 
 - **💬 聊天增强 · 自动同意好友申请修复（WCDB insert hook）**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/api/core/WeDatabaseListenerApi.kt`、`app/src/main/java/com/Johnny/wcx/features/items/contacts/AutoAcceptFriendRequests.kt`
@@ -145,7 +162,7 @@
 
 - **💬 聊天增强 · 归拢@提醒优化** — `ConversationAggregation.kt`：入口行被@时摘要显示「有人@我」（atMeCount 聚合到 folder 行）；染绿 hook 扩展双适配器；剥离摘要 WXID 前缀（后因稳定性回退，保留归拢基础功能）。
 - **💬 聊天增强 · 解除消息多选数量限制 8.0.77** — `RemoveMessageSelectionLimit.kt`：DexKit 适配（ChattingDataAdapterV3 移除，allowFailure + placeholder 降级，onEnable guard）。
-- **💬 聊天增强 · 自动同意好友申请 8.0.77** — hook 目标改构造器（`p3.<init>` 接受入口，DexMethodDelegate 无法解析构造器导致 `NoSuchMethodException`）。
+- **💬 聊天增强 · 自动同意好友申请 8.0.77**（已被 08-28 完整版取代）— hook 目标改构造器（`p3.<init>` 接受入口，DexMethodDelegate 无法解析构造器导致 `NoSuchMethodException`）。
 - **💬 聊天增强 · 预见性返回动画 8.0.77** — hook 回调 null 保护 + `ActivityInfo.name` 为 null 降级 + 字段查找异常容错。
 - **🎨 界面美化 · 侧边栏头像加载提速** — `HomeSidePanelFeature.kt`：解码按目标尺寸缩小（192px）+ 缓存读写缩小图 + selfWxId 等待 10s→4s + 重试 15→3 次，首次加载从 20s+ 降至秒级。
 - **🎨 界面美化 · 天气卡片（3 项）** — `HomeSidePanelFeature.kt`：① Open-Meteo API 格式识别（`parseWeatherJson` 增加 `current` 字段）；② 湿度/风速独立行左右分布防挤压；③ 加载占位紧凑化、温度 48sp→40sp、湿度补 %/风速补 km/h。
@@ -172,18 +189,18 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | **归拢染色可配置** | 标题橙/提及蓝/聊天数黄/自己深灰/成员括号浅灰，5 色设置页取色器可调；NMTV setText 注入 Spannable + dispatchDraw 兜底 | `ConversationAggregation.kt` |
-| 08-27 | **切换账号归拢隔离** | 配置按账号分文件 + storage 实时化 + db 切换重载对账，各账号互不串扰 | `ConversationAggregation.kt`、`WeDatabaseApi.kt` |
-| 08-27 | **自动同意好友申请** | insert hook 覆盖 framework + WCDB compat/database 三类，WCDB 下生效 | `WeDatabaseListenerApi.kt` |
-| 08-27 | **选择器排序加速** | 联系人 id IN 限定查询（批量取最近消息时间）加速 | `ContactSelectors.kt` |
-| 08-26 | **聊天工具栏修复** | 相册注入显示/收藏走收藏页/点击动态定位/按实际格子显示 | `ChatToolbar.kt` |
-| 08-26 | **选择器默认排序** | 默认按最近消息时间新-旧排序，DB 未就绪轮询重试 | `ContactSelectors.kt` |
-| 08-25 | **归拢摘要染色** | `[N个聊天]` 黄、`[有人@我]`/`[@全体]` 蓝（setText 注入 Spannable） | `ConversationAggregation.kt` |
-| 08-24 | **归拢@提醒** | 被@时摘要显示「有人@我」（因稳定性回退，保留基础功能） | `ConversationAggregation.kt` |
-| 08-24 | **解除消息多选限制** | DexKit 适配 8.0.77 + allowFailure/placeholder 降级 | `RemoveMessageSelectionLimit.kt` |
-| 08-24 | **自动同意（构造器）** | hook 目标改构造器（`p3.<init>` 接受入口） | 好友申请 feature |
-| 08-24 | **预见性返回动画** | hook 回调 null 保护 + 降级 + 字段查找容错 | 返回动画 feature |
-
+| 08-28 | 自动同意好友申请（完整打通） | 双路径捕获 + 属性 XML 解析 + `NetSceneVerifyUser` opcode=3 接受 + 去重 key 改 `encryptUsername`（ticket 每次插入都变）+ 欢迎语单发 | `AutoAcceptFriendRequests.kt` |
+| 08-27 | 归拢染色 5 色可配置 | 标题/提及/聊天数/自己/成员括号 5 色取色器可调（默认橙/蓝/黄/深灰/浅灰），标题/自己/成员括号可开关，暗色自动提亮 | `ConversationAggregation.kt` |
+| 08-27 | 切换账号归拢隔离 | 配置按账号分文件 + storage 实时化 + db 切换重载对账，各账号互不串扰 | `ConversationAggregation.kt`、`WeDatabaseApi.kt` |
+| 08-27 | 自动同意好友申请 | insert hook 覆盖 framework + WCDB compat/database 三类，WCDB 下生效 | `WeDatabaseListenerApi.kt`、`AutoAcceptFriendRequests.kt` |
+| 08-27 | 选择器排序加速 | 按联系人 id IN 限定查询（批量取最近消息时间）加速 | `ContactSelectors.kt` |
+| 08-26 | 聊天工具栏 | 相册注入显示 / 收藏走 `FavoriteIndexUI` / 点击动态定位 / 按实际格子显示 | `ChatToolbar.kt` |
+| 08-26 | 联系人/群聊选择器 | 默认按最近消息时间新-旧排序，DB 未就绪轮询重试 | `ContactSelectors.kt` |
+| 08-25 | 群聊归拢摘要 | `[N个聊天]` 黄、`[有人@我]`/`[@全体]` 蓝（hook `setText` 注入 Spannable） | `ConversationAggregation.kt` |
+| 更早 | 群聊归拢@提醒 | 被@时摘要显示「有人@我」（后因稳定性回退，保留归拢基础功能） | `ConversationAggregation.kt` |
+| 更早 | 消息多选 | DexKit 适配 8.0.77 + allowFailure/placeholder 降级 | `RemoveMessageSelectionLimit.kt` |
+| 更早 | 自动同意好友申请 | hook 目标改构造器（`p3.<init>` 接受入口）（已被 08-28 完整版取代） | 好友申请 feature |
+| 更早 | 预见性返回动画 | hook 回调 null 保护 + 降级 + 字段查找容错 | 返回动画 feature |
 #### 💰 红包与支付
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
@@ -259,6 +276,7 @@
 - **自动语音转文字**：语音消息自动转文字显示
 - **自动查看原图**：媒体自动加载原图，省得手动点
 - **聊天工具栏**：增强聊天输入栏，常用功能一键直达
+- **自动同意好友申请**：收到好友申请自动通过，支持延时/随机延时、欢迎语、黑名单（8.0.77 完整支持）
 - **Markdown 渲染**：支持 Markdown 格式消息渲染
 - **消息复读**：一键复读群消息
 - **左划引用消息**：左划消息快速引用回复
