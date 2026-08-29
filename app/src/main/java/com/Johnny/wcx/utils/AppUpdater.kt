@@ -145,8 +145,8 @@ object AppUpdater {
         runCatching {
             val release = fetchLatestRelease()
             val updateInfo = parseUpdateInfo(release)
-            val installedCode = BuildConfig.VERSION_CODE
-            if (updateInfo.versionCode > installedCode) {
+            // compare full 12-digit timestamp first (YYMMDDHHMMSS); last-6-digit versionCode misjudges across day boundary
+            if (isNewerThanInstalled(release.tag_name, updateInfo.versionCode)) {
                 UpdateResult.UpdateAvailable(updateInfo)
             } else {
                 UpdateResult.UpToDate
@@ -189,6 +189,11 @@ object AppUpdater {
      */
     suspend fun downloadAndInstall(context: Context, info: UpdateInfo) {
         val apkUrl = info.apkUrl.ifBlank { selectApkUrl(emptyList()) }
+        // selectApkUrl returns the releases page when no APK matches: open browser instead of downloading it
+        if (apkUrl.isBlank() || apkUrl == RELEASES_PAGE) {
+            openReleasesPage(context)
+            return
+        }
         val fileName = buildApkFileName(info)
 
         val downloadId = enqueueDownload(context, apkUrl, fileName)
@@ -205,6 +210,31 @@ object AppUpdater {
         val base = info.releaseTag.ifBlank { info.versionName }
         val safe = base.replace(Regex("""[\\/:*?"<>|\s]"""), "_")
         return "wcx-$safe.apk"
+    }
+
+    /**
+     * Full 12-digit timestamp (YYMMDDHHMMSS) comparison wins; last-6-digit versionCode
+     * misjudges across day boundaries. Falls back to versionCode compare for non-timestamp tags.
+     */
+    private fun isNewerThanInstalled(tagName: String, remoteCode: Int): Boolean {
+        val installedName = BuildConfig.VERSION_NAME
+        val remote = tagName.removePrefix("v").removePrefix("V")
+        if (installedName.length >= 12 && installedName.all { it.isDigit() } &&
+            remote.length >= 12 && remote.all { it.isDigit() }
+        ) {
+            return remote.toLong() > installedName.toLong()
+        }
+        return remoteCode > BuildConfig.VERSION_CODE
+    }
+
+    private fun openReleasesPage(context: Context) {
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, RELEASES_PAGE.toUri()).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        }.onFailure { WeLogger.w("AppUpdater", "failed to open releases page", it) }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
