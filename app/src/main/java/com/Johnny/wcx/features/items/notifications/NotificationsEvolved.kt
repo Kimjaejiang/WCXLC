@@ -100,7 +100,8 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
     // sender 头像磁盘缓存目录：微信头像（CDN 或本地路径）落盘，二次进入通知直接读盘，
     // 避免每次都要网络下载导致头像加载不出来/缓慢
-    private val avatarCacheDir by lazy { KnownPaths.moduleData / "notif_avatars" }
+    // 头像缓存目录带版本：v3 起缓存微信原生样式小圆角头像，旧版（大圆角/直角方形）缓存不再读取
+    private val avatarCacheDir by lazy { KnownPaths.moduleData / "notif_avatars_v3" }
 
     private val notificationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -263,7 +264,14 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
                 for (entry in history) {
                     val personBuilder = Person.Builder().setName(entry.senderName)
-                    senderAvatarCache[entry.senderKey]?.let { personBuilder.setIcon(it) }
+                    val cachedIcon = senderAvatarCache[entry.senderKey]
+                    if (cachedIcon != null) {
+                        personBuilder.setIcon(cachedIcon)
+                    } else if (!entry.senderKey.contains("|")) {
+                        // 单聊第一条（异步预取尚未完成）：同步读磁盘缓存，命中立即显示头像
+                        val bmp = loadAvatarIconFromCache(entry.senderKey)
+                        if (bmp != null) personBuilder.setIcon(Icon.createWithBitmap(bmp))
+                    }
                     messagingStyle.addMessage(entry.text, entry.timestamp, personBuilder.build())
                 }
 
@@ -435,10 +443,17 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
         if (senderName.isBlank()) return null
         if (!convWxId.isGroupChatWxId) return convWxId
         // 群聊：按昵称/备注在联系人表里最佳匹配（同名时取第一个）
-        return runCatching {
+        runCatching {
             val esc = senderName.replace("'", "''")
             WeDatabaseApi.executeQuery(
                 "SELECT username FROM rcontact WHERE nickname = '$esc' OR conRemark = '$esc' LIMIT 1"
+            ).firstOrNull()?.get("username")?.toString()
+        }.getOrNull()?.let { return it }
+        // 精确匹配失败：LIKE 模糊兜底（备注/昵称可能有空格/符号差异）
+        return runCatching {
+            val esc = senderName.replace("'", "''")
+            WeDatabaseApi.executeQuery(
+                "SELECT username FROM rcontact WHERE nickname LIKE '%$esc%' OR conRemark LIKE '%$esc%' LIMIT 1"
             ).firstOrNull()?.get("username")?.toString()
         }.getOrNull()
     }
@@ -451,7 +466,7 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                 val wxid = resolveSenderWxid(convWxId, senderName) ?: return@runCatching
                 val bmp = loadAvatarIcon(wxid) ?: return@runCatching
                 senderAvatarCache[key] = Icon.createWithBitmap(bmp)
-            }.onFailure { /* 头像失败静默，不影响通知本身 */ }
+            }.onFailure { WeLogger.w(TAG, "预取头像失败 key=$key: ${it.message}") }
         }
     }
 
@@ -459,6 +474,12 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
     private fun avatarCacheFileFor(wxid: String): Path =
         avatarCacheDir / (wxid.replace(Regex("[^\\w@.-]"), "_") + ".png")
+
+    /** 只读磁盘缓存（不触网）：通知构建时同步调用，命中立即显示头像（首次异步预取未完成时兜底）。 */
+    private fun loadAvatarIconFromCache(wxid: String): Bitmap? = runCatching {
+        val f = avatarCacheFileFor(wxid)
+        if (f.exists() && f.toFile().length() > 0) BitmapFactory.decodeFile(f.pathString) else null
+    }.getOrNull()
 
     /**
      * 统一头像加载（圆角化）：
@@ -514,7 +535,7 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
             )
         }
 
-        // 5. 圆角裁剪（群聊/私聊头像统一圆角显示）
+        // 5. 圆角裁剪（微信原生样式：小圆角圆角矩形）
         val rounded = toRoundedBitmap(bmp)
 
         // 6. 落盘缓存，下次直接读盘
@@ -527,13 +548,13 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
         return rounded
     }
 
-    /** 圆角矩形裁剪（微信默认样式：头像按圆角矩形显示，25% 半径） */
+    /** 圆角矩形裁剪（微信原生样式：小圆角，10% 半径——非直角正方形，也非大圆角） */
     private fun toRoundedBitmap(src: Bitmap): Bitmap {
         val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         paint.shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-        val radius = minOf(src.width, src.height) * 0.25f
+        val radius = minOf(src.width, src.height) * 0.1f
         canvas.drawRoundRect(0f, 0f, src.width.toFloat(), src.height.toFloat(), radius, radius, paint)
         return out
     }
