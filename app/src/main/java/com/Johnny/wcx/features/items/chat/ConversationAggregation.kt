@@ -1306,15 +1306,15 @@ object ConversationAggregation : ClickableFeature(),
 
     /** 归拢摘要标记判断 */
     private fun isAggSummary(text: String): Boolean =
-        text.contains("[有人@我]") || text.contains("[全体]") || text.contains("[自己]") || CHAT_COUNT_REGEX.containsMatchIn(text)
+        text.contains("[有人@我]") || text.contains("[全体]") || text.contains("[@全体]") || text.contains("[自己]") || CHAT_COUNT_REGEX.containsMatchIn(text)
 
     /** 归拢摘要 Spannable 上色：蓝 [有人@我]/[全体]、黄 [N个聊天]（其余保持微信原生颜色） */
     private fun tintAggSummary(text: String, ctx: Context?): CharSequence {
         val sp = SpannableString(text)
         val atIdx = text.indexOf("[有人@我]")
         if (atIdx >= 0) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_RED)), atIdx, atIdx + "[有人@我]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-        val allIdx = text.indexOf("[全体]")
-        if (allIdx >= 0) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_RED)), allIdx, allIdx + "[全体]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val allIdx = text.indexOf("[@全体]").let { if (it >= 0) it else text.indexOf("[全体]") }
+        if (allIdx >= 0) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_RED)), allIdx, text.indexOf(']', allIdx) + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val selfIdx = text.indexOf("[自己]")
         if (selfIdx >= 0 && mentionSelfEnabled) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_GREEN)), selfIdx, selfIdx + "[自己]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val m = CHAT_COUNT_REGEX.find(text)
@@ -1363,8 +1363,8 @@ object ConversationAggregation : ClickableFeature(),
             val segs = mutableListOf<Seg>()
             val atIdx = text.indexOf("[有人@我]")
             if (atIdx >= 0) segs.add(Seg(atIdx, atIdx + "[有人@我]".length, red))
-            val allIdx = text.indexOf("[全体]")
-            if (allIdx >= 0) segs.add(Seg(allIdx, allIdx + "[全体]".length, red))
+            val allIdx = text.indexOf("[@全体]").let { if (it >= 0) it else text.indexOf("[全体]") }
+            if (allIdx >= 0) segs.add(Seg(allIdx, text.indexOf(']', allIdx) + 1, red))
             val selfIdx = text.indexOf("[自己]")
             if (selfIdx >= 0 && mentionSelfEnabled) segs.add(Seg(selfIdx, selfIdx + "[自己]".length, green))
             val m = Regex("""\[[^\]]*个(?:聊天|消息)\]""").find(text)
@@ -1475,7 +1475,7 @@ object ConversationAggregation : ClickableFeature(),
                 root.setTag(TAG_KEY_TITLE_TV, null)
                 return
             }
-            val atAll = fullText.contains("[全体]")
+            val atAll = fullText.contains("[全体]") || fullText.contains("[@全体]")
             val atMe = fullText.contains("[有人@我]")
             val chatCount = runCatching {
                 CHAT_COUNT_REGEX.find(fullText)?.value
