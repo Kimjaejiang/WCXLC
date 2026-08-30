@@ -28,6 +28,21 @@ object WeConversationContextMenuApi : ApiFeature(), IResolveDex {
     }
 
     private val menuItems = mutableMapOf<String, List<MenuItem>>()
+    private val nativeInterceptors = mutableListOf<INativeMenuInterceptor>()
+
+    fun interface INativeMenuInterceptor {
+        /** 返回 true 表示该原生菜单项点击已被消费（微信原生逻辑不再执行） */
+        fun onNativeItemClick(context: ConversationContext, menuItem: android.view.MenuItem): Boolean
+    }
+
+    fun addNativeInterceptor(interceptor: INativeMenuInterceptor) {
+        nativeInterceptors.add(interceptor)
+    }
+
+    fun removeNativeInterceptor(interceptor: INativeMenuInterceptor) {
+        nativeInterceptors.remove(interceptor)
+    }
+
 
     fun addProvider(provider: IMenuItemsProvider) {
         menuItems[provider.javaClass.name] = provider.getMenuItems()
@@ -80,7 +95,7 @@ object WeConversationContextMenuApi : ApiFeature(), IResolveDex {
             handleCreateMenu(this)
         }
 
-        methodOnItemSelected.method.hookAfter {
+        methodOnItemSelected.method.hookBefore {
             handleSelectMenu(this)
         }
     }
@@ -113,11 +128,24 @@ object WeConversationContextMenuApi : ApiFeature(), IResolveDex {
             ?.get() ?: return
 
         val context = resolveContext(listener) ?: return
+        // 原生菜单项拦截（如归拢文件夹行的「标为已读」）
+        for (interceptor in nativeInterceptors) {
+            try {
+                if (interceptor.onNativeItemClick(context, menuItem)) {
+                    param.result = null
+                    return
+                }
+            } catch (e: Throwable) {
+                WeLogger.e(TAG, "native interceptor failed", e)
+            }
+        }
+
 
         for (item in menuItems.values.flatten()) {
             try {
                 if (item.id == clickedId) {
                     item.onClick(context)
+                    param.result = null
                     return
                 }
             } catch (e: Throwable) {

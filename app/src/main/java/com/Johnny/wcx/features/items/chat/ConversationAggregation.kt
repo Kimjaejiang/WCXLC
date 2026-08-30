@@ -62,6 +62,7 @@ import com.Johnny.wcx.features.api.core.models.SelfProfileField
 import com.Johnny.wcx.features.api.core.WeDatabaseListenerApi
 import com.Johnny.wcx.features.api.core.models.IWeContact
 import com.Johnny.wcx.features.api.ui.WeStartActivityApi
+import com.Johnny.wcx.features.api.ui.WeConversationContextMenuApi
 import com.Johnny.wcx.features.core.ClickableFeature
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.features.items.chat.ConversationAggregation.syncFoldersToDatabase
@@ -111,6 +112,18 @@ object ConversationAggregation : ClickableFeature(),
 
     private const val TAG = "AggregateChats"
     const val FOLDER_PREFIX = "wekit_folder_"
+    // 拦截首页长按菜单「标为已读」：对归拢文件夹行改为标记其全部成员会话（见 markFolderAsRead）。
+    private val folderMarkReadInterceptor = WeConversationContextMenuApi.INativeMenuInterceptor { context, menuItem ->
+        val title = menuItem.title?.toString().orEmpty()
+        if (title.contains("已读") && isFolderId(context.talker)) {
+            runCatching { markFolderAsRead(context.talker) }
+                .onFailure { WeLogger.e(TAG, "mark folder read failed", it) }
+            true
+        } else {
+            false
+        }
+    }
+
     private const val FOLDER_CONFIG_MENU_ID = 0x0721C0DE
     private const val MOVE_TO_FOLDER_MENU_ID = 777021
     private const val MOVE_TO_FOLDER_MENU_ORDER = 1001
@@ -317,6 +330,7 @@ object ConversationAggregation : ClickableFeature(),
         WeLogger.i(TAG, "onEnable: begin")
         diagFile("onEnable: begin")
         WeDatabaseListenerApi.addListener(this)
+        WeConversationContextMenuApi.addNativeInterceptor(folderMarkReadInterceptor)
         WeStartActivityApi.addListener(this)
         // 切换微信账号后 storage 重新初始化（新账号数据库），需要把归拢文件夹
         // 对账写入新账号的库，否则新账号页面看不到归拢。
@@ -378,6 +392,7 @@ object ConversationAggregation : ClickableFeature(),
 
     override fun onDisable() {
         WeDatabaseListenerApi.removeListener(this)
+        WeConversationContextMenuApi.removeNativeInterceptor(folderMarkReadInterceptor)
         WeStartActivityApi.removeListener(this)
         WeDatabaseApi.removeDatabaseSwitchListener(::onDatabaseSwitched)
         CustomLocalFriendAvatars.fallbackUsernameProvider = null
@@ -3088,6 +3103,23 @@ object ConversationAggregation : ClickableFeature(),
     private fun newFolderId(): String = "$FOLDER_PREFIX${System.currentTimeMillis()}"
 
     private fun isFolderId(value: String): Boolean = value.startsWith(FOLDER_PREFIX)
+    /**
+     * Marks every member conversation of [folderId] as read. WeChat's own
+     * updateUnreadByTalker(folderId) is a no-op for folder rows (see
+     * methodConversationStorageUpdateUnreadByTalker) because the folder container also fires it
+     * on leave; the home-list "标为已读" long-press menu therefore did nothing. Here we clear the
+     * real member rows, then reconcile so the aggregate badge drops.
+     */
+    fun markFolderAsRead(folderId: String) {
+        val folder = folderById(folderId) ?: return
+        resolveFolderMembers(folder).forEach { member ->
+            runCatching { WeConversationApi.markAsRead(member) }
+                .onFailure { WeLogger.w(TAG, "markAsRead failed for $member", it) }
+        }
+        syncFoldersToDatabase()
+        showToast("已标为已读")
+    }
+
 
 
     enum class FolderType {
