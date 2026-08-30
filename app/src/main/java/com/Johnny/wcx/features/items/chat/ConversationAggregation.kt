@@ -2127,7 +2127,8 @@ object ConversationAggregation : ClickableFeature(),
                 SELECT r.${ConversationTable.USERNAME}, r.${ConversationTable.DIGEST},
                        r.${ConversationTable.DIGEST_USER}, r.${ConversationTable.IS_SEND},
                        r.${ConversationTable.STATUS}, r.${ConversationTable.CONVERSATION_TIME},
-                       r.${ConversationTable.UNREAD_COUNT}, r.${ConversationTable.CONTENT},
+                       r.${ConversationTable.UNREAD_COUNT}, r.${ConversationTable.UNREAD_MUTE_COUNT},
+                       r.${ConversationTable.CONTENT},
                        r.${ConversationTable.MSG_TYPE}, r.${ConversationTable.CHAT_MODE},
                        r.${ConversationTable.AT_COUNT},
                        c.${ContactTable.TYPE}, c.${ContactTable.LV_BUFF},
@@ -2144,8 +2145,10 @@ object ConversationAggregation : ClickableFeature(),
                     val folderId = ownerByMember[username] ?: continue
                     val state = states.getValue(folderId)
                     val unread = cursor.getIntOrZero(ConversationTable.UNREAD_COUNT).coerceAtLeast(0)
+                    // 微信权威免打扰未读数：lvbuff 解析失败/缺失时兜底判定免打扰，避免免打扰群聊错误显示角标
+                    val muteUnread = cursor.getIntOrZero(ConversationTable.UNREAD_MUTE_COUNT).coerceAtLeast(0)
                     if (unread > 0) {
-                        val muted = if (username.endsWith("@chatroom")) {
+                        val muted = if (muteUnread > 0) true else if (username.endsWith("@chatroom")) {
                             val index = cursor.getColumnIndex(ContactTable.LV_BUFF)
                             val lvBuff = if (index >= 0 && !cursor.isNull(index)) cursor.getBlob(index) else null
                             WeConversationApi.parseChatRoomNotify(lvBuff) == 0
@@ -2231,7 +2234,8 @@ object ConversationAggregation : ClickableFeature(),
 
     private fun containsEveryone(s: String): Boolean {
         val t = s.lowercase()
-        return t.contains("所有人") || t.contains("全体") || t.contains("@all") ||
+        return t.contains("所有人") || t.contains("全体") || t.contains("全部人") ||
+            t.contains("全员") || t.contains("@all") ||
             t.contains("@everyone") || t.contains("all members")
     }
     /**
