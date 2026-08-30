@@ -211,7 +211,6 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-30 | **发送后合并显示自动勾选** | 预览页（ImagePreviewUI）自动勾选「发送后合并展示」（微信未勾时兜底），多图发送合并一条；相册直接发送合并依赖真实触摸（微信防自动化），暂不支持 | `AutoEnableMergeDisplayOnSend.kt` |
 | 08-30 | **通知头像增强** | 头像缓存目录 v3（小圆角样式）+ 单聊首条同步读盘立即显示 + 群聊昵称 LIKE 模糊兜底匹配 | `NotificationsEvolved.kt` |
 | 08-29 | 归拢文件夹长按菜单 + 摘要标签 | 文件夹容器长按菜单修复（menuContext 取 anchor View）+ `[全体]`→`[@全体]` + @所有人识别增强 | `ConversationAggregation.kt` |
 | 08-28 | 自动同意好友申请（完整打通） | 双路径捕获 + 属性 XML 解析 + `NetSceneVerifyUser` opcode=3 接受 + 去重 key 改 `encryptUsername`（ticket 每次插入都变）+ 欢迎语单发 | `AutoAcceptFriendRequests.kt` |
