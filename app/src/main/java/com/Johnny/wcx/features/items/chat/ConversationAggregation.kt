@@ -2201,7 +2201,7 @@ object ConversationAggregation : ClickableFeature(),
             } else {
                 FolderSummary(
                     digest = (
-                        if (isEveryoneMention(latest.digest, latest.content)) "[@全体]"
+                        if (isEveryoneMention(latest.digest, latest.content) && (state.atMeCount > 0 || state.unreadChatCount > 0)) "[@全体]"
                         else if (state.atMeCount > 0) "[有人@我]"
                         else ""
                     ) + (

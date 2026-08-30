@@ -211,7 +211,7 @@
 - **📵 隐私与安全 · 禁止主页下滑（v244.7 → v246，最终回退干净版）**
   - 涉及文件：主页下滑拦截相关 feature
   - 迭代 4 版：① DOWN 直接消费顶部下拉手势（v244.7）→ ② DOWN 放行保顶栏手势 + MOVE 消费拦面板（v244.9）→ ③ 面板拦截改 DOWN 消费 + 入口模拟手势（v245.1）→ ④ v246 回退干净版（无 DexKit，onEnable 空 hook）。因拦截手势影响顶栏/搜索框滑动体验，保留基础实现。
-| 08-30 | **归拢文件夹修复** | 免打扰群聊角标（unReadMuteCount 权威兜底 lvbuff 解析失败）+ @所有人识别扩展（全部人/全员）+ [@全体] 标签上色修复（原 [全体] 匹配漏 @） | `ConversationAggregation.kt` |
+| 08-30 | **归拢文件夹修复** | 免打扰群聊角标（unReadMuteCount 权威兜底 lvbuff 解析失败）+ @所有人识别扩展（全部人/全员）+ [@全体] 标签上色修复 + 已读后消失（补未读条件，与[有人@我]一致） | `ConversationAggregation.kt` |
 - **🎨 界面美化 · 微信进程弹窗改系统 AlertDialog** — AppCompat 主题冲突改用系统 AlertDialog。
 - **🛠️ 构建/CI · verCode 防撞号 + .gitignore 清理** — verCode 主号×1000+次号（单段补×1000），支持 `V244.1-100` 序列；APK/构建日志/备份/调试临时文件不入库。
 
