@@ -2929,7 +2929,10 @@ object ConversationAggregation : ClickableFeature(),
                         val muted = if (muteUnread > 0) true else if (username.endsWith("@chatroom")) {
                             val index = cursor.getColumnIndex(ContactTable.LV_BUFF)
                             val lvBuff = if (index >= 0 && !cursor.isNull(index)) cursor.getBlob(index) else null
-                            WeConversationApi.parseChatRoomNotify(lvBuff) == 0
+                            val notify = WeConversationApi.parseChatRoomNotify(lvBuff)
+                            // lvbuff 缺失/解析失败时 parseChatRoomNotify 返回 null（null==0 会误判为非免打扰），
+                            // 保守视为免打扰：宁可归入小圆点也不让免打扰群聊未读闪现红色数字角标
+                            notify == null || notify == 0
                         } else {
                             cursor.getIntOrZero(ContactTable.TYPE) and 512 != 0
                         }
