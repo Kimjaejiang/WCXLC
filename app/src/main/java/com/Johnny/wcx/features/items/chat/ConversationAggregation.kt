@@ -1,12 +1,15 @@
 package com.Johnny.wcx.features.items.chat
 
 import android.app.Activity
+import android.os.Parcel
+import android.os.Parcelable
 import android.content.ContentValues
 import android.content.Context
 import android.content.res.Configuration
 import android.content.Intent
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.SystemClock
 import android.view.MenuItem
 import android.view.View
@@ -32,10 +35,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,6 +62,7 @@ import dev.ujhhgtg.reflekt.utils.isSubclassOf
 import com.Johnny.wcx.dexkit.abc.IResolveDex
 import com.Johnny.wcx.dexkit.dsl.dexMethod
 import com.Johnny.wcx.features.api.core.WeConversationApi
+import com.Johnny.wcx.features.api.core.WeApi
 import com.Johnny.wcx.features.api.core.WeDatabaseApi
 import com.Johnny.wcx.features.api.core.models.SelfProfileField
 import com.Johnny.wcx.features.api.core.WeDatabaseListenerApi
@@ -82,7 +88,6 @@ import com.Johnny.wcx.utils.reflection.ClassLoaders
 import com.Johnny.wcx.utils.HostInfo
 import androidx.core.graphics.toColorInt
 import com.Johnny.wcx.preferences.WePrefs
-import com.Johnny.wcx.ui.content.WeColorField
 import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.showToast
 import com.Johnny.wcx.utils.captureOriginalMethod
@@ -91,8 +96,10 @@ import com.Johnny.wcx.utils.reflection.BString
 import com.Johnny.wcx.utils.serialization.DefaultJson
 import kotlinx.serialization.Serializable
 import java.lang.reflect.Proxy
+import java.io.File
 import java.text.Collator
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.nio.file.Path
@@ -203,6 +210,9 @@ object ConversationAggregation : ClickableFeature(),
 
 
     private const val CONTAINER_UI_NAME = "com.tencent.mm.ui.conversation.ConvBoxServiceConversationUI"
+    private const val BRAND_FLUTTER_UI = "com.tencent.mm.plugin.brandservice.ui.flutter.BizFlutterTLFlutterViewActivity"
+    private const val BRAND_SERVICE_UI = "com.tencent.mm.ui.brandservice.BrandServiceTimelineUI"
+    private const val ENTERPRISE_UI = "com.tencent.mm.ui.conversation.EnterpriseConversationUI"
     private val methodSqliteWrapperRawQuery by dexMethod(allowFailure = true) {
         matcher {
             modifiers = JavaModifier.PUBLIC
@@ -287,6 +297,26 @@ object ConversationAggregation : ClickableFeature(),
 
     @Volatile
     private var activeFolderId: String? = null
+    private val cachedHomeIntents = HashMap<String, Intent>()
+    @Volatile
+    private var suppressNextClick = false
+    // WeChat's FlutterPageInfo carries a process-scoped session id (fields d/e) that is regenerated
+    // on every process start; a cached one from a previous process is rejected (opens a plain
+    // conversation). We capture the current process's values when WeChat constructs a page_info.
+    @Volatile
+    private var currentPageInfoId: String? = null
+    @Volatile
+    private var currentPageInfoE: Int? = null
+    // A live FlutterPageInfo object WeChat itself constructed for the biz (official-account)
+    // flutter page in the current process. WeChat's own objects carry engine state that
+    // deserialized copies never have, so using this live object opens the page correctly.
+    @Volatile
+    private var livePageInfoBiz: Parcelable? = null
+    // Same capture for the service-official-account (brand_service) flutter page; its own
+    // page_info carries a different page id than the biz page, so using the biz object for it
+    // opens the wrong (biz) content.
+    @Volatile
+    private var livePageInfoBrandService: Parcelable? = null
 
     @Volatile
     private var folderSchemaReady: Boolean? = null
@@ -344,10 +374,17 @@ object ConversationAggregation : ClickableFeature(),
         hookOpenFolder()
         WeLogger.i(TAG, "onEnable: after hookOpenFolder")
         diagFile("onEnable: after hookOpenFolder")
+        // 尽早 hook 微信打开链（ok0.l1），捕获其实例；微信启动早期会自动调用一次（如 voip 页），
+        // 之后文件夹点击即可重走微信打开链，无需用户先开首页聚合页预热。
+        hookOpenChainNow()
+        WeLogger.i(TAG, "onEnable: after hookOpenChainNow")
         hookConversationPages()
         WeLogger.i(TAG, "onEnable: after hookConversationPages")
         diagFile("onEnable: after hookConversationPages")
         hookFolderContextMenu()
+        hookConversationClick()
+        hookFolderFragmentMethods()
+        hookFolderItemClick()
         WeLogger.i(TAG, "onEnable: after hookFolderContextMenu")
         diagFile("onEnable: after hookFolderContextMenu")
         hookSelectConversationUi()
@@ -700,6 +737,20 @@ object ConversationAggregation : ClickableFeature(),
     }
 
     override fun onStartActivity(param: HookParam, intent: Intent) {
+        val startCtx = param.thisObject as? Context
+        if (cachedHomeIntents.isEmpty()) startCtx?.let { loadCachedIntents(it) }
+        WeLogger.i(TAG, "startActivity: " + intent.component?.className + " uri=" + intent.toUri(0) + " keys=" + (intent.extras?.keySet()?.joinToString(",")))
+        val targetCls = intent.component?.className
+        if (targetCls != null && (targetCls == BRAND_FLUTTER_UI || targetCls == BRAND_SERVICE_UI || targetCls == ENTERPRISE_UI)) {
+            cachedHomeIntents[targetCls] = Intent(intent)
+            if (startCtx != null) saveCachedIntent(startCtx, targetCls, intent)
+            WeLogger.i(TAG, "stack for " + targetCls + "\\n" + Throwable().stackTrace.take(25).joinToString("\\n") { "    at " + it.toString() })
+            val hpi = runCatching { intent.getParcelableExtra<Parcelable>("page_info") }.getOrNull()
+            WeLogger.i(TAG, "homePi cls=" + (hpi?.javaClass?.name) + " sameLoader=" + (hpi?.javaClass?.classLoader === startCtx?.classLoader) + " val=" + hpi)
+            WeLogger.i(TAG, "homeFlags=" + intent.flags + " act=" + intent.action + " data=" + intent.dataString)
+            dumpPageInfo("homePi", hpi)
+            runCatching { hpi?.javaClass?.declaredFields?.forEach { f -> f.isAccessible = true; WeLogger.i(TAG, "  piField " + f.name + "=" + f.get(hpi)) } }
+        }
         val folderId = readFolderIdFromIntent(intent) ?: return
         val componentName = intent.component?.className
         if (componentName != CONTAINER_UI_NAME) {
@@ -716,13 +767,28 @@ object ConversationAggregation : ClickableFeature(),
     }
 
     private fun hookOpenFolder() {
+        // 捕获首页 LauncherUI 实例：文件夹点击重走微信打开链（ok0.l1.c）时用它作上下文。
+        runCatching {
+            val onCreate = LauncherUI::class.java.declaredMethods.firstOrNull {
+                it.name == "onCreate" && it.parameterCount == 1
+            }
+            if (onCreate != null) {
+                onCreate.hookAfter {
+                    cachedLauncherUi = thisObject
+                    WeLogger.i(TAG, "captured LauncherUI " + (thisObject?.javaClass?.name))
+                }
+            }
+        }.onFailure { WeLogger.w(TAG, "hook LauncherUI.onCreate failed", it) }
+
         LauncherUI::class.reflekt().firstMethod("startChatting").hookBefore {
+            WeLogger.i(TAG, "startChatting(Launcher): username=" + (args.firstOrNull() as? String) + " src=" + thisObject?.javaClass?.simpleName)
             interceptFolderChatOpen(args.firstOrNull() as? String, thisObject) {
                 result = null
             }
         }
 
         BaseConversationUI::class.reflekt().firstMethod("startChatting").hookBefore {
+            WeLogger.i(TAG, "startChatting(Base): username=" + (args.firstOrNull() as? String) + " src=" + thisObject?.javaClass?.simpleName)
             interceptFolderChatOpen(args.firstOrNull() as? String, thisObject) {
                 result = null
             }
@@ -734,10 +800,22 @@ object ConversationAggregation : ClickableFeature(),
         source: Any?,
         cancelOriginal: () -> Unit
     ) {
-        if (username == null || !isFolderId(username)) return
-        activeFolderId = username
-        launchFolderContainer(source, username)
-        cancelOriginal()
+        if (username == null) return
+        if (isFolderId(username)) {
+            activeFolderId = username
+            launchFolderContainer(source, username)
+            cancelOriginal()
+            return
+        }
+        // 容器内点击成员：微信容器的打开逻辑对公众号/企业微信等特殊会话会走错路径，
+        // 改为直接用 ChattingUI 打开，由微信自身判断会话类型（公众号/企业微信/群聊）。
+        if (activeFolderId != null) {
+            val context = source as? Context
+            if (context != null) {
+                WeApi.openContact(context, username, WeApi.OpenContactDestination.CONVERSATION)
+                cancelOriginal()
+            }
+        }
     }
 
     private fun hookConversationPages() {
@@ -746,17 +824,134 @@ object ConversationAggregation : ClickableFeature(),
             activeFolderId = readFolderIdFromIntent(activity.intent) ?: activeFolderId
         }
 
+        listOf(BRAND_FLUTTER_UI, BRAND_SERVICE_UI).forEach { cls ->
+            runCatching { Class.forName(cls).getMethod("onResume").hookAfter { WeLogger.i(TAG, "aggPage onResume " + (thisObject?.javaClass?.name)) } }
+        }
+
         BaseConversationUI::class.reflekt().apply {
             firstMethod("onResume").hookAfter {
                 val activity = thisObject as? BaseConversationUI ?: return@hookAfter
+                WeLogger.i(TAG, "onResume act=" + activity.javaClass.simpleName + " folder=" + activeFolderId + " extra=" + activity.intent?.getStringExtra(WeChatIntentExtra.CONTACT_USER))
                 activeFolderId = activeFolderId ?: readFolderIdFromIntent(activity.intent)
                 configureFolderActivity(activity)
             }
 
             firstMethod("onDestroy").hookAfter {
-                activeFolderId = null
+                if (thisObject is ConvBoxServiceConversationUI) {
+                    activeFolderId = null
+                }
             }
         }
+        // Diagnose the method that opens the official-account flutter page from the home tab.
+        runCatching {
+            val mmLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
+            val clz = Class.forName("ok0\u0024l1", false, mmLoader)
+            val ws = clz.declaredMethods.filter { it.name == "w" }
+            WeLogger.i(TAG, "ok0.l1 methods w=" + ws.size + " loader=" + clz.classLoader?.javaClass?.name)
+            ws.forEach { m ->
+                m.hookBefore {
+                    WeLogger.i(TAG, "ok0.l1.w args=" + (args.map { a: Any? -> (a?.javaClass?.name ?: "null") + ":" + a }.joinToString(" | ")) + " this=" + thisObject?.javaClass?.name)
+                }
+            }
+        }.onFailure { WeLogger.w(TAG, "hook ok0.l1.w failed", it) }
+        // Capture the current process's FlutterPageInfo session id (fields d/e) whenever WeChat
+        // constructs one, so folder taps can refresh cached page_infos with live values.
+        runCatching {
+            val mmLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
+            val fpi = Class.forName("com.tencent.mm.flutter.ui.FlutterPageInfo", false, mmLoader)
+            fpi.declaredConstructors.forEach { c ->
+                c.hookAfter {
+                    runCatching {
+                        val thisObj = thisObject
+                        // Dump every field so we can diff pre-warmed vs homepage-opened page_infos.
+                        val sb = StringBuilder("FlutterPageInfo fields ")
+                        fpi.declaredFields.forEach { fd ->
+                            runCatching {
+                                fd.isAccessible = true
+                                val v = fd.get(thisObj)
+                                val sv = if (v == null) "null" else v.toString().take(48)
+                                sb.append("[").append(fd.name).append(":").append(fd.type.simpleName).append("=").append(sv).append("] ")
+                            }
+                        }
+                        WeLogger.i(TAG, sb.toString())
+                        val d = fpi.getDeclaredField("d").apply { isAccessible = true }.get(thisObj) as? String
+                        val e = fpi.getDeclaredField("e").apply { isAccessible = true }.get(thisObj) as? String
+                        val f = fpi.getDeclaredField("f").apply { isAccessible = true }.get(thisObj) as? String
+                        if (d != null && d.isNotBlank()) currentPageInfoId = d
+                        if (e != null) currentPageInfoE = e?.toIntOrNull()
+                        // Parcel-deserialized copies carry no engine binding and must NOT
+                        // replace WeChat's own live object (they fail to open).
+                        val st = Thread.currentThread().stackTrace
+                        val isParcelCopy = st.any { it.methodName == "createFromParcel" }
+                        if (!isParcelCopy && thisObj is Parcelable) {
+                            when (f) {
+                                "biz" -> livePageInfoBiz = thisObj as Parcelable
+                                "brand_service" -> livePageInfoBrandService = thisObj as Parcelable
+                            }
+                        }
+                        WeLogger.i(TAG, "FlutterPageInfo ctor d=" + d + " e=" + e + " f=" + f + " parcel=" + isParcelCopy)
+                        // Trace the construction call stack: pre-warmed (startup) vs homepage-tap
+                        // vs folder-tap differ in how WeChat opens the flutter page; the frame
+                        // unique to the homepage path is the open-chain entry we can call.
+                        runCatching {
+                            val frames = st.take(40).joinToString(" | ") { it.className + "." + it.methodName }
+                            WeLogger.i(TAG, "FlutterPageInfo stack f=" + f + " " + frames)
+                            // Dump ctor args: one of them may carry the brandservice plugin
+                            // ClassLoader, which is the only way to load the open-chain class
+                            // (ok0$l1) that lives in the plugin dex, not the host loader.
+                            args?.forEachIndexed { idx, a ->
+                                if (a != null) {
+                                    val ld = runCatching { a.javaClass.classLoader?.toString()?.take(120) }.getOrNull()
+                                    WeLogger.i(TAG, "FlutterPageInfo arg" + idx + " cls=" + a.javaClass.name + " ld=" + ld)
+                                    val l = a.javaClass.classLoader
+                                    if (l != null && l !== mmLoader && l !== ClassLoaders.BOOT && ctorArgPluginLoader == null) {
+                                        ctorArgPluginLoader = l
+                                    }
+                                }
+                            }
+                            // Find the open-chain frame (ok0.l1.w) and lazily hook it to capture
+                            // the real invocation prototype (params + thisObject).
+                            val openFrame = st.take(40).firstOrNull { it.methodName == "w" }
+                            if (openFrame != null) {
+                                hookOpenChain(openFrame)
+                            }
+                            // The plugin loader can't come from ctor args (they are plain Strings);
+                            // fish it out of a Flutter Activity's fields instead.
+                            if (ctorArgPluginLoader == null) {
+                                pluginLoaderFromActivity(mmLoader)
+                            }
+                        }
+                        // WeChat may set the e field shortly after construction (engine attach);
+                        // capture it late so folder taps can stamp a live value.
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            runCatching {
+                                val e2 = fpi.getDeclaredField("e").apply { isAccessible = true }.get(thisObj) as? String
+                                val f2 = fpi.getDeclaredField("f").apply { isAccessible = true }.get(thisObj) as? String
+                                if (e2 != null) currentPageInfoE = e2?.toIntOrNull()
+                                if (thisObj is Parcelable) {
+                                    when (f2) {
+                                        "biz" -> livePageInfoBiz = thisObj as Parcelable
+                                        "brand_service" -> livePageInfoBrandService = thisObj as Parcelable
+                                    }
+                                }
+                                WeLogger.i(TAG, "FlutterPageInfo late f=" + f2 + " e=" + e2)
+                            }
+                        }, 1500)
+                    }
+                }
+            }
+            WeLogger.i(TAG, "FlutterPageInfo ctor hooked=" + fpi.declaredConstructors.size)
+            // Trace method calls on FlutterPageInfo to find the "register" step WeChat does when
+            // opening from the homepage (absent for pre-warmed objects, which fail to open).
+            fpi.declaredMethods.forEach { m ->
+                m.hookBefore {
+                    runCatching {
+                        val a = args?.map { it?.javaClass?.simpleName ?: "null" }?.joinToString(",")
+                        WeLogger.i(TAG, "FlutterPageInfo.call " + m.name + "(" + a + ")")
+                    }
+                }
+            }
+        }.onFailure { WeLogger.w(TAG, "hook FlutterPageInfo ctor failed", it) }
     }
 
     // The folder container (ConvBoxServiceConversationUI) does NOT use the homepage's
@@ -764,8 +959,565 @@ object ConversationAggregation : ClickableFeature(),
     // menu through the shared MMPopupMenu.showMenu(...). We hook that chokepoint, gated on
     // activeFolderId (null on the homepage, so that path is untouched), and inject a "remove from
     // folder" item by wrapping the menu-create listener and the (obfuscated) select callback.
+    private fun hookConversationClick() {
+        val clazz = runCatching {
+            Class.forName("com.tencent.mm.ui.conversation.ConversationClickListener")
+        }.getOrNull() ?: run {
+            WeLogger.i(TAG, "ConversationClickListener not found")
+            return
+        }
+        clazz.declaredMethods.forEach { m ->
+            runCatching {
+                m.hookBeforeDirectly {
+                    val argsStr = args.joinToString("|") { a: Any? -> a?.javaClass?.simpleName ?: "null" }
+                    WeLogger.i(TAG, "ConvClick: " + m.name + " args=" + argsStr)
+                }
+            }.onFailure { }
+        }
+    }
+
+    private fun hookFolderFragmentMethods() {
+        val clazz = runCatching {
+            Class.forName("com.tencent.mm.ui.conversation.ConvBoxServiceConversationFmUI")
+        }.getOrNull() ?: run {
+            WeLogger.i(TAG, "ConvBoxFmUI not found")
+            return
+        }
+        clazz.declaredMethods.forEach { m ->
+            val mn = m.name
+            if (mn.startsWith("on") && mn.length <= 12) return@forEach
+            runCatching {
+                m.hookBeforeDirectly {
+                    val raw = args.joinToString("|") { a: Any? -> a?.javaClass?.simpleName ?: "null" }
+                    val argsStr = if (raw.length > 80) raw.substring(0, 80) else raw
+                    WeLogger.i(TAG, "FmUI: " + mn + " args=" + argsStr)
+                }
+            }.onFailure { }
+        }
+    }
+
+    // Special rows in a folded folder ("公众号" / "服务号" / "学校通知") must open the same
+    // aggregated pages as their homepage counterparts. The container switches views on item
+    // click (no new Activity), so we hook the shared AdapterView.performItemClick while a
+    // folder container is open, launch the cached homepage intent for those rows, and
+    // invalidate the position so WeChat's own handler has nothing left to open.
+    // Special rows in a folded folder ("公众号" / "服务号" / "学校通知") must open the same
+    // aggregated pages as their homepage counterparts. The container switches views on item
+    // click (no new Activity), so we hook the shared AdapterView.performItemClick while a
+    // folder container is open, launch the cached homepage intent for those rows, and
+    // invalidate the position so WeChat's own handler has nothing left to open.
+    // Special rows in a folded folder ("officialaccounts" / "service_officialaccounts" / the
+    // school row) must open the same aggregated pages as their homepage counterparts. The
+    // container switches views on item click (no new Activity), so we wrap the
+    // AdapterView.OnItemClickListener with a proxy that, while a folder container is open,
+    // launches the cached homepage intent for those rows and skips the original listener
+    // (whose invalid-position fallback otherwise clears the folder list on return).
+    // Special rows in a folded folder ("officialaccounts" / "service_officialaccounts" / the
+    // school row) must open the same aggregated pages as their homepage counterparts. The
+    // container switches views on item click (no new Activity). We wrap the
+    // AdapterView.OnItemClickListener that WeChat installs (via the public
+    // setOnItemClickListener, so no hidden-API reflection is needed) with a proxy that,
+    // while a folder container is open, launches the cached homepage intent for those rows
+    // and skips the original listener.
+    // WeChat's folder container routes a tap through AdapterView.performItemClick with the
+    // real position, then separately calls the OnItemClickListener with position=-1. So we
+    // detect the special row from the real position, launch the homepage target, and make the
+    // listener proxy swallow the bogus onItemClick(-1) so the container list stays untouched.
+    private fun hookFolderItemClick() {
+        val perform = runCatching {
+            AdapterView::class.java.getMethod(
+                "performItemClick", View::class.java, Int::class.javaPrimitiveType, Long::class.javaPrimitiveType
+            )
+        }.getOrNull() ?: return
+        perform.hookBeforeDirectly {
+            if (activeFolderId == null) return@hookBeforeDirectly
+            val av = thisObject as? AdapterView<*> ?: return@hookBeforeDirectly
+            val position = args[1] as? Int ?: return@hookBeforeDirectly
+            val adapter = av.adapter ?: return@hookBeforeDirectly
+            if (position < 0 || position >= adapter.count) return@hookBeforeDirectly
+            val item = adapter.getItem(position) ?: return@hookBeforeDirectly
+            val talker = item.reflekt()
+                .firstFieldOrNull { name = "field_username"; superclass() }
+                ?.get() as? String ?: return@hookBeforeDirectly
+            // 公众号/服务号：优先重走微信自己的打开链（构造引擎绑定的 page_info，重启后也有效）。
+            if (talker == "officialaccounts" || talker == "service_officialaccounts") {
+                if (openViaChain(talker, av.context)) {
+                    WeLogger.i(TAG, "folderItemClick via openChain talker=" + talker)
+                    suppressNextClick = true
+                    return@hookBeforeDirectly
+                }
+            }
+            val homeIntent = homeIntentFor(talker, av.context) ?: return@hookBeforeDirectly
+            WeLogger.i(TAG, "folderItemClick intercept talker=" + talker + " -> " + homeIntent.component?.className)
+            val piDbg = runCatching { homeIntent.getParcelableExtra<Parcelable>("page_info") }.getOrNull()
+            WeLogger.i(TAG, "open try cls=" + homeIntent.component?.className + " pi=" + (piDbg?.javaClass?.name) + " uri=" + homeIntent.toUri(0))
+            WeLogger.i(TAG, "openFlags=" + homeIntent.flags + " act=" + homeIntent.action + " data=" + homeIntent.dataString)
+            WeLogger.i(TAG, "openCtx act=" + (av.context is Activity) + " " + av.context.javaClass.name)
+            runCatching {
+                val ctx = av.context
+                if (ctx !is Activity) homeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(homeIntent)
+                WeLogger.i(TAG, "opened ok " + homeIntent.component?.className)
+            }.onFailure { WeLogger.w(TAG, "failed to open aggregated page", it) }
+            suppressNextClick = true
+        }
+
+        // Proxy the installed item click listener; swallow the -1 click that follows our launch.
+        val setListener = runCatching {
+            AdapterView::class.java.getMethod("setOnItemClickListener", AdapterView.OnItemClickListener::class.java)
+        }.getOrNull() ?: return
+        setListener.hookBeforeDirectly {
+            if (activeFolderId == null) return@hookBeforeDirectly
+            val original = args.getOrNull(0) as? AdapterView.OnItemClickListener ?: return@hookBeforeDirectly
+            if (original is Proxy) return@hookBeforeDirectly
+            val av = thisObject as? AdapterView<*> ?: return@hookBeforeDirectly
+            val proxy = Proxy.newProxyInstance(
+                original.javaClass.classLoader,
+                arrayOf(AdapterView.OnItemClickListener::class.java)
+            ) { _, method, methodArgs ->
+                if (method.name == "onItemClick") {
+                    if (suppressNextClick) {
+                        suppressNextClick = false
+                        return@newProxyInstance null
+                    }
+                    method.invoke(original, *(methodArgs ?: emptyArray()))
+                }
+                null
+            }
+            args[0] = proxy
+        }
+    }
+
+    private fun homeIntentFor(talker: String, context: Context): Intent? {
+        val cls = when (talker) {
+            "officialaccounts" -> BRAND_FLUTTER_UI
+            "service_officialaccounts" -> BRAND_SERVICE_UI
+            "gh_158599a58f81" -> ENTERPRISE_UI
+            else -> return null
+        }
+        val cached = cachedHomeIntents[cls]
+        if (cached != null) {
+            refreshPageInfoId(cached, cls)
+            dumpIntent("USED", cached)
+            return cached
+        }
+        return Intent().setClassName(context, cls)
+    }
+
+    // The page_info carries a process-scoped session uuid (field d) that WeChat regenerates per
+    // process; a cached one from a previous process is rejected after restart (tapping opens a
+    // plain conversation or a blank flutter page). WeChat's own live FlutterPageInfo objects
+    // (engine state intact) are preferred; otherwise refresh d to the live process uuid and set
+    // e to a fresh value (a null/previous-process e is rejected by the flutter page).
+    private fun refreshPageInfoId(intent: Intent, cls: String) {
+        val live = when (cls) {
+            BRAND_FLUTTER_UI -> livePageInfoBiz ?: livePageInfoBrandService
+            BRAND_SERVICE_UI -> livePageInfoBrandService ?: livePageInfoBiz
+            else -> null
+        }
+        if (live != null) {
+            runCatching {
+                val cur = intent.getParcelableExtra<Parcelable>("page_info") ?: return
+                // WeChat's pre-warmed biz page_info has e=null; stamp a fresh value so the
+                // flutter page accepts it, then swap it in.
+                val fe = live.javaClass.getDeclaredField("e")
+                fe.isAccessible = true
+                fe.set(live, freshPageInfoE())
+                // 页面类型（f）必须匹配目标 Activity：服务号页面用 brand_service，公众号用 biz。
+                // 微信首页只构造过 biz 的 live 对象时，服务号点击兜底复用它的 session(d)，
+                // 但 f 要改成 brand_service，否则 BrandServiceTimelineUI 拒绝。
+                val targetF = when (cls) {
+                    BRAND_SERVICE_UI -> "brand_service"
+                    else -> "biz"
+                }
+                runCatching {
+                    val ff = live.javaClass.getDeclaredField("f")
+                    ff.isAccessible = true
+                    if (ff.get(live) != targetF) {
+                        ff.set(live, targetF)
+                        WeLogger.i(TAG, "pageInfo f switched to " + targetF)
+                    }
+                }
+                intent.putExtra("page_info", live)
+                WeLogger.i(TAG, "pageInfo replaced with live biz obj e=" + fe.get(live))
+                return
+            }.onFailure { WeLogger.w(TAG, "replace pageInfo failed", it) }
+        }
+        val curD = currentPageInfoId ?: UUID.randomUUID().toString()
+        if (currentPageInfoId == null) currentPageInfoId = curD
+        if (curD == null) {
+            WeLogger.i(TAG, "pageInfo refresh skipped no live id")
+            return
+        }
+        runCatching {
+            val pi = intent.getParcelableExtra<Parcelable>("page_info") ?: return
+            val fd = pi.javaClass.getDeclaredField("d")
+            fd.isAccessible = true
+            fd.set(pi, curD)
+            val fe = pi.javaClass.getDeclaredField("e")
+            fe.isAccessible = true
+            fe.set(pi, freshPageInfoE())
+            WeLogger.i(TAG, "pageInfo d/e refreshed=" + curD + " / " + fe.get(pi))
+        }.onFailure { WeLogger.w(TAG, "refresh pageInfo d/e failed", it) }
+    }
+
+    // WeChat's page_info.e is a String (e.g. "88463146"). Fresh value per tap.
+    private fun freshPageInfoE(): String = (System.currentTimeMillis() % 100000000L).toString()
+
+    // Lazily hook the flutter open-chain method (ok0$l1.w) once the brandservice plugin is
+    // loaded. The class lives in the plugin dex; resolve it via a stack-frame class name plus
+    // the plugin ClassLoader found on a ctor arg.
+    @Volatile
+    private var openChainHooked = false
+    private fun hookOpenChain(frame: StackTraceElement) {
+        if (openChainHooked) return
+        openChainHooked = true
+        runCatching {
+            val frameCls = frame.className // e.g. ok0$l1
+            // Prefer the plugin loader; fall back to the host loader (the class may actually
+            // live in the host dex and only fail early during module init before WeChat loads).
+            val loader = ctorArgPluginLoader ?: Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
+            if (loader == null) {
+                WeLogger.i(TAG, "hookOpenChain no plugin loader for " + frameCls)
+                return
+            }
+            val clz = try {
+                loader.loadClass(frameCls)
+            } catch (e: Throwable) {
+                if (loader !== Class.forName("com.tencent.mm.ui.LauncherUI").classLoader) {
+                    Class.forName("com.tencent.mm.ui.LauncherUI").classLoader.loadClass(frameCls)
+                } else null
+            } ?: return
+            // 诊断 + 兜底：dump 打开链类构造签名/静态字段，hook 构造记录实例，供 openViaChain 自建实例。
+            runCatching {
+                clz.declaredConstructors.forEach { c ->
+                    WeLogger.i(TAG, "openChain ctor " + c.parameterTypes.joinToString(",") { it.name })
+                }
+                clz.declaredFields.filter { java.lang.reflect.Modifier.isStatic(it.modifiers) }.forEach { f ->
+                    runCatching {
+                        f.isAccessible = true
+                        WeLogger.i(TAG, "openChain staticField " + f.name + "=" + f.type.name + ":" + (f.get(null)?.toString()?.take(60) ?: "null"))
+                    }
+                }
+            }.onFailure { WeLogger.w(TAG, "dump openChain class failed", it) }
+            clz.declaredConstructors.forEach { ctor ->
+                runCatching {
+                    ctor.hookAfter {
+                        val inst = thisObject
+                        if (inst != null) {
+                            cachedOpenChainInstance = inst
+                            WeLogger.i(TAG, "openChain ctor created inst=" + inst.javaClass.name)
+                            dumpOpenChainInstance(inst)
+                        }
+                    }
+                }
+            }
+            clz.declaredMethods.forEach { m ->
+                m.hookBefore {
+                    runCatching {
+                        val a = args?.map {
+                            it?.javaClass?.simpleName + ":" + runCatching { it?.toString()?.take(200) }.getOrNull()
+                        }?.joinToString(" || ")
+                        val static = java.lang.reflect.Modifier.isStatic(m.modifiers)
+                        WeLogger.i(TAG, "openChain." + m.name + " called static=" + static + " this=" + thisObject?.javaClass?.simpleName + " args=" + a)
+                        if (m.name == "b" || m.name == "h") {
+                            val inst = thisObject
+                            if (inst != null) cachedOpenChainInstance = inst
+                        }
+                        // 捕获微信打开链入口 c(LauncherUI, Class, Intent, null)：入口实例 +
+                        // LauncherUI 上下文，文件夹点击时重走微信自己的打开链构造有效 page_info。
+                        if (m.name == "c" && args != null) {
+                            runCatching {
+                                cachedOpenChainInstance = thisObject
+                                cachedLauncherUi = args.getOrNull(0)
+                                cachedOpenChainIntent = args.getOrNull(2) as? Intent
+                                WeLogger.i(TAG, "openChain.c params=" + m.parameterTypes.joinToString(",") { it.name })
+                                (args.getOrNull(2) as? Intent)?.let { dumpIntent("openChain.c-intent", it) }
+                            }
+                        }
+                    }
+                }
+                WeLogger.i(TAG, "openChain hooked " + m.name + " static=" + java.lang.reflect.Modifier.isStatic(m.modifiers))
+            }
+        }.onFailure { WeLogger.w(TAG, "hookOpenChain failed", it) }
+    }
+
+    // Plugin ClassLoader discovered from a FlutterPageInfo ctor arg (the plugin-domain object).
+    @Volatile
+    private var ctorArgPluginLoader: ClassLoader? = null
+
+    // The ok0.l1 open-chain instance WeChat used for the most recent homepage open; needed to
+    // re-invoke the open-chain entry from a folder tap (its methods are instance methods).
+    @Volatile
+    private var cachedOpenChainInstance: Any? = null
+
+    // WeChat's open-chain entry c(LauncherUI, Class, Intent, null) launches the flutter page
+    // through its own chain (d/w), which constructs a fresh, engine-registered page_info. The
+    // LauncherUI context and the intent it received are captured from the homepage open.
+    @Volatile
+    private var cachedLauncherUi: Any? = null
+    @Volatile
+    private var cachedOpenChainIntent: Intent? = null
+
+    // Folder taps on the virtual-session rows re-invoke WeChat's own open chain: it constructs
+    // the page_info, registers it with the live flutter engine, then starts the target
+    // Activity. This mirrors the homepage tap exactly, so the page opens with correct content
+    // even after the engine was recycled or the process restarted (a fresh ok0.l1 instance is
+    // constructed when no cached one exists).
+    private fun tryOpenChain(talker: String): Boolean {        return runCatching {
+            val hostLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
+            val openClz = Class.forName("ok0.l1", false, hostLoader)
+            val l1Inst = cachedOpenChainInstance ?: openClz.getDeclaredConstructor().let { c ->
+                c.isAccessible = true
+                c.newInstance()
+            }
+            val activityClsName = if (talker == "service_officialaccounts") BRAND_SERVICE_UI else BRAND_FLUTTER_UI
+            val activityCls = Class.forName(activityClsName, false, hostLoader)
+            val activityInst = activityCls.getDeclaredConstructor().let { c ->
+                c.isAccessible = true
+                c.newInstance()
+            }
+            val b = openClz.declaredMethods.firstOrNull { m ->
+                m.name == "b" && m.parameterCount == 1 && m.parameterTypes[0].isAssignableFrom(activityCls)
+            }
+            if (b == null) {
+                WeLogger.i(TAG, "openChain no b method for " + talker)
+                return false
+            }
+            b.isAccessible = true
+            b.invoke(l1Inst, activityInst)
+            WeLogger.i(TAG, "openChain b invoked for " + talker + " inst=" + l1Inst.javaClass.name)
+            true
+        }.getOrElse {
+            WeLogger.w(TAG, "openChain invoke failed for " + talker, it)
+            false
+        }
+    }
+
+    // Re-run WeChat's own open-chain entry c(LauncherUI, Class, Intent, null) captured from the
+    // homepage open. WeChat's d/w inside c constructs a fresh page_info bound to the live flutter
+    // engine, so the aggregated page opens with valid content without needing a pre-warm tap.
+    private fun openViaChain(talker: String, context: Context): Boolean {
+        val launcher = cachedLauncherUi ?: return false.also { WeLogger.i(TAG, "openViaChain no launcherUi") }
+        val cls = when (talker) {
+            "officialaccounts" -> BRAND_FLUTTER_UI
+            "service_officialaccounts" -> BRAND_SERVICE_UI
+            else -> return false.also { WeLogger.i(TAG, "openViaChain unsupported " + talker) }
+        }
+        return runCatching {
+            val hostLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
+            val openClz = runCatching {
+                Class.forName("ok0.l1", false, hostLoader)
+            }.getOrElse { Class.forName("ok0\u0024l1", false, hostLoader) }
+            // 优先用微信最近一次打开链实例；否则 new 一个（微信 c 方法内部会完成 page_info 构造）。
+            val l1 = cachedOpenChainInstance ?: openClz.getDeclaredConstructor().run {
+                isAccessible = true
+                newInstance()
+            }
+            val m = openClz.declaredMethods.firstOrNull { it.name == "c" && it.parameterCount == 4 }
+            if (m == null) {
+                WeLogger.i(TAG, "openChain no c(4) method")
+                return false
+            }
+            m.isAccessible = true
+            // c(LauncherUI, Class, Intent, null): mirror the captured homepage call; the intent
+            // carries KEY_HOME_PAGE_CLS etc. and WeChat rebuilds page_info for the target.
+            val intent = Intent().setClassName(context, cls)
+            val activityCls = Class.forName(cls, false, hostLoader)
+            m.invoke(l1, launcher, activityCls, intent, null)
+            WeLogger.i(TAG, "openChain c invoked for " + talker + " -> " + cls + " l1=" + l1.javaClass.name)
+            true
+        }.getOrElse {
+            WeLogger.w(TAG, "openChain c failed for " + talker, it)
+            false
+        }
+    }
+
+    // The flutter/brand Activities declare plugin-domain objects as fields; their loaders are
+    // the plugin ClassLoader that can load the open-chain class (ok0$l1).
+    private fun pluginLoaderFromActivity(mmLoader: ClassLoader) {
+        runCatching {
+            listOf("com.tencent.mm.plugin.flutter.ui.MMFlutterViewActivity", BRAND_FLUTTER_UI).forEach { n ->
+                runCatching {
+                    val c = Class.forName(n, false, mmLoader)
+                    WeLogger.i(TAG, "hostLoader has " + n)
+                    c.declaredMethods.firstOrNull { it.name == "onCreate" && it.parameterCount == 1 }?.hookAfter {
+                        runCatching {
+                            if (ctorArgPluginLoader != null) return@hookAfter
+                            thisObject?.javaClass?.declaredFields?.forEach { fd ->
+                                runCatching {
+                                    fd.isAccessible = true
+                                    val v = fd.get(thisObject)
+                                    if (v != null) {
+                                        val vl = v.javaClass.classLoader
+                                        if (vl != null && vl !== mmLoader && vl !== ClassLoaders.BOOT) {
+                                            ctorArgPluginLoader = vl
+                                            WeLogger.i(TAG, "plugin loader from " + thisObject?.javaClass?.simpleName + "." + fd.name + " -> " + vl)
+                                            hookOpenChainNow()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Once the plugin loader is known, hook every ok0$l1 method to capture the real open-chain
+    // invocation prototype (which method takes the session talker, instance vs static, params).
+    @Volatile
+    private var openChainFieldsDumped = false
+    private fun hookOpenChainNow() {
+        val hostLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
+        val loader = ctorArgPluginLoader ?: hostLoader
+        runCatching {
+            val clz = try {
+                loader.loadClass("ok0.l1")
+            } catch (e: Throwable) {
+                if (loader !== hostLoader) hostLoader.loadClass("ok0.l1") else throw e
+            }
+            clz.declaredMethods.forEach { m ->
+                m.hookBefore {
+                    runCatching {
+                        val a = args?.map {
+                            it?.javaClass?.simpleName + ":" + runCatching { it?.toString()?.take(50) }.getOrNull()
+                        }?.joinToString(",")
+                        WeLogger.i(TAG, "ok0l1." + m.name + " this=" + thisObject?.javaClass?.simpleName +
+                            " static=" + java.lang.reflect.Modifier.isStatic(m.modifiers) + " args=" + a)
+                        val inst = thisObject
+                        if (inst != null) {
+                            cachedOpenChainInstance = inst
+                            if (!openChainFieldsDumped) {
+                                openChainFieldsDumped = true
+                                dumpOpenChainInstance(inst)
+                            }
+                        }
+                    }
+                }
+            }
+            WeLogger.i(TAG, "ok0l1 hooked methods=" + clz.declaredMethods.size)
+        }.onFailure { WeLogger.w(TAG, "hook ok0l1 failed", it) }
+    }
+
+    // 找微信 Flutter 引擎会话 UUID（page_info.d 的来源）：dump 打开链实例字段，关注 UUID 字符串
+    // 和引擎类引用，重启后可用真实 d 自己构造 page_info，不再依赖先开首页预热。
+    private fun dumpOpenChainInstance(inst: Any) {
+        runCatching {
+            var c: Class<*>? = inst.javaClass
+            var guard = 0
+            while (c != null && guard < 8) {
+                guard++
+                c.declaredFields.forEach { f ->
+                    runCatching {
+                        f.isAccessible = true
+                        val v = f.get(inst)
+                        if (v != null) {
+                            val vs = v.toString().take(80)
+                            WeLogger.i(TAG, "openChainInst " + c?.name + "." + f.name + "=" + v.javaClass.name + ":" + vs)
+                        }
+                    }
+                }
+                c = c.superclass
+            }
+        }.onFailure { WeLogger.w(TAG, "dump openChain inst failed", it) }
+    }
+
+    private fun dumpIntent(tag: String, intent: Intent) {
+        runCatching {
+            val sb = StringBuilder(tag + " flags=" + intent.flags + " act=" + intent.action +
+                " data=" + intent.dataString + " type=" + intent.type + " id=" + intent.identifier +
+                " clip=" + (intent.clipData != null) + " pkg=" + intent.`package`)
+            val b = intent.extras
+            if (b != null) {
+                sb.append(" extras=" + b.size() + " classLoader=" + (b.classLoader?.javaClass?.name))
+                b.keySet().forEach { k ->
+                    val v = runCatching { b.get(k) }.getOrNull()
+                    val clsName = v?.javaClass?.name ?: "null"
+                    val pi = if (v is Parcelable) {
+                        runCatching { intent.getParcelableExtra<Parcelable>(k) }.getOrNull()
+                    } else null
+                    sb.append(" | ").append(k).append("=").append(clsName)
+                    if (pi != null) sb.append("[ok:").append(pi.javaClass.name).append("]")
+                    else if (v is Parcelable) sb.append("[FAIL]")
+                }
+            } else sb.append(" extras=null")
+            WeLogger.i(TAG, sb.toString())
+        }.onFailure { WeLogger.w(TAG, "dumpIntent failed", it) }
+    }
+
+    private fun dumpPageInfo(tag: String, pi: Any?) {
+        if (pi == null) { WeLogger.i(TAG, tag + " pi=null"); return }
+        var c: Class<*>? = pi.javaClass
+        while (c != null) {
+            runCatching {
+                c.declaredFields.forEach { f ->
+                    f.isAccessible = true
+                    WeLogger.i(TAG, tag + " field " + c?.name + "." + f.name + "=" + f.get(pi))
+                }
+            }
+            c = c.superclass
+        }
+    }
+
+    // Persist the homepage intents so folder taps work right after a restart.
+    private fun saveCachedIntent(context: Context, cls: String, intent: Intent) {
+        runCatching {
+            val dir = context.getDir("wekit_cache", Context.MODE_PRIVATE)
+            val p1 = Parcel.obtain()
+            intent.writeToParcel(p1, 0)
+            File(dir, cls.replace('.', '_') + ".intent").writeBytes(p1.marshall())
+            p1.recycle()
+            val extras = intent.extras
+            if (extras != null) {
+                val p2 = Parcel.obtain()
+                extras.writeToParcel(p2, 0)
+                File(dir, cls.replace('.', '_') + ".bundle").writeBytes(p2.marshall())
+                p2.recycle()
+            }
+        }.onFailure { WeLogger.w(TAG, "save cache failed", it) }
+    }
+
+    private fun loadCachedIntents(context: Context) {
+        runCatching {
+            val mmLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
+            val dir = context.getDir("wekit_cache", Context.MODE_PRIVATE)
+            val files = dir.listFiles() ?: return
+            files.filter { it.name.endsWith(".intent") }.forEach { f ->
+                runCatching {
+                    val bytes = f.readBytes()
+                    val p1 = Parcel.obtain()
+                    p1.unmarshall(bytes, 0, bytes.size)
+                    p1.setDataPosition(0)
+                    val intent = Intent.CREATOR.createFromParcel(p1)
+                    p1.recycle()
+                    val cls = f.name.substringBeforeLast('.').replace('_', '.')
+                    val bFile = File(dir, f.name.substringBeforeLast('.') + ".bundle")
+                    if (bFile.exists()) {
+                        val eb = bFile.readBytes()
+                        val p2 = Parcel.obtain()
+                        p2.unmarshall(eb, 0, eb.size)
+                        p2.setDataPosition(0)
+                        // Deserialize the extras with the WeChat loader so page_info/page_style
+                        // are real objects created by the same loader WeChat itself uses.
+                        val extras = p2.readBundle(mmLoader)
+                        p2.recycle()
+                        if (extras != null) intent.replaceExtras(extras)
+                    }
+                    cachedHomeIntents[cls] = intent
+                    WeLogger.i(TAG, "restored cache " + cls)
+                    dumpIntent("RESTORED", intent)
+                    val pi = runCatching { intent.getParcelableExtra<Parcelable>("page_info") }.getOrNull()
+                    WeLogger.i(TAG, "pageInfo restored ok=" + (pi != null) + " cls=" + (pi?.javaClass?.name))
+                }.onFailure { }
+            }
+        }.onFailure { }
+    }
+
     private fun hookFolderContextMenu() {
         if (methodShowPopupMenu.isPlaceholder) return
+
 
         // The 5th parameter's declared type is the obfuscated select-callback interface (db5.t4,
         // with the single method onMMMenuItemSelected). We proxy it to intercept our own item.
@@ -784,6 +1536,7 @@ object ConversationAggregation : ClickableFeature(),
             val talker = runCatching { extractFolderTalker(createListener, position) }
                 .onFailure { WeLogger.w(TAG, "failed to resolve long-pressed conversation", it) }
                 .getOrNull() ?: return@hookBefore
+            WeLogger.i(TAG, "longpress talker=" + talker + " pos=" + position)
 
             // Only offer removal on a row that is actually a member of this manual folder.
             if (talker !in folder.members) return@hookBefore
@@ -1182,6 +1935,7 @@ object ConversationAggregation : ClickableFeature(),
                 m.apply { isAccessible = true }.hookBeforeDirectly {
                     val text = args.getOrNull(0)?.toString() ?: return@hookBeforeDirectly
                     if (folderTitleNames().contains(text.trim())) {
+                        // 文件夹标题染色：受「文件夹标题染色」独立开关控制（与摘要总开关互不影响）。
                         if (folderTitleEnabled) {
                         args[0] = android.text.SpannableString(text).apply {
                             setSpan(android.text.style.ForegroundColorSpan(MENTION_TITLE_BLUE), 0, text.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -1190,7 +1944,10 @@ object ConversationAggregation : ClickableFeature(),
                         return@hookBeforeDirectly
                     }
                     if (isAggSummary(text)) {
-                        args[0] = tintAggSummary(text, (thisObject as? View)?.context)
+                        // 总开关（摘要颜色染色）关闭时不注入彩色 span，恢复微信默认色。
+                        if (WePrefs.getBoolOrFalse(ConversationAggregationColors.ENABLED_PREF_KEY)) {
+                            args[0] = tintAggSummary(text, (thisObject as? View)?.context)
+                        }
                     }
                     if (CHAT_COUNT_REGEX.containsMatchIn(text)) {
                         tintFolderTitle(thisObject as? View, text)
@@ -1209,6 +1966,8 @@ object ConversationAggregation : ClickableFeature(),
     }
 
     private fun tintFolderTitleByText(root: ViewGroup) {
+        // 开关关闭时不染文件夹标题。
+        if (!WePrefs.getBoolOrFalse(ConversationAggregationColors.ENABLED_PREF_KEY)) return
         runCatching {
             if (!folderTitleEnabled) {
                 val orig = root.getTag(TAG_KEY_TITLE_ORIG) as? Int
@@ -1294,7 +2053,6 @@ object ConversationAggregation : ClickableFeature(),
                     if (title == null) continue
                     val t = title.text?.toString() ?: continue
                     if (!folderTitleNames().contains(t)) { diagFile("tintFolderTitle: skip not-whitelist: " + t.take(15)); continue }
-                    title.setTextColor(MENTION_TITLE_BLUE)
                     if (folderTitleEnabled) title.setTextColor(adaptNight(summaryView.context, MENTION_TITLE_BLUE))
                     diagFile("tintFolderTitle: tinted " + t.take(20) + " color=" + Integer.toHexString(MENTION_TITLE_BLUE))
                     return@runCatching
@@ -1363,6 +2121,8 @@ object ConversationAggregation : ClickableFeature(),
 
     /** 归拢摘要分段着色：[@] 蓝、[N个聊天] 黄、其余恢复微信原生颜色，尾部超宽省略 */
     private fun drawTintedSummary(tv: TextView, canvas: Canvas, text: String) {
+        // 开关关闭时不叠加彩色标签（实时读 pref，设置子项切换后立即生效）。
+        if (!WePrefs.getBoolOrFalse(ConversationAggregationColors.ENABLED_PREF_KEY)) return
         runCatching {
             val paint = TextPaint(tv.paint)
             val originalColor = tv.currentTextColor
@@ -1547,6 +2307,8 @@ object ConversationAggregation : ClickableFeature(),
     }
 
     private fun tintMention(text: String, ctx: Context?): CharSequence? {
+        // 「对话归拢摘要颜色」开关控制所有摘要染色：关闭时不注入彩色 span，恢复微信默认灰色。
+        if (!WePrefs.getBoolOrFalse(ConversationAggregationColors.ENABLED_PREF_KEY)) return null
         val atIdx = text.indexOf("[\u6709\u4eba@\u6211]")
         val selfIdx = text.indexOf("[自己]")
         val chatMatch = CHAT_COUNT_REGEX.find(text)
@@ -1649,6 +2411,7 @@ object ConversationAggregation : ClickableFeature(),
             val text = a.getOrNull(0) as? CharSequence ?: return@hookBefore
             val s0 = text.toString()
             if (folderTitleNames().contains(s0)) {
+                // 文件夹标题染色：受「文件夹标题染色」独立开关控制（与摘要总开关互不影响）。
                 if (folderTitleEnabled) {
                 a[0] = android.text.SpannableString(s0).apply { setSpan(android.text.style.ForegroundColorSpan(MENTION_TITLE_BLUE), 0, s0.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
                 }
@@ -2214,9 +2977,19 @@ object ConversationAggregation : ClickableFeature(),
                         ?: System.currentTimeMillis()
                 )
             } else {
+                val everyoneHit = isEveryoneMention(latest.digest, latest.content)
+                // 【待日志确认】微信 @所有人 时 digest/content 的真实格式。
+                // 现有判断依赖文本关键词（所有人/全体/全员），用户实测未命中（显示 [有人@我]）。
+                // 日志确认前不修改判断逻辑，避免凭空猜微信摘要格式。
+                WeLogger.i(
+                    TAG,
+                    "folderSummary diag folderId=$folderId atMeCount=${state.atMeCount} " +
+                        "unreadChatCount=${state.unreadChatCount} everyoneHit=$everyoneHit " +
+                        "digest=[${latest.digest}] content=[${latest.content.take(80)}]"
+                )
                 FolderSummary(
                     digest = (
-                        if (isEveryoneMention(latest.digest, latest.content) && (state.atMeCount > 0 || state.unreadChatCount > 0)) "[@全体]"
+                        if (everyoneHit && (state.atMeCount > 0 || state.unreadChatCount > 0)) "[@全体]"
                         else if (state.atMeCount > 0) "[有人@我]"
                         else ""
                     ) + (
@@ -2444,14 +3217,6 @@ object ConversationAggregation : ClickableFeature(),
     private fun showManagerDialog(context: Context) {
         showComposeDialog(context) {
             var folders by remember { mutableStateOf(loadFolders()) }
-            var atColor by remember { mutableStateOf(mentionAtColor) }
-            var countColor by remember { mutableStateOf(mentionCountColor) }
-            var selfColor by remember { mutableStateOf(mentionSelfColor) }
-            var memberColor by remember { mutableStateOf(mentionMemberColor) }
-            var titleColor by remember { mutableStateOf(folderTitleColor) }
-            var titleEnabled by remember { mutableStateOf(folderTitleEnabled) }
-            var selfEnabled by remember { mutableStateOf(mentionSelfEnabled) }
-            var memberEnabled by remember { mutableStateOf(mentionMemberEnabled) }
 
             AlertDialogContent(
                 modifier = Modifier
@@ -2459,54 +3224,79 @@ object ConversationAggregation : ClickableFeature(),
                     .fillMaxHeight(),
                 title = { Text("对话归拢") },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         LazyColumn(
-                            modifier = Modifier.heightIn(max = 420.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 300.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            item {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("摘要颜色")
-                                    WeColorField(label = "[全体]/[有人@我]", value = atColor, onValueChange = { atColor = it })
-                                    WeColorField(label = "[N个聊天]/[N个消息]", value = countColor, onValueChange = { countColor = it })
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("[自己]", modifier = Modifier.weight(1f))
-                                        Switch(checked = selfEnabled, onCheckedChange = { selfEnabled = it })
-                                    }
-                                    if (selfEnabled) {
-                                    WeColorField(label = "[自己]", value = selfColor, onValueChange = { selfColor = it })
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("(群成员)", modifier = Modifier.weight(1f))
-                                        Switch(checked = memberEnabled, onCheckedChange = { memberEnabled = it })
-                                    }
-                                    if (memberEnabled) {
-                                    WeColorField(label = "(群成员)", value = memberColor, onValueChange = { memberColor = it })
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("文件夹标题染色", modifier = Modifier.weight(1f))
-                                        Switch(checked = titleEnabled, onCheckedChange = { titleEnabled = it })
-                                    }
-                                    if (titleEnabled) {
-                                        WeColorField(label = "文件夹标题", value = titleColor, onValueChange = { titleColor = it })
-                                    }
-                                }
-                            }
                             if (folders.isEmpty()) {
                                 item {
                                     Text("暂无文件夹, 点击「新建」来创建一个")
                                 }
                             }
-                            items(folders, key = { it.id }) { folder ->
-                                FolderRow(folder) {
-                                    showEditFolderDialog(
-                                        context = context,
-                                        folder = folder,
-                                        onFolderUpdated = { folders = loadFolders() },
-                                        onFolderDeleted = { folders = loadFolders() }
+                            itemsIndexed(folders, key = { _, f -> f.id }) { index, folder ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    FolderRow(
+                                        folder,
+                                        onClick = {
+                                            showEditFolderDialog(
+                                                context = context,
+                                                folder = folder,
+                                                onFolderUpdated = { folders = loadFolders() },
+                                                onFolderDeleted = { folders = loadFolders() }
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f)
                                     )
+                                    TextButton(
+                                        enabled = index > 0,
+                                        onClick = {
+                                            val list = folders.toMutableList()
+                                            list.add(index - 1, list.removeAt(index))
+                                            folders = list
+                                        }
+                                    ) { Text("↑") }
+                                    TextButton(
+                                        enabled = index < folders.size - 1,
+                                        onClick = {
+                                            val list = folders.toMutableList()
+                                            list.add(index + 1, list.removeAt(index))
+                                            folders = list
+                                        }
+                                    ) { Text("↓") }
                                 }
                             }
+                        }
+                        // 摘要颜色：文件夹列表下方的独立标题，展开/收起
+                        var colorsExpanded by remember { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { colorsExpanded = !colorsExpanded }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "摘要颜色",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                if (colorsExpanded) "收起" else "展开",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (colorsExpanded) {
+                            ConversationAggregationColors.ColorSettingsExpandedContent()
                         }
                     }
                 },
@@ -2524,17 +3314,10 @@ object ConversationAggregation : ClickableFeature(),
                 },
                 confirmButton = {
                     Button(onClick = {
-                        mentionAtColor = atColor
-                        mentionCountColor = countColor
-                        mentionSelfColor = selfColor
-                        mentionMemberColor = memberColor
-                        folderTitleColor = titleColor
-                        folderTitleEnabled = titleEnabled
-                        mentionSelfEnabled = selfEnabled
-                        mentionMemberEnabled = memberEnabled
                         saveFolders(folders)
                         syncFoldersToDatabase()
-                        showToast(context, "已保存, 重启微信生效")
+                        runCatching { WeConversationApi.reloadConversations() }
+                        showToast(context, "已保存")
                         onDismiss()
                     }) { Text("保存") }
                 }
@@ -2565,31 +3348,50 @@ object ConversationAggregation : ClickableFeature(),
         onFolderDeleted: () -> Unit
     ) {
         showComposeDialog(context) {
+            val editorDismiss = this.onDismiss
             FolderEditorDialog(
                 title = "编辑文件夹",
                 folder = folder,
-                onDismiss = onDismiss,
+                onDismiss = editorDismiss,
                 onDelete = {
-                    val currentFolders = loadFolders()
-                    saveFolders(currentFolders.filterNot { it.id == folder.id })
-                    onFolderDeleted()
-                    onDismiss()
+                    // 删除前确认，防止误删整个文件夹
+                    showComposeDialog(context) {
+                        val confirmDismiss = this.onDismiss
+                        AlertDialogContent(
+                            title = { Text("删除文件夹") },
+                            text = { Text("确定删除「${folder.name}」吗？删除后该文件夹不再归拢其中的对话。") },
+                            dismissButton = { TextButton(confirmDismiss) { Text("取消") } },
+                            confirmButton = {
+                                Button(onClick = {
+                                    val currentFolders = loadFolders()
+                                    saveFolders(currentFolders.filterNot { it.id == folder.id })
+                                    onFolderDeleted()
+                                    confirmDismiss()
+                                    editorDismiss()
+                                }) { Text("删除") }
+                            }
+                        )
+                    }
                 },
                 onSave = { updatedFolder ->
                     val currentFolders = loadFolders()
                     saveFolders(currentFolders.map { if (it.id == updatedFolder.id) updatedFolder else it })
                     onFolderUpdated()
-                    onDismiss()
+                    editorDismiss()
                 }
             )
         }
     }
 
     @Composable
-    private fun FolderRow(folder: ChatFolder, onClick: () -> Unit) {
+    private fun FolderRow(
+        folder: ChatFolder,
+        onClick: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
         val count = remember(folder) { getFolderMembers(folder).size }
         Column(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
                 .clickable(onClick = onClick)
                 .padding(vertical = 8.dp)
@@ -3112,10 +3914,18 @@ object ConversationAggregation : ClickableFeature(),
      */
     fun markFolderAsRead(folderId: String) {
         val folder = folderById(folderId) ?: return
-        resolveFolderMembers(folder).forEach { member ->
+        // 排除嵌套文件夹行（仅标记真实成员会话），空成员时提前返回避免无效 sync
+        val members = resolveFolderMembers(folder).filterNot(::isFolderId)
+        if (members.isEmpty()) return
+        var failed = 0
+        members.forEach { member ->
             runCatching { WeConversationApi.markAsRead(member) }
-                .onFailure { WeLogger.w(TAG, "markAsRead failed for $member", it) }
+                .onFailure {
+                    failed++
+                    WeLogger.w(TAG, "markAsRead failed for $member", it)
+                }
         }
+        WeLogger.i(TAG, "markFolderAsRead: ${members.size} members${if (failed > 0) ", $failed failed" else ""}")
         syncFoldersToDatabase()
         showToast("已标为已读")
     }

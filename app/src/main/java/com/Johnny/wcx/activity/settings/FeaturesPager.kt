@@ -25,6 +25,7 @@ import com.Johnny.wcx.features.core.SwitchFeature
 import com.Johnny.wcx.features.items.easter_egg.AprilFools
 import com.Johnny.wcx.features.items.easter_egg.isAprilFools
 import com.Johnny.wcx.preferences.WePrefs
+import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.showToastSuspend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,7 +52,12 @@ fun FeaturesPager(onOpenCategory: (String) -> Unit) {
     val query = queryState.text.toString()
     val searching = query.isNotBlank()
 
-    val searchableItems = remember { FeaturesProvider.ALL_HOOK_ITEMS.filterIsInstance<SwitchFeature>() }
+    val searchableItems = remember {
+        FeaturesProvider.ALL_HOOK_ITEMS
+            .filterIsInstance<SwitchFeature>()
+            // 「对话归拢摘要颜色」收进「对话归拢」弹窗内，不再作为独立项目出现在搜索。
+            .filterNot { it.name == "对话归拢摘要颜色" }
+    }
     val filteredItems = remember(query) {
         if (!searching) emptyList()
         else searchableItems.filter {
@@ -181,7 +187,14 @@ fun FeaturesPager(onOpenCategory: (String) -> Unit) {
 @Composable
 fun CategoryDetailScreen(categoryName: String, onBack: () -> Unit) {
     val items = remember(categoryName) {
-        FeaturesProvider.ALL_HOOK_ITEMS.filter { categoryName in it.categories }
+        val all = FeaturesProvider.ALL_HOOK_ITEMS.filter { categoryName in it.categories }
+        val filtered = all.filterNot { it.name == "对话归拢摘要颜色" }
+        // 诊断：确认过滤逻辑与运行时 name（排查平级行残留）
+        WeLogger.i(
+            "FeaturesPager",
+            "cat=$categoryName before=${all.map { it.name }} after=${filtered.map { it.name }}"
+        )
+        filtered
     }
     val switchStates = remember(categoryName) {
         mutableStateMapOf<String, Boolean>().apply {
