@@ -20,6 +20,7 @@
 ## 🛠️ 下游修改项（本仓库优化/修复，均同步上游）
 
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
+> ⚠️ 标记「已随 v247」的条目：v247 重构合入后**采用上游实现，本地无独有代码保留**（上游已含同等能力），仅作功能存档。
 
 ### 2026-09-02
 
@@ -129,9 +130,10 @@
   - 问题：微信 8.0.77 数据库走 WCDB（`com.tencent.wcdb`），framework `SQLiteDatabase.insertWithOnConflict` 不被触发 → `onInsert` 收不到好友申请消息 → 自动同意永久无效。
   - 方案：insert hook 同时覆盖 `android.database.sqlite.SQLiteDatabase`、`com.tencent.wcdb.compat.SQLiteDatabase`、`com.tencent.wcdb.database.SQLiteDatabase` 三个类（WCDB 同名方法签名兼容，runCatching 防 404）；`onInsert` 解析 `fromContentValues` 失败时输出 error 日志便于排查。
 
-- **💰 红包 · 私聊红包可领 + 分裂群组假红包仅假群注入**
-  - 涉及文件：红包相关 feature
-  - 恢复红包功能原始实现，允许领取私聊红包（此前误限制为群聊）；分裂群组假红包仅对假群（`@@chatroom`）注入 key_type，普通群/私聊不受影响。
+- **💰 红包 · 私聊红包可领 + 分裂群组假红包仅假群注入【已随 v247】**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/payment/AllowPrivateChatReceiveOutgoingRedPackets.kt`
+  - v247 合入后采用上游实现（文件与 `upstream/master` 逐字一致），本地无独有代码保留。
+  - 存档：恢复红包功能原始实现，允许领取私聊红包（此前误限制为群聊）；分裂群组假红包仅对假群（`@@chatroom`）注入 key_type，普通群/私聊不受影响。
 
 - **🛠️ 系统与工具 · 微信内模块首页「有更新」模块内自动下载安装**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/activity/settings/HomePager.kt`
@@ -219,9 +221,10 @@
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/beautify/HomeSidePanelFeature.kt`
   - ① 入口可见性轮询（Tab 切换及时隐藏/恢复）；② 触发按钮挂载条件增强；③ 离开首页保留挂载改隐藏；④ 微信 LauncherUI 非 androidx FragmentActivity 兼容（ActionBarOverlayLayout 识别 Tab）。
 
-- **🎨 界面美化 · 莫奈引擎异常防护**
+- **🎨 界面美化 · 莫奈引擎异常防护【已随 v247】**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/beautify/ThemeStore.kt`
-  - 主题色解析（`materialScheme`/`primaryColor`/`onPrimaryColor`）包 try-catch，设备不支持动态取色时回退默认色不崩溃。
+  - v247 合入后实现与上游一致（上游已含 `applyThemeTo`/`registerCallbacks`/`readBuiltinAsset` 等处异常兜底；本地文件仅存 import 写法差异），本地无独有逻辑保留。
+  - 存档：主题色解析（`materialScheme`/`primaryColor`/`onPrimaryColor`）包 try-catch，设备不支持动态取色时回退默认色不崩溃。
 
 - **🔔 通知 · 通知演进优化**
   - 涉及文件：通知相关 feature（MessagingStyle 构建/通知取消 hook）
@@ -233,9 +236,9 @@
 ### 2026-08-24
 
 - **💬 聊天增强 · 归拢@提醒优化** — `ConversationAggregation.kt`：入口行被@时摘要显示「有人@我」（atMeCount 聚合到 folder 行）；染绿 hook 扩展双适配器；剥离摘要 WXID 前缀（后因稳定性回退，保留归拢基础功能）。
-- **💬 聊天增强 · 解除消息多选数量限制 8.0.77** — `RemoveMessageSelectionLimit.kt`：DexKit 适配（ChattingDataAdapterV3 移除，allowFailure + placeholder 降级，onEnable guard）。
+- **💬 聊天增强 · 解除消息多选数量限制 8.0.77【已随 v247】** — `RemoveMessageSelectionLimit.kt`：v247 合入后文件与上游一致（上游 v247 已含 8.0.77 DexKit 适配），本地无独有代码保留；存档：ChattingDataAdapterV3 移除适配（allowFailure + placeholder 降级，onEnable guard）。
 - **💬 聊天增强 · 自动同意好友申请 8.0.77**（已被 08-28 完整版取代）— hook 目标改构造器（`p3.<init>` 接受入口，DexMethodDelegate 无法解析构造器导致 `NoSuchMethodException`）。
-- **💬 聊天增强 · 预见性返回动画 8.0.77** — hook 回调 null 保护 + `ActivityInfo.name` 为 null 降级 + 字段查找异常容错。
+- **💬 聊天增强 · 预见性返回动画 8.0.77【已随 v247】** — `PredictiveBackGestures.kt`：v247 合入后文件与上游一致，本地无独有代码保留；存档：hook 回调 null 保护 + `ActivityInfo.name` 为 null 降级 + 字段查找异常容错。
 - **🎨 界面美化 · 侧边栏头像加载提速** — `HomeSidePanelFeature.kt`：解码按目标尺寸缩小（192px）+ 缓存读写缩小图 + selfWxId 等待 10s→4s + 重试 15→3 次，首次加载从 20s+ 降至秒级。
 - **🎨 界面美化 · 天气卡片（3 项）** — `HomeSidePanelFeature.kt`：① Open-Meteo API 格式识别（`parseWeatherJson` 增加 `current` 字段）；② 湿度/风速独立行左右分布防挤压；③ 加载占位紧凑化、温度 48sp→40sp、湿度补 %/风速补 km/h。
 - **🎨 界面美化 · fork 品牌化** — 版本号统一加 LC 后缀（Kimjaejiang/WCXLC），模块主页 WCX→WCXLC，设置页 GitHub/官方链接与作者署名改为 fork。
@@ -278,14 +281,14 @@
 | 08-26 | 联系人/群聊选择器 | 默认按最近消息时间新-旧排序，DB 未就绪轮询重试 | `ContactSelectors.kt` |
 | 08-25 | 群聊归拢摘要 | `[N个聊天]` 黄、`[有人@我]`/`[@全体]` 蓝（hook `setText` 注入 Spannable） | `ConversationAggregation.kt` |
 | 更早 | 群聊归拢@提醒 | 被@时摘要显示「有人@我」（后因稳定性回退，保留归拢基础功能） | `ConversationAggregation.kt` |
-| 更早 | 消息多选 | DexKit 适配 8.0.77 + allowFailure/placeholder 降级 | `RemoveMessageSelectionLimit.kt` |
+| 更早 | 消息多选【已随 v247】 | v247 已含 8.0.77 DexKit 适配，本地无独有保留（存档：allowFailure/placeholder 降级） | `RemoveMessageSelectionLimit.kt` |
 | 更早 | 自动同意好友申请 | hook 目标改构造器（`p3.<init>` 接受入口）（已被 08-28 完整版取代） | 好友申请 feature |
-| 更早 | 预见性返回动画 | hook 回调 null 保护 + 降级 + 字段查找容错 | 返回动画 feature |
+| 更早 | 预见性返回动画【已随 v247】 | v247 已含 null 保护/降级/容错，本地无独有保留 | 返回动画 feature |
 #### 💰 红包与支付
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
-| 08-27 | **私聊红包可领** | 恢复红包原始实现允许领取私聊红包；分裂群组假红包仅假群注入 key_type | 红包 feature |
+| 08-27 | **私聊红包可领【已随 v247】** | 恢复红包原始实现允许领取私聊红包；分裂群组假红包仅假群注入 key_type（v247 已含，本地无独有保留） | `AllowPrivateChatReceiveOutgoingRedPackets.kt` |
 
 #### 🔔 通知
 
@@ -309,7 +312,7 @@
 | 08-27 | **品牌名统一 WCXLC** | 主页/微信内入口/侧边栏/通知等文案统一 WCXLC（`BuildConfig.TAG` + 9 处硬编码） | `BuildConfig.TAG` 等 |
 | 08-26 | **桌面图标重制** | 去白底 + 红色 `#E53935` 自适应背景 png（5 档 DPI） | `res/mipmap-*` |
 | 08-25 | **侧边栏修复** | 入口可见性轮询 / 挂载条件增强 / 离开改隐藏 / LauncherUI 兼容 | `HomeSidePanelFeature.kt` |
-| 08-25 | **莫奈引擎防护** | 主题色解析 try-catch，设备不支持动态取色回退默认色 | `ThemeStore.kt` |
+| 08-25 | **莫奈引擎防护【已随 v247】** | 主题色解析 try-catch，设备不支持动态取色回退默认色（v247 已含，本地无独有保留） | `ThemeStore.kt` |
 | 08-24 | **侧边栏头像加载提速** | 解码缩小 192px + 缓存缩小图 + 等待 4s + 重试 3 次，秒级加载 | `HomeSidePanelFeature.kt` |
 | 08-24 | **天气卡片** | 识别 `current` 字段 / 湿度风速分行 / 占位紧凑 | `HomeSidePanelFeature.kt` |
 | 08-24 | **fork 品牌化** | WCXLC 品牌 + LC 版本后缀（Kimjaejiang/WCXLC） | 多处 |
