@@ -234,11 +234,17 @@ jobs:
       - name: Collect APKs
         run: |
           mkdir -p dist/apk
-          find app/build/outputs/apk -type f -name '*.apk' -exec cp -v {} dist/apk/ \;
+          # APK 带版本号命名：app-<flavor>-${VER}-release.apk（VER = YYMMDDHHMMSS）
+          for f in $(find app/build/outputs/apk -type f -name "*release.apk"); do
+            n=$(basename "$f")
+            case "$n" in
+              *standard*|*legacy*) flavor=$(echo "$n" | sed "s/-release\\.apk$//"); cp -v "$f" "dist/apk/${flavor}-${VER}-release.apk" ;;
+              *) cp -v "$f" "dist/apk/${n}" ;;
+            esac
+          done
           echo "Collected APKs:"
           echo "${VER}" > dist/apk/ver.txt
           ls -1 dist/apk
-
       - name: Collect mappings
         run: |
           mkdir -p dist/mapping

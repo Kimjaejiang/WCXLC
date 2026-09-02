@@ -24,6 +24,21 @@
 
 ### 2026-09-02
 
+- **🎨 界面美化 · 微信主页侧边栏：同步上游 v247 实现（HomeSidePanelFeature 恢复为 upstream/master）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/beautify/HomeSidePanelFeature.kt`
+  - 动作：本地自定义版入口文件整体恢复为上游 v247 实现——接入方式二（WeKit 负一屏全家桶）：`hsp_side_mode` pref + `installPanel`/`uninstallPanel` 接线；设置页新增「侧边栏实现方式」切换（需重启生效）；Json 反序列化改显式 `ListSerializer`，避免宿主下反射缺省崩溃；文案统一回 `WCX`。
+  - 说明：对齐后该功能与上游一致，本地历史优化见 08-24/08-25 存档条目，不再保留独有代码。
+
+- **🛠️ 构建/CI · bsh 子模块并入主仓库（修复 CI 全新 clone 无法拉取 844b5f0）**
+  - 涉及文件：`libs/common/bsh/**`、`.gitmodules`
+  - 背景：`libs/common/bsh` 原为 submodule（`Johnny520/bsh`），gitlink 指向 `844b5f0`——该 commit（`interpreter`/`returnType` 修复，`ScriptsDrmBypassHook` 依赖）仅存在于本地、从未推送上游，CI `actions/checkout`（`submodules: recursive`）报 `upload-pack: not our ref 844b5f0…`。
+  - 修复：bsh 由 submodule 转为普通目录纳入主仓库（内容 = `844b5f0` 状态，剔除自带 gradle wrapper），`.gitmodules` 移除 bsh 条目；`reflekt` 子模块不受影响；本地 `:libs:common:bsh:compileDebugJavaWithJavac` 验证通过。
+
+- **🛠️ 构建/CI · native 依赖与入口修复（全新 runner 可构建）**
+  - 涉及文件：`.cargo/config.toml`（恢复）、`app/src/main/rust/wekit-native/Cargo.toml`、`Cargo.lock`、`app/src/main/rust/wekit-native/Cargo.lock`
+  - 修复 ①：恢复根 `.cargo/config.toml` 的 `xtask` alias（`xtask = "run --package xtask --"`，上游 16ebd44d 曾批量删除），`cargo xtask configure` / `cargo xtask build --native-only` 不再报 `no such command: xtask`；
+  - 修复 ②：`silk-v3-sys` git 依赖去掉 `https://ghproxy.net/` 前缀直连官方 GitHub（上游 v247 写死代理前缀，CI/国内均拉取失败），指向同一 commit `336ac8a8`，同步根与 wekit-native 两处 `Cargo.lock`。
+
 - **💬 聊天增强 · 归拢 @所有人 正确显示 [@全体]（不再误判为 [有人@我]）**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
   - 问题：文件夹内群聊 @所有人 时，文件夹行摘要错误显示 `[有人@我]` 而非 `[@全体]`（单群聊 @所有人 场景必现）。
@@ -308,6 +323,7 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
+| 09-02 | **侧边栏同步上游 v247** | HomeSidePanelFeature 恢复为 upstream/master：方式二接入 + 设置切换 + 显式 ListSerializer | `HomeSidePanelFeature.kt` |
 | 08-29 | **隐藏对话列表分割线** | 会话页线 View GONE 锁定 + 归拢文件夹 9-patch 背景替换（深色取灰/亮色白）+ 搜索页 clipBounds 裁剪，按 Activity 限定不误伤其他页 | `HideConversationListDividers.kt` |
 | 08-27 | **品牌名统一 WCXLC** | 主页/微信内入口/侧边栏/通知等文案统一 WCXLC（`BuildConfig.TAG` + 9 处硬编码） | `BuildConfig.TAG` 等 |
 | 08-26 | **桌面图标重制** | 去白底 + 红色 `#E53935` 自适应背景 png（5 档 DPI） | `res/mipmap-*` |
@@ -322,6 +338,8 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
+| 09-02 | **bsh 并入主仓库（CI）** | gitlink `844b5f0` 仅本地 → 转普通目录纳入，CI checkout 不再报 not our ref | `libs/common/bsh`、`.gitmodules` |
+| 09-02 | **cargo xtask alias / silk 直连（CI）** | 恢复 `.cargo/config.toml` alias；`silk-v3-sys` 去 ghproxy 直连官方 | `.cargo/config.toml`、wekit-native `Cargo.toml`/`Cargo.lock` |
 | 08-29 | **APK 体积优化 -37%** | 移除 Compose 全量 keep，R8 裁剪未用 Compose 代码：35.4MB → 22.4MB | `proguard-rules.pro` |
 | 08-27 | **Maven 构建源** | 阿里云镜像置前 + 移除 GitHub Packages + CI 探测错误改纯文本 | `settings.gradle.kts` |
 | 08-27 | **CI 海外镜像 502** | CI 设 `WCX_USE_ALIYUN=false` 直连官方源，本地默认镜像不受影响 | `settings.gradle.kts`、`ci.yml` |
