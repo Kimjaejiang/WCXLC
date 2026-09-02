@@ -15,6 +15,7 @@ import android.view.View
 import com.tencent.mm.plugin.multitalk.ui.MultiTalkMainUI
 import com.tencent.mm.plugin.voip.ui.VideoActivity
 import dev.ujhhgtg.reflekt.reflekt
+import dev.ujhhgtg.reflekt.utils.toClass
 import com.Johnny.wcx.activity.PipVoipActivity
 import com.Johnny.wcx.constants.PackageNames
 import com.Johnny.wcx.dexkit.abc.IResolveDex
@@ -303,7 +304,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
 
     private val fieldMultiTalkViewModel by dexField(allowFailure = true) {
         matcher {
-            declaredClass(MultiTalkMainUI::class.java)
+            declaredClass("com.tencent.mm.plugin.multitalk.ui.MultiTalkMainUI")
             type(classMultiTalkViewModel.clazz)
         }
     }
@@ -329,7 +330,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
 
     private val methodMultiTalkMinimize by dexMethod(allowFailure = true) {
         matcher {
-            declaredClass(MultiTalkMainUI::class.java)
+            declaredClass("com.tencent.mm.plugin.multitalk.ui.MultiTalkMainUI")
             paramCount = 0
             returnType = "void"
             usingEqStrings("onMiniMultiTalk")
@@ -338,7 +339,7 @@ object PipVoip : SwitchFeature(), IResolveDex {
 
     private val methodMultiTalkExit by dexMethod(allowFailure = true) {
         matcher {
-            declaredClass(MultiTalkMainUI::class.java)
+            declaredClass("com.tencent.mm.plugin.multitalk.ui.MultiTalkMainUI")
             paramCount = 0
             returnType = "void"
             usingEqStrings("onExitMultiTalk")
@@ -466,14 +467,16 @@ object PipVoip : SwitchFeature(), IResolveDex {
             removeSession(thisObject as VideoActivity)
         }
 
-        MultiTalkMainUI::class.reflekt().firstMethod {
+        // multitalk 群通话 UI 属微信插件 dex, 启用时可能尚未加载; 加载失败则跳过该组 hook(参照 VirtualVoipVideo)
+        runCatching { "com.tencent.mm.plugin.multitalk.ui.MultiTalkMainUI".toClass() }.getOrNull()?.let { multiTalkUi ->
+        multiTalkUi.reflekt().firstMethod {
             name = "onCreate"
             parameterCount = 1
         }.hookAfter {
             val activity = thisObject as MultiTalkMainUI
             sessions[activity] = GroupSession(activity)
         }
-        MultiTalkMainUI::class.reflekt().firstMethod {
+        multiTalkUi.reflekt().firstMethod {
             name = "onDestroy"
             parameterCount = 0
         }.hookBefore {
@@ -495,10 +498,11 @@ object PipVoip : SwitchFeature(), IResolveDex {
             }
         }
 
-        Activity::class.reflekt().firstMethod { name = "onUserLeaveHint" }.hookBefore {
-            val activity = thisObject
-            if (activity is MultiTalkMainUI) {
-                sessions.getValue(activity).enterPip()
+            Activity::class.reflekt().firstMethod { name = "onUserLeaveHint" }.hookBefore {
+                val activity = thisObject
+                if (multiTalkUi.isInstance(activity)) {
+                    sessions.getValue(activity as Activity).enterPip()
+                }
             }
         }
     }

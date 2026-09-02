@@ -310,7 +310,7 @@ object LocalAdaptationEngine {
                     }
                     successCount++
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) { // 捕获 Error(NoClassDefFoundError 等): 单 feature 解析失败不崩 scan 线程(微信插件类预解析时可能未加载)
                 WeLogger.w(TAG, "failed to resolve ${feature.displayName}: ${e.message}")
                 failCount++
             }

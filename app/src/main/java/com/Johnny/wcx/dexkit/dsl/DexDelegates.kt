@@ -99,7 +99,9 @@ class DexClassDelegate internal constructor(
     ): Boolean {
         val results = try {
             dexKit.findClass(block)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // 捕获 Error（NoClassDefFoundError 等）：微信插件类可能尚未被宿主加载，
+            // 预解析时不应让单个 feature 的失败崩掉整个 scan 线程。
             WeLogger.w("DexClassDelegate", "DexKit findClass failed for key: $key, error: ${e.message}")
             if (!allowFailure) setPlaceholderDescriptor()
             return false
@@ -196,7 +198,9 @@ class DexFieldDelegate internal constructor(
     ): Boolean {
         val results = try {
             dexKit.findField(block)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // 捕获 Error（NoClassDefFoundError 等）：微信插件类可能尚未被宿主加载，
+            // 预解析时不应让单个 feature 的失败崩掉整个 scan 线程。
             WeLogger.w("DexFieldDelegate", "DexKit findField failed for key: $key, error: ${e.message}")
             setPlaceholderDescriptor()
             return false
@@ -324,7 +328,9 @@ class DexMethodDelegate internal constructor(
     ): Boolean {
         val results = try {
             dexKit.findMethod(block)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // 捕获 Error（NoClassDefFoundError 等）：微信插件类可能尚未被宿主加载，
+            // 预解析时不应让单个 feature 的失败崩掉整个 scan 线程。
             WeLogger.w("DexMethodDelegate", "DexKit findMethod failed for key: $key, error: ${e.message}")
             setPlaceholderDescriptor()
             return false
@@ -435,7 +441,9 @@ class DexConstructorDelegate internal constructor(
                 if (matcher == null) matcher { name = "<init>" }
                 else matcher!!.name = "<init>"
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // 捕获 Error（NoClassDefFoundError 等）：微信插件类可能尚未被宿主加载，
+            // 预解析时不应让单个 feature 的失败崩掉整个 scan 线程。
             WeLogger.w("DexConstructorDelegate", "DexKit findConstructor failed for key: $key, error: ${e.message}")
             setPlaceholderDescriptor()
             return false
