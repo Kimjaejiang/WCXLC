@@ -1,5 +1,4 @@
 package com.Johnny.wcx.features.items.beautify
-import de.robv.android.xposed.XC_MethodHook
 
 import android.app.Activity
 import android.app.Application
@@ -55,15 +54,17 @@ import com.Johnny.wcx.features.api.core.WeApi
 import com.Johnny.wcx.features.api.core.WeDatabaseApi
 import com.Johnny.wcx.features.core.ClickableFeature
 import com.Johnny.wcx.features.core.Feature
+import com.Johnny.wcx.features.items.beautify.home_screen_panel.HomeSidePanel
 import com.Johnny.wcx.preferences.WePrefs
 import com.Johnny.wcx.ui.content.AlertDialogContent
 import com.Johnny.wcx.ui.content.Button
 import com.Johnny.wcx.ui.content.DefaultColumn
 import com.Johnny.wcx.ui.content.TextButton
 import com.Johnny.wcx.ui.utils.showComposeDialog
-import com.Johnny.wcx.utils.HookParam
+import de.robv.android.xposed.XC_MethodHook
 import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.hookBeforeDirectly
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -142,9 +143,9 @@ import com.composables.icons.materialsymbols.outlinedfilled.Wallet
  * ✅ 所有 UI 逻辑 try-catch 包裹，异常仅记日志，绝不闪退
  */
 @Feature(
-    name = "微信主页侧滑侧边栏",
+    name = "微信主页侧边栏",
     categories = ["界面美化"],
-    description = "在微信主页左侧添加侧滑面板：头像/签名/天气/每日一言/4 槽快捷"
+    description = "在微信主页添加左侧侧滑边栏：方式一为内置面板（头像/签名/天气/每日一言/4 槽快捷），方式二为 WeKit 负一屏全家桶，两者互斥见设置"
 )
 object HomeSidePanelFeature : ClickableFeature() {
 
@@ -294,6 +295,8 @@ object HomeSidePanelFeature : ClickableFeature() {
     private var triggerMode by WePrefs.prefOption("${PREFS_PREFIX}trigger_mode", 7)
     // 左边缘触摸条宽度（dp，仅开启左边缘右滑时生效；10~80，默认 28）
     private var edgeZoneWidthDp by WePrefs.prefOption("${PREFS_PREFIX}edge_zone_width_dp", 28)
+    // 侧边栏实现方式：1=方式一（本模块原版），2=方式二（WeKit 侧边栏）；默认 1
+    private var sidePanelMode by WePrefs.prefOption("hsp_side_mode", 1)
 
     /** 旧版本编码（0=全屏,1=按钮,2=全屏+按钮）迁移到新位掩码（首次读取时写回一次）。 */
     private fun migratedTriggerMode(): Int {
@@ -397,7 +400,7 @@ object HomeSidePanelFeature : ClickableFeature() {
         val json = quickSlotsJson
         if (json.isBlank()) return defaultSlotConfigs
         return try {
-            val parsed = Json.decodeFromString<List<SlotConfig>>(json)
+            val parsed = Json.decodeFromString(ListSerializer(SlotConfig.serializer()), json)
             // 保证 4 个 slot，缺失时回退
             val result = defaultSlotConfigs.toMutableList()
             for (i in 0..3) {
@@ -418,7 +421,7 @@ object HomeSidePanelFeature : ClickableFeature() {
         val json = customFeaturesJson
         if (json.isBlank()) return emptyList()
         return try {
-            Json.decodeFromString<List<CustomFeature>>(json)
+            Json.decodeFromString(ListSerializer(CustomFeature.serializer()), json)
         } catch (e: Exception) {
             WeLogger.e(TAG, "解析自定义功能配置失败", e)
             emptyList()
@@ -463,7 +466,7 @@ object HomeSidePanelFeature : ClickableFeature() {
     /** 模块内置功能（用于 slot 选择） */
     private fun moduleTargets(): List<Triple<String, String, String>> {
         return listOf(
-            Triple("WCXLC 设置", "⚙", "com.Johnny.wcx.SettingsActivity"),
+            Triple("WCX 设置", "⚙", "com.Johnny.wcx.SettingsActivity"),
             Triple("清空未读", "✓", "__clear_unread__"),
             Triple("群成员变动提醒", "☻", "__group_member__")
         )
@@ -498,11 +501,17 @@ object HomeSidePanelFeature : ClickableFeature() {
         if (!BuildConfig.BEAUTIFY_ENABLED) {
             WeLogger.w(TAG, "侧边栏功能编译开关已关闭，跳过启用"); return
         }
+        if (sidePanelMode == 2) {
+            WeLogger.i(TAG, "侧边栏实现方式为方式二（WeKit 版），启用 WeKit 负一屏面板")
+            HomeSidePanel.installPanel()
+            return
+        }
         masterEnabled = true
         registerActivityCallbacks()
     }
 
     override fun onDisable() {
+        HomeSidePanel.uninstallPanel()
         masterEnabled = false
         gestureHookInstalled = false
         unregisterActivityCallbacks()
@@ -1489,11 +1498,11 @@ private fun isHomeTabClass(className: String): Boolean {
         if (clearUnreadEnabled) list.add(FeatureEntry(MaterialSymbols.OutlinedFilled.Check_circle, "清空未读") {
             try { Toast.makeText(act, "已尝试清空未读（占位）", Toast.LENGTH_SHORT).show() } catch (e: Throwable) { WeLogger.e(TAG, "清空未读异常", e) }
         })
-        if (wcxSettingsEnabled) list.add(FeatureEntry(MaterialSymbols.OutlinedFilled.Settings, "WCXLC 设置") {
+        if (wcxSettingsEnabled) list.add(FeatureEntry(MaterialSymbols.OutlinedFilled.Settings, "WCX 设置") {
             try {
                 val intent = Intent(act, Class.forName("com.Johnny.wcx.activity.settings.SettingsActivity")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                 act.startActivity(intent)
-            } catch (e: Throwable) { WeLogger.e(TAG, "WCXLC 设置启动异常", e); showToast("无法打开WCXLC设置") }
+            } catch (e: Throwable) { WeLogger.e(TAG, "WCX 设置启动异常", e); showToast("无法打开WCX设置") }
         })
         val customs = loadCustomFeatures()
         customs.forEach { cf ->
@@ -2528,9 +2537,10 @@ private fun isHomeTabClass(className: String): Boolean {
                 var localEdge by remember { mutableStateOf((initMode and MODE_EDGE_STRIP) != 0) }
                 var localButton by remember { mutableStateOf((initMode and MODE_TRIGGER_BUTTON) != 0) }
                 var localEdgeWidth by remember { mutableStateOf(edgeZoneWidthDp.toFloat()) }
+                var localSideMode by remember { mutableStateOf(sidePanelMode) }
 
                 AlertDialogContent(
-                    title = { Text("微信主页侧滑侧边栏") },
+                    title = { Text("微信主页侧边栏") },
                     text = {
                         DefaultColumn(
                             modifier = Modifier
@@ -2584,6 +2594,24 @@ private fun isHomeTabClass(className: String): Boolean {
                                 }
                             }
                             Text(
+                                "侧边栏实现",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                            )
+                            ListItem(
+                                modifier = Modifier.clickable { localSideMode = if (localSideMode == 1) 2 else 1 },
+                                trailingContent = { Text(if (localSideMode == 1) "方式一 · 原版侧边栏" else "方式二 · WeKit 侧边栏", fontSize = 12.sp) },
+                                headlineContent = { Text("侧边栏实现方式") }
+                            )
+                            Text(
+                                "方式一：本模块原有侧边栏（头像/签名/天气/每日一言/快捷功能槽）。\n方式二：WeKit 侧边栏全家桶（拖拽编辑/卡片/农历/一言/天气/钱包等，功能更完整）。\n切换后需重启微信生效；本开关已合并原「主页侧滑面板」，将按所选方式启用对应实现。",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                            Text(
                                 "说明",
                                 color = MaterialTheme.colorScheme.primary,
                                 fontSize = 13.sp,
@@ -2609,6 +2637,9 @@ private fun isHomeTabClass(className: String): Boolean {
                                 (if (localEdge) MODE_EDGE_STRIP else 0) or
                                 (if (localButton) MODE_TRIGGER_BUTTON else 0)
                             try {
+                                if (sidePanelMode != localSideMode) {
+                                    sidePanelMode = localSideMode
+                                }
                                 if (masterEnabled != localEnable) {
                                     masterEnabled = localEnable
                                     if (localEnable) onEnable() else onDisable()
