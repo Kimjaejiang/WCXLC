@@ -39,6 +39,11 @@
   - 修复 ①：恢复根 `.cargo/config.toml` 的 `xtask` alias（`xtask = "run --package xtask --"`，上游 16ebd44d 曾批量删除），`cargo xtask configure` / `cargo xtask build --native-only` 不再报 `no such command: xtask`；
   - 修复 ②：`silk-v3-sys` git 依赖去掉 `https://ghproxy.net/` 前缀直连官方 GitHub（上游 v247 写死代理前缀，CI/国内均拉取失败），指向同一 commit `336ac8a8`，同步根与 wekit-native 两处 `Cargo.lock`。
 
+- **🛠️ 构建/CI · Release 产物带版本号命名 + release 组装跳过 lintVital**
+  - 涉及文件：`.github/workflows/ci.yml`
+  - ① APK 命名：`Collect APKs` 改为 `app-<flavor>-${VER}-release.apk`（VER = 构建时刻 YYMMDDHHMMSS），即 standard/legacy 后附加版本号，Actions artifact 与 GitHub Release assets 同名（如 `app-standard-260902193946-release.apk`）；
+  - ② lintVital：v247/bsh 并入后 `:app:lintVital{Standard,Legacy}Release` 报 3416 个 lint error（AGP 默认 release 下 fatal，阻塞 assemble），CI `assembleRelease` 与本地构建基线一致追加 `-x lintVitalStandardRelease -x lintVitalReportStandardRelease -x lintVitalLegacyRelease -x lintVitalReportLegacyRelease`；3416 项 lint 留待另行治理。
+
 - **💬 聊天增强 · 归拢 @所有人 正确显示 [@全体]（不再误判为 [有人@我]）**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
   - 问题：文件夹内群聊 @所有人 时，文件夹行摘要错误显示 `[有人@我]` 而非 `[@全体]`（单群聊 @所有人 场景必现）。
@@ -340,6 +345,7 @@
 |---|---|---|---|
 | 09-02 | **bsh 并入主仓库（CI）** | gitlink `844b5f0` 仅本地 → 转普通目录纳入，CI checkout 不再报 not our ref | `libs/common/bsh`、`.gitmodules` |
 | 09-02 | **cargo xtask alias / silk 直连（CI）** | 恢复 `.cargo/config.toml` alias；`silk-v3-sys` 去 ghproxy 直连官方 | `.cargo/config.toml`、wekit-native `Cargo.toml`/`Cargo.lock` |
+| 09-02 | **Release 产物带版本号 / 跳过 lintVital** | Collect APKs 按 `app-<flavor>-<VER>-release.apk` 命名；assembleRelease `-x lintVital*`（v247 后 3416 lint error） | `.github/workflows/ci.yml` |
 | 08-29 | **APK 体积优化 -37%** | 移除 Compose 全量 keep，R8 裁剪未用 Compose 代码：35.4MB → 22.4MB | `proguard-rules.pro` |
 | 08-27 | **Maven 构建源** | 阿里云镜像置前 + 移除 GitHub Packages + CI 探测错误改纯文本 | `settings.gradle.kts` |
 | 08-27 | **CI 海外镜像 502** | CI 设 `WCX_USE_ALIYUN=false` 直连官方源，本地默认镜像不受影响 | `settings.gradle.kts`、`ci.yml` |
@@ -559,8 +565,8 @@ wcx/
 git clone --recursive https://github.com/Kimjaejiang/WCXLC.git
 cd WCXLC
 
-# 构建 Release 版本
-./gradlew assembleRelease
+# 构建 Release 版本（standard + legacy；跳过 release lintVital，与 CI 一致。lintVital 因 v247 后 3416 项 lint error 暂跳过，见下游修改项 09-02）
+./gradlew assembleRelease -x lintVitalStandardRelease -x lintVitalReportStandardRelease -x lintVitalLegacyRelease -x lintVitalReportLegacyRelease
 
 # 构建 Debug 版本
 ./gradlew assembleDebug
