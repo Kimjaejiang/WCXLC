@@ -15,6 +15,18 @@ public final class SQLiteDatabase {
     public void execSQL(@NonNull String statement, @Nullable Object[] args) {
         throw new RuntimeException("Stub!");
     }
+    public void beginTransaction() {
+        throw new RuntimeException("Stub!");
+    }
+
+    public void setTransactionSuccessful() {
+        throw new RuntimeException("Stub!");
+    }
+
+    public void endTransaction() {
+        throw new RuntimeException("Stub!");
+    }
+
 
     // returns: changed row count
     public int delete(@NonNull String table, @Nullable String conditions, @Nullable String[] args) {

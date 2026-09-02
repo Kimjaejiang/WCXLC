@@ -1,4 +1,5 @@
 package com.Johnny.wcx.features.items.beautify
+import de.robv.android.xposed.XC_MethodHook
 
 import android.app.Activity
 import android.app.Application
@@ -1026,7 +1027,7 @@ private fun isHomeTabClass(className: String): Boolean {
         loadPanelData(act)
     }
 
-    private fun handleDispatchTouch(param: HookParam) {
+    private fun handleDispatchTouch(param: XC_MethodHook.MethodHookParam) {
         if (!masterEnabled) return
         val mode = migratedTriggerMode()
         if ((mode and MODE_FULL_SWIPE) == 0) return

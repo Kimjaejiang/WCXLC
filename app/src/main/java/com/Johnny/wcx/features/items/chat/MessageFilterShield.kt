@@ -204,7 +204,7 @@ object MessageFilterShield : ClickableFeature(),
 
     // ==================== 消息 View 创建监听（隐藏策略） ====================
 
-    override fun onCreateView(param: HookParam, view: View) {
+    override fun onCreateView(param: XC_MethodHook.MethodHookParam, view: View) {
         if (!masterEnabled) return
         if (strategy != FilterStrategy.HIDE.value) return
 

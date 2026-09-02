@@ -69,7 +69,7 @@ object QuickHideConversations : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuI
         }
     }
 
-    override fun getMenuItems(param: HookParam): List<WeHomeScreenPopupMenuApi.MenuItem> {
+    override fun getMenuItems(param: XC_MethodHook.MethodHookParam): List<WeHomeScreenPopupMenuApi.MenuItem> {
         return listOf(
             WeHomeScreenPopupMenuApi.MenuItem(
                 777020, "一键隐藏对话", VisibilityOffIcon

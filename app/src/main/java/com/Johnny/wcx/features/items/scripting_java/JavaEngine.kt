@@ -1471,9 +1471,9 @@ object JavaEngine {
             // unhook(handle) → remove a hook
             setMethod(
                 BshMethod(
-                    "unhook", arrayOf(com.Johnny.wcx.utils.HookHandle::class.java)
+                    "unhook", arrayOf(de.robv.android.xposed.XC_MethodHook.Unhook::class.java)
                 ) {
-                    val handle = it[0] as com.Johnny.wcx.utils.HookHandle
+                    val handle = it[0] as de.robv.android.xposed.XC_MethodHook.Unhook
                     JavaHookApi.unhook(handle)
                 })
 

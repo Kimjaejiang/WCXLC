@@ -375,7 +375,7 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         return if (RoundAvatars.isEnabled) roundAvatarRadiusFactor else loaderRadiusFactor
     }
 
-    private var setImageDrawableUnhook: HookHandle? = null
+    private var setImageDrawableUnhook: de.robv.android.xposed.XC_MethodHook.Unhook? = null
 
     /**
      * 微信异步头像加载器（AvatarDrawable/wekit）会在我们 hook 设置自定义头像后，用默认/占位头像

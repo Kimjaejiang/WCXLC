@@ -109,6 +109,12 @@ public class Xp51HookImpl implements IHookBridge, ILoaderService {
 
     @NonNull
     @Override
+    public String getLoaderName() {
+        return "Xposed 加载器";
+    }
+
+    @NonNull
+    @Override
     public String getEntryPointName() {
         return "com.Johnny.wcx.loader.entry.xp51.Xp51HookImpl";
     }

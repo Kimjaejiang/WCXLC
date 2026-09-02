@@ -71,9 +71,6 @@ object WeAgentSettings {
     suspend fun defaultSystemPromptId(): String? = get(KEY_DEFAULT_SYSTEM_PROMPT_ID)?.takeIf { it.isNotBlank() }
     suspend fun defaultWorkspaceId(): String? = get(KEY_DEFAULT_WORKSPACE_ID)?.takeIf { it.isNotBlank() }
 
-    /** When true, the floating ball is only shown while WeChat is in the foreground (default false = always). */
-    suspend fun overlayForegroundOnly(): Boolean = get(KEY_OVERLAY_FOREGROUND_ONLY)?.toBoolean() ?: false
-
     /** Reads the send-while-running mode, defaulting to QUEUE_AFTER_TURN. */
     suspend fun sendWhileRunningMode(): com.Johnny.wcx.features.api.agent.WeAgentService.SendWhileRunningMode =
         when (get(KEY_SEND_WHILE_RUNNING)) {

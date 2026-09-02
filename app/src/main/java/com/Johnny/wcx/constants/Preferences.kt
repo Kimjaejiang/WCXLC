@@ -1,4 +1,4 @@
-package com.Johnny.wcx.constants
+﻿package com.Johnny.wcx.constants
 
 import com.Johnny.wcx.preferences.WePrefs.Companion.prefOption
 
@@ -9,8 +9,6 @@ object Preferences {
     const val SHOW_STARTUP_TOAST = "toast_startup"
     const val RESET_DEX_ON_HOT_UPDATE = "reset_dex_on_hot_upd"
     const val MATCH_GENERIC_WXID_EXP = "match_generic_wxid"
-    const val CACHED_LSP_API_VERSION = "cached_lsp_api_version"
-const val CACHED_LSP_ENVIRONMENT = "cached_lsp_environment"
 
     // Settings UI theming
     const val THEME_MODE = "settings_theme_mode"

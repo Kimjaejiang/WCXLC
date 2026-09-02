@@ -1,4 +1,5 @@
 package com.Johnny.wcx.features.items.beautify
+import de.robv.android.xposed.XC_MethodHook
 
 import android.app.Activity
 import android.app.Application
@@ -532,7 +533,7 @@ object ThemeStore : ClickableFeature(), WeChatMessageViewApi.ICreateViewListener
     // ══════════════════════════════════════════════════════════
     // 气泡直接应用：聊天消息视图创建时按主题气泡替换背景（9-patch）
     // ══════════════════════════════════════════════════════════
-    override fun onCreateView(param: HookParam, view: View) {
+    override fun onCreateView(param: XC_MethodHook.MethodHookParam, view: View) {
         if (activeThemeId.isEmpty()) return
         try {
             val msgInfo = WeChatMessageViewApi.getMsgInfoFromParam(param)

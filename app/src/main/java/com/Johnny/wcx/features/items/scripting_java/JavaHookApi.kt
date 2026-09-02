@@ -6,7 +6,6 @@ import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.hookAfterDirectly
 import com.Johnny.wcx.utils.hookBeforeDirectly
-import com.Johnny.wcx.utils.HookHandle
 import java.lang.reflect.Executable
 import java.lang.reflect.Member
 import java.util.function.Consumer
@@ -17,9 +16,9 @@ object JavaHookApi : ApiFeature() {
 
     private const val TAG = "JavaHookApi"
 
-    private val hooks = mutableListOf<HookHandle>()
+    private val hooks = mutableListOf<XC_MethodHook.Unhook>()
 
-    fun hookBefore(member: Member, consumer: Consumer<XC_MethodHook.MethodHookParam>): HookHandle {
+    fun hookBefore(member: Member, consumer: Consumer<XC_MethodHook.MethodHookParam>): XC_MethodHook.Unhook {
         val unhook = (member as Executable).hookBeforeDirectly {
             runCatching {
                 result = consumer.accept(this)
@@ -30,7 +29,7 @@ object JavaHookApi : ApiFeature() {
         return handle
     }
 
-    fun hookAfter(member: Member, consumer: Consumer<XC_MethodHook.MethodHookParam>): HookHandle {
+    fun hookAfter(member: Member, consumer: Consumer<XC_MethodHook.MethodHookParam>): XC_MethodHook.Unhook {
         val unhook = (member as Executable).hookAfterDirectly {
             runCatching {
                 consumer.accept(this)
@@ -41,7 +40,7 @@ object JavaHookApi : ApiFeature() {
         return handle
     }
 
-    fun hookReplace(member: Member, function: Function<XC_MethodHook.MethodHookParam, Any?>): HookHandle {
+    fun hookReplace(member: Member, function: Function<XC_MethodHook.MethodHookParam, Any?>): XC_MethodHook.Unhook {
         val unhook = (member as Executable).hookBeforeDirectly {
             runCatching {
                 result = function.apply(this)
@@ -52,7 +51,7 @@ object JavaHookApi : ApiFeature() {
         return handle
     }
 
-    fun unhook(handle: HookHandle) {
+    fun unhook(handle: XC_MethodHook.Unhook) {
         if (hooks.remove(handle)) {
             handle.unhook()
         }

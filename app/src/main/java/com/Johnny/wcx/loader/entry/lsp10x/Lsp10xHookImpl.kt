@@ -27,14 +27,14 @@ object Lsp10xHookImpl : IHookBridge, ILoaderService {
 
     override var classLoaderHelper: IClassLoaderHelper? = null
 
-    override val hookBridgeName: String = "LSPosed"
-    override val loaderName: String = "LSPosed 加载器"
-
+    override val apiLevel: Int get() = self.apiVersion
     override val frameworkName: String get() = self.frameworkName
     override val frameworkVersion: String get() = self.frameworkVersion
     override val frameworkVersionCode: Long get() = self.frameworkVersionCode
     override val hookCounter: Long get() = Lsp10xHookWrapper.hookCounter.toLong()
     override val hookedMethods: Set<Member?> get() = Lsp10xHookWrapper.hookedMethodsRaw
+    override val loaderName: String = "LSPosed 加载器"
+
     override val entryPointName: String = "com.Johnny.wcx.loader.entry.lsp10x.Lsp10xHookImpl"
     override val loaderVersionCode: Int = BuildConfig.VERSION_CODE
     override val loaderVersionName: String = BuildConfig.VERSION_NAME
@@ -50,8 +50,8 @@ object Lsp10xHookImpl : IHookBridge, ILoaderService {
 
     override val isDeoptimizationSupported: Boolean = true
 
-    override fun deoptimize(executable: Executable): Boolean {
-        return self.deoptimize(executable)
+    override fun deoptimize(member: Member): Boolean {
+        return self.deoptimize(member as Executable)
     }
 
     override fun invokeOriginalMethod(method: Method, thisObject: Any?, args: Array<Any?>): Any? {

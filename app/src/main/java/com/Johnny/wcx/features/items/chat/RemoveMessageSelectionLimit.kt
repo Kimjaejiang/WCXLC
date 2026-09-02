@@ -9,9 +9,8 @@ import com.Johnny.wcx.features.api.core.WeMessageApi
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.features.core.SwitchFeature
 import com.Johnny.wcx.utils.WeLogger
-import com.Johnny.wcx.utils.HookCallback
-import com.Johnny.wcx.utils.HookParam
 import com.Johnny.wcx.utils.hookDirectly
+import de.robv.android.xposed.XC_MethodHook
 import com.Johnny.wcx.utils.reflection.bool
 import com.Johnny.wcx.utils.reflection.int
 import com.Johnny.wcx.utils.reflection.void
@@ -96,6 +95,10 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
 
     private val selectedMessageCountOverride = ThreadLocal<Int>()
 
+    // 本地 Xposed 桥的 MethodHookParam.extra 为 val+Bundle（非 fork 的 Any），
+    // 临时状态改用 ThreadLocal 传递（与 selectedMessageCountOverride 同风格）
+    private val tempRemovedSelections = ThreadLocal<TemporarilyRemovedSelections?>()
+
     override fun onEnable() {
         // 8.0.77: ChattingDataAdapterV3 已移除, 相关 matcher 降级 placeholder, 本功能禁用
         if (WeMessageApi.classChattingDataAdapter.isPlaceholder) {
@@ -117,8 +120,8 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
             }
         }
 
-        val hook = object : HookCallback() {
-            override fun beforeHookedMethod(param: HookParam) {
+        val hook = object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: XC_MethodHook.MethodHookParam) {
                 val adapter = param.thisObject ?: return
                 val message = param.args[0] ?: return
                 @Suppress("UNCHECKED_CAST")
@@ -128,12 +131,12 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
                 // Let WeChat run its original add and UI refresh path with 99 existing selections.
                 val removed = selectedMessages.take(selectedMessages.size - SELECTION_LIMIT + 1)
                 selectedMessages.removeAll(removed.toSet())
-                param.extra = TemporarilyRemovedSelections(selectedMessages, removed)
+                tempRemovedSelections.set(TemporarilyRemovedSelections(selectedMessages, removed))
                 selectedMessageCountOverride.set(selectedMessages.size + removed.size + 1)
             }
 
-            override fun afterHookedMethod(param: HookParam) {
-                val state = param.extra as? TemporarilyRemovedSelections ?: return
+            override fun afterHookedMethod(param: XC_MethodHook.MethodHookParam) {
+                val state = tempRemovedSelections.get() ?: return
                 val remainingAndNew = state.selectedMessages.toList()
                 state.selectedMessages.clear()
                 state.selectedMessages.addAll(state.removed)

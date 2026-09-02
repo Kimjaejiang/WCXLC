@@ -92,11 +92,6 @@ object WeAgentOverlayController {
         if (enabled) wireForegroundTracker()
         reconcile()
     }
-
-    /** Xposed-style toggle used by the agent home screen. */
-    fun setForegroundOnly(enabled: Boolean) =
-        setMode(if (enabled) OverlayMode.FOREGROUND_ONLY else OverlayMode.ALWAYS)
-
     private fun wireForegroundTracker() {
         WeChatForegroundTracker.onChanged = { reconcile() }
         WeChatForegroundTracker.ensureRegistered()
@@ -187,6 +182,21 @@ object WeAgentOverlayController {
 
     fun togglePanel() {
         if (panelView != null) removePanel() else addPanel()
+    }
+
+    /**
+     * Opens the panel independently of the ball - used by entry points that do not go through the
+     * overlay ball (e.g. the chat toolbar item), so the panel stays reachable with
+     * OverlayMode.DISABLED. No-op when the panel is already up. Must run on the main thread.
+     */
+    fun openPanel() {
+        if (panelView != null) return
+        if (!canDrawOverlays()) {
+            showToast("请在系统设置中为微信开启「显示在其他应用上层」")
+            WeLogger.w(TAG, "no SYSTEM_ALERT_WINDOW permission for host process")
+            return
+        }
+        addPanel()
     }
 
     private fun addPanel() {

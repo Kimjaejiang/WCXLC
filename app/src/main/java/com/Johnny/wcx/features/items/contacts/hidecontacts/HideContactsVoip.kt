@@ -1,4 +1,5 @@
 package com.Johnny.wcx.features.items.contacts.hidecontacts
+import de.robv.android.xposed.XC_MethodHook
 
 import android.app.Service
 import android.content.Intent
@@ -321,5 +322,5 @@ private fun HideContacts.installLegacyVoipHooks() {
  * Reads the caller wxid out of an `a65.b57` RoomInfo, which declares exactly one String field
  * (`f3634i` = callerUserName).
  */
-private fun HookParam.legacyCallerWxId(): String? =
+private fun XC_MethodHook.MethodHookParam.legacyCallerWxId(): String? =
     runCatching { args[0]!!.reflekt().firstField { type = BString }.get() as? String }.getOrNull()

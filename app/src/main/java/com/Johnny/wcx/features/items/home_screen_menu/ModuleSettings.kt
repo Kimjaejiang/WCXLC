@@ -1,4 +1,5 @@
 package com.Johnny.wcx.features.items.home_screen_menu
+import de.robv.android.xposed.XC_MethodHook
 
 import com.tencent.mm.ui.LauncherUI
 import com.Johnny.wcx.BuildConfig
@@ -20,7 +21,7 @@ object ModuleSettings : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsProv
         WeHomeScreenPopupMenuApi.removeProvider(this)
     }
 
-    override fun getMenuItems(param: HookParam): List<WeHomeScreenPopupMenuApi.MenuItem> =
+    override fun getMenuItems(param: XC_MethodHook.MethodHookParam): List<WeHomeScreenPopupMenuApi.MenuItem> =
         listOf(
             WeHomeScreenPopupMenuApi.MenuItem(
                 0, BuildConfig.TAG, ExtensionIcon

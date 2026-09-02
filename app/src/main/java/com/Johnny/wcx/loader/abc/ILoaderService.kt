@@ -4,6 +4,7 @@ import androidx.annotation.Keep
 
 @Keep
 interface ILoaderService {
+    val loaderName: String
     val entryPointName: String
 
     val loaderVersionName: String

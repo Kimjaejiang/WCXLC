@@ -30,6 +30,8 @@ object FridaStartupImpl : ILoaderService {
         return m.invoke(null, *args)
     }
 
+    override val loaderName: String = "Frida 加载器"
+
     override val entryPointName: String
         get() {
             val m = mXblService?.get("GetEntryPointName")

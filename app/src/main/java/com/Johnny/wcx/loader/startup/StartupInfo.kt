@@ -7,4 +7,5 @@ object StartupInfo {
 
     lateinit var loaderService: ILoaderService
     var hookBridge: IHookBridge? = null
+    var modulePath: String = ""
 }

@@ -1,4 +1,5 @@
 package com.Johnny.wcx.features.items.chat
+import de.robv.android.xposed.XC_MethodHook
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -154,7 +155,7 @@ object SwipeMessageOperations : ClickableFeature(), IResolveDex,
 
     // ── row binding: register state + attach the swipe listener, keep context fresh ─
 
-    override fun onCreateView(param: HookParam, view: View) {
+    override fun onCreateView(param: XC_MethodHook.MethodHookParam, view: View) {
         val chattingContext = WeChatMessageViewApi.getChattingContextFromParam(param)
 
         val state = states.getOrPut(view) {

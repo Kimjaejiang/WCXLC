@@ -1,4 +1,5 @@
 package com.Johnny.wcx.features.items.chat
+import de.robv.android.xposed.XC_MethodHook
 
 import android.app.Activity
 import android.os.Parcel
@@ -741,7 +742,7 @@ object ConversationAggregation : ClickableFeature(),
         return rewriteContainerSql(sql, folderId).takeIf { it != sql }
     }
 
-    override fun onStartActivity(param: HookParam, intent: Intent) {
+    override fun onStartActivity(param: XC_MethodHook.MethodHookParam, intent: Intent) {
         val startCtx = param.thisObject as? Context
         if (cachedHomeIntents.isEmpty()) startCtx?.let { loadCachedIntents(it) }
         WeLogger.i(TAG, "startActivity: " + intent.component?.className + " uri=" + intent.toUri(0) + " keys=" + (intent.extras?.keySet()?.joinToString(",")))
@@ -1622,7 +1623,7 @@ object ConversationAggregation : ClickableFeature(),
         }
     }
 
-    private fun handleMvvmFolderTap(param: HookParam) {
+    private fun handleMvvmFolderTap(param: XC_MethodHook.MethodHookParam) {
         val itemView = param.args[0] as View
         val data = param.args[1]!!
 
@@ -2293,7 +2294,7 @@ object ConversationAggregation : ClickableFeature(),
 
 
 
-    private fun HookParam.tintHolder() {
+    private fun XC_MethodHook.MethodHookParam.tintHolder() {
         val holder = args?.getOrNull(0) ?: return
         val itemView = runCatching {
             holder.javaClass.getMethod("getItemView").invoke(holder) as? View
