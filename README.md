@@ -21,6 +21,25 @@
 
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 
+### 2026-08-31
+
+- **💬 聊天增强 · 归拢摘要颜色设置完善（弹窗内实时配色 + 独立开关）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregationColors.kt`（新增）、`ConversationAggregation.kt`、`activity/settings/FeaturesPager.kt`
+  - ① 新增与「对话归拢」同级的配色设置项，读写同一组 `agg_mention_*` / `agg_folder_*` 键（与归拢染色 5 色配置互通）；
+  - ② 弹窗内嵌入实时配色区：改动即写 pref 并刷新会话列表，无需重启；深色模式文字显式 `onSurface`/`onSurfaceVariant`；
+  - ③ 文件夹标题染色改为**独立开关**，不再随摘要颜色总开关关闭；
+  - ④ 设置搜索与分类列表过滤「对话归拢摘要颜色」项（收进归拢弹窗内，避免设置页平级项残留）。
+
+- **💬 聊天增强 · 归拢文件夹特殊行：学校通知打开企业会话页**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
+  - 归拢文件夹内「学校通知」行（`gh_158599a58f81`）点击打开企业会话页 `EnterpriseConversationUI`（与微信首页行为一致），实测正常。
+
+- **💬 聊天增强 · 归拢免打扰群聊角标闪现修复**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
+  - 问题：免打扰群聊的未读偶尔闪现红色数字角标（应显示小圆点）。
+  - 根因：`parseChatRoomNotify` 在 lvbuff 缺失/解析失败时返回 `null`，原判定 `notify == 0` 把 `null` 误判为「非免打扰」，未读误计入 `normalUnread` → 文件夹行 `unreadCount > 0` → 红色数字角标闪现。
+  - 修复：改为 `notify == null || notify == 0`，lvbuff 解析失败时保守归入免打扰（小圆点），与「lvbuff 解析失败/缺失时兜底判定免打扰」的注释意图一致。
+
 ### 2026-08-30
 
 - **🔔 通知 · 新消息通知头像增强**
@@ -48,8 +67,6 @@
     - 归拢文件夹（`ConvBoxServiceConversationUI`）：item 根 9-patch 背景替换为页面同色（深色模式取深灰背景、亮色兜底白——亮度阈值只认深色，防止中灰误判）；
     - 搜索页（`FTSMainUI`）：item 底部 `clipBounds` 裁剪 1px；
     - 兜底：`ListView.dividerHeight` 恒置 0 + `setDivider` 透明；Canvas `draw` 拦截未锁定的 1~6px 全宽线 View 不绘制。
-
-- **💬 聊天增强 · 归拢文件夹长按菜单修复 + 摘要标签增强**
 
 - **💬 聊天增强 · 归拢文件夹长按菜单修复 + 摘要标签增强**
   - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
@@ -218,7 +235,6 @@
 - **📵 隐私与安全 · 禁止主页下滑（v244.7 → v246，最终回退干净版）**
   - 涉及文件：主页下滑拦截相关 feature
   - 迭代 4 版：① DOWN 直接消费顶部下拉手势（v244.7）→ ② DOWN 放行保顶栏手势 + MOVE 消费拦面板（v244.9）→ ③ 面板拦截改 DOWN 消费 + 入口模拟手势（v245.1）→ ④ v246 回退干净版（无 DexKit，onEnable 空 hook）。因拦截手势影响顶栏/搜索框滑动体验，保留基础实现。
-| 08-30 | **归拢文件夹修复** | 免打扰群聊角标（unReadMuteCount 权威兜底 lvbuff 解析失败）+ @所有人识别扩展（全部人/全员）+ [@全体] 标签上色修复 + 已读后消失（补未读条件，与[有人@我]一致） | `ConversationAggregation.kt` |
 - **🎨 界面美化 · 微信进程弹窗改系统 AlertDialog** — AppCompat 主题冲突改用系统 AlertDialog。
 - **🛠️ 构建/CI · verCode 防撞号 + .gitignore 清理** — verCode 主号×1000+次号（单段补×1000），支持 `V244.1-100` 序列；APK/构建日志/备份/调试临时文件不入库。
 
@@ -230,6 +246,10 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
+| 08-31 | **归拢摘要颜色设置完善** | 新增独立配色设置项（弹窗内实时配色，改动即生效）；文件夹标题染色独立开关；设置搜索/分类过滤颜色项 | `ConversationAggregationColors.kt`、`ConversationAggregation.kt`、`FeaturesPager.kt` |
+| 08-31 | **学校通知打开企业会话页** | 归拢文件夹内「学校通知」行点击打开 `EnterpriseConversationUI`（与首页行为一致） | `ConversationAggregation.kt` |
+| 08-31 | **免打扰群聊角标闪现修复** | `parseChatRoomNotify` 返回 null（lvbuff 缺失/解析失败）时保守视为免打扰，不再闪现红色数字角标 | `ConversationAggregation.kt` |
+| 08-30 | **归拢文件夹修复** | 免打扰群聊角标（unReadMuteCount 权威兜底 lvbuff 解析失败）+ @所有人识别扩展（全部人/全员）+ [@全体] 标签上色修复 + 已读后消失（补未读条件，与[有人@我]一致） | `ConversationAggregation.kt` |
 | 08-30 | **通知头像增强** | 头像缓存目录 v3（小圆角样式）+ 单聊首条同步读盘立即显示 + 群聊昵称 LIKE 模糊兜底匹配 | `NotificationsEvolved.kt` |
 | 08-29 | 归拢文件夹长按菜单 + 摘要标签 | 文件夹容器长按菜单修复（menuContext 取 anchor View）+ `[全体]`→`[@全体]` + @所有人识别增强 | `ConversationAggregation.kt` |
 | 08-28 | 自动同意好友申请（完整打通） | 双路径捕获 + 属性 XML 解析 + `NetSceneVerifyUser` opcode=3 接受 + 去重 key 改 `encryptUsername`（ticket 每次插入都变）+ 欢迎语单发 | `AutoAcceptFriendRequests.kt` |

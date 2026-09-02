@@ -149,6 +149,11 @@ object ConversationAggregation : ClickableFeature(),
     // alongside unReadMuteCount > 0 when unReadCount == 0).
     private const val ATTR_FLAG_MUTE_BIT = 2097152
 
+    // rconversation.atCount 的高位标志：bit 24 (0x01000000) = 有人 @所有人（微信权威标记，
+    // 不依赖摘要文本关键词）。日志实测 @所有人 时 atCount=16777216，摘要文本可能不含
+    // 「所有人/全体」等词，仅靠文本判断会漏判成 [有人@我]。
+    private const val AT_COUNT_EVERYONE_BIT = 0x01000000
+
     // Truncation + tint used by the FunBox-style "someone @ me" prefix on folder rows.
     private const val MAX_DIGEST_NAME_LEN = 8
     private const val MAX_FOLDER_DISPLAY_NAME = 12
@@ -2923,10 +2928,22 @@ object ConversationAggregation : ClickableFeature(),
                     val folderId = ownerByMember[username] ?: continue
                     val state = states.getValue(folderId)
                     val unread = cursor.getIntOrZero(ConversationTable.UNREAD_COUNT).coerceAtLeast(0)
-                    // 微信权威免打扰未读数：lvbuff 解析失败/缺失时兜底判定免打扰，避免免打扰群聊错误显示角标
+                    // 微信权威免打扰未读数：免打扰会话 unReadCount==0、unReadMuteCount>0，
+                    // 必须直接进 mutedUnread，否则免打扰未读永远不会计入文件夹角标。
                     val muteUnread = cursor.getIntOrZero(ConversationTable.UNREAD_MUTE_COUNT).coerceAtLeast(0)
-                    if (unread > 0) {
-                        val muted = if (muteUnread > 0) true else if (username.endsWith("@chatroom")) {
+                    val digestRaw = cursor.getStringOrEmpty(ConversationTable.DIGEST)
+                    val contentRaw = cursor.getStringOrEmpty(ConversationTable.CONTENT)
+                    // atCount 的 bit24 = 微信权威「有人@所有人」标志（日志实测 16777216），
+                    // 摘要文本不一定含「所有人/全体」等词，仅靠文本会漏判成 [有人@我]。
+                    val atCountRow = cursor.getIntOrZero(ConversationTable.AT_COUNT).coerceAtLeast(0)
+                    val everyoneBitHit = atCountRow and AT_COUNT_EVERYONE_BIT != 0
+                    if (muteUnread > 0) {
+                        // 微信权威免打扰未读：unReadMuteCount 本身即免打扰未读数
+                        state.mutedUnread += muteUnread
+                        state.unreadChatCount++
+                        if (everyoneBitHit || isEveryoneMention(digestRaw, contentRaw)) state.everyoneMentioned = true
+                    } else if (unread > 0) {
+                        val muted = if (username.endsWith("@chatroom")) {
                             val index = cursor.getColumnIndex(ContactTable.LV_BUFF)
                             val lvBuff = if (index >= 0 && !cursor.isNull(index)) cursor.getBlob(index) else null
                             val notify = WeConversationApi.parseChatRoomNotify(lvBuff)
@@ -2943,8 +2960,10 @@ object ConversationAggregation : ClickableFeature(),
                         }
                         // [N个聊天] = 归拢文件夹里有未读的聊天数（FunBox 语义，不限免打扰）
                         state.unreadChatCount++
+                        // @所有人 是聚合标记：任一未读成员行命中即显示 [@全体]，不只看最新一条
+                        if (everyoneBitHit || isEveryoneMention(digestRaw, contentRaw)) state.everyoneMentioned = true
                     }
-                    state.atMeCount += cursor.getIntOrZero(ConversationTable.AT_COUNT).coerceAtLeast(0)
+                    state.atMeCount += atCountRow
 
                     val time = cursor.getLongOrZero(ConversationTable.CONVERSATION_TIME)
                     if (state.latest == null || time > state.latest!!.conversationTime) {
@@ -2954,7 +2973,7 @@ object ConversationAggregation : ClickableFeature(),
                         state.latest = MemberSummaryRow(
                             digest = prefixWithConversationName(
                                 displayName.takeIf { it.isNotBlank() && it != username },
-                                stripWxidPrefix(cursor.getStringOrEmpty(ConversationTable.DIGEST)),
+                                stripWxidPrefix(digestRaw),
                                 username.endsWith("@chatroom"),
                                 cursor.getStringOrEmpty(ConversationTable.DIGEST_USER).ifBlank { null },
                                 username
@@ -2963,7 +2982,7 @@ object ConversationAggregation : ClickableFeature(),
                             isSend = cursor.getIntOrZero(ConversationTable.IS_SEND),
                             status = cursor.getIntOrZero(ConversationTable.STATUS),
                             conversationTime = time,
-                            content = cursor.getStringOrEmpty(ConversationTable.CONTENT),
+                            content = contentRaw,
                             msgType = cursor.getStringOrEmpty(ConversationTable.MSG_TYPE),
                             chatMode = cursor.getIntOrZero(ConversationTable.CHAT_MODE)
                         )
@@ -2980,10 +2999,9 @@ object ConversationAggregation : ClickableFeature(),
                         ?: System.currentTimeMillis()
                 )
             } else {
-                val everyoneHit = isEveryoneMention(latest.digest, latest.content)
-                // 【待日志确认】微信 @所有人 时 digest/content 的真实格式。
-                // 现有判断依赖文本关键词（所有人/全体/全员），用户实测未命中（显示 [有人@我]）。
-                // 日志确认前不修改判断逻辑，避免凭空猜微信摘要格式。
+                // 任一未读成员行命中 @所有人 即显示 [@全体]（不只看最新一条）；
+                // 但该标记应只对「有未读」的文件夹生效（已读后恢复普通摘要）。
+                val everyoneHit = state.everyoneMentioned
                 WeLogger.i(
                     TAG,
                     "folderSummary diag folderId=$folderId atMeCount=${state.atMeCount} " +
@@ -3979,6 +3997,9 @@ object ConversationAggregation : ClickableFeature(),
         var mutedUnread: Int = 0
         var unreadChatCount: Int = 0
         var atMeCount: Int = 0
+        // 任一未读成员行命中 @所有人（摘要/内容含 所有人/全体/全员 等）即置位，
+        // 用于显示 [@全体] 而非 [有人@我]（聚合判断，不只看最新一条摘要）。
+        var everyoneMentioned: Boolean = false
     }
 
     private data class FolderSummary(
