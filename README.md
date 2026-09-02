@@ -21,6 +21,21 @@
 
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 
+### 2026-09-02
+
+- **💬 聊天增强 · 归拢 @所有人 正确显示 [@全体]（不再误判为 [有人@我]）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
+  - 问题：文件夹内群聊 @所有人 时，文件夹行摘要错误显示 `[有人@我]` 而非 `[@全体]`（单群聊 @所有人 场景必现）。
+  - 根因 ①：判定只检查**最新一条**成员行摘要的文本关键词（所有人/全体/全员/全部人/@all 等），而微信 @所有人 的摘要文本不一定含这些词（日志实测摘要与内容均无关键词）——文本判断经常漏判；
+  - 根因 ②：微信权威标记在 `rconversation.atCount` 的 **bit 24（0x01000000）**，日志实测 @所有人 时 `atCount=16777216`。
+  - 修复：判定改双重（`atCount` bit24 权威标志 + 文本关键词兜底），且改为**聚合判断**（任一未读成员行命中即显示 `[@全体]`，不只看最新一条）；已读后恢复普通摘要。
+
+- **💬 聊天增强 · 归拢免打扰未读计入文件夹角标（小圆点）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
+  - 问题：免打扰群聊的未读完全不显示在文件夹角标（此前仅修了「闪现红色数字角标」）。
+  - 根因：微信对免打扰会话 `unReadCount==0`、`unReadMuteCount>0`，原统计只进 `if (unread > 0)` 分支，`muteUnread` 从未被计入 `mutedUnread` → 文件夹行 `unReadMuteCount==0`。
+  - 修复：`unReadMuteCount > 0` 直接计入 `mutedUnread`，文件夹角标正确显示免打扰未读（小圆点样式，非红色数字）。
+
 ### 2026-08-31
 
 - **💬 聊天增强 · 归拢摘要颜色设置完善（弹窗内实时配色 + 独立开关）**
@@ -246,6 +261,8 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
+| 09-02 | **归拢 @所有人 显示 [@全体]** | `atCount` bit24（0x01000000）权威标志 + 文本关键词双重判定；聚合判断（任一未读成员命中即显示），不再误判 [有人@我] | `ConversationAggregation.kt` |
+| 09-02 | **免打扰未读计入文件夹角标** | 免打扰会话 `unReadMuteCount>0` 直接计入 `mutedUnread`（此前 unread==0 分支永不进入导致漏统计），角标正确显示小圆点 | `ConversationAggregation.kt` |
 | 08-31 | **归拢摘要颜色设置完善** | 新增独立配色设置项（弹窗内实时配色，改动即生效）；文件夹标题染色独立开关；设置搜索/分类过滤颜色项 | `ConversationAggregationColors.kt`、`ConversationAggregation.kt`、`FeaturesPager.kt` |
 | 08-31 | **学校通知打开企业会话页** | 归拢文件夹内「学校通知」行点击打开 `EnterpriseConversationUI`（与首页行为一致） | `ConversationAggregation.kt` |
 | 08-31 | **免打扰群聊角标闪现修复** | `parseChatRoomNotify` 返回 null（lvbuff 缺失/解析失败）时保守视为免打扰，不再闪现红色数字角标 | `ConversationAggregation.kt` |
