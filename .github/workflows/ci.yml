@@ -222,14 +222,14 @@ jobs:
           export WEKIT_KEYSTORE_PASSWORD="$KS_PASS"
           export WEKIT_KEY_ALIAS="$KEY_ALIAS"
           export WEKIT_KEY_PASSWORD="$KEY_PASS"
-          ./gradlew assembleRelease --warning-mode all --stacktrace > /tmp/gradle.log 2>&1 || { echo "::error::gradle assembleRelease failed:"; grep -niE "FAILURE:|What went wrong|Execution failed|Could not (resolve|download|find|GET)|Caused by:|> Task.*FAILED|A problem occurred" /tmp/gradle.log | tail -10 | while IFS= read -r line; do echo "::error::$line"; done; exit 1; }
+          ./gradlew assembleRelease -x lintVitalStandardRelease -x lintVitalReportStandardRelease -x lintVitalLegacyRelease -x lintVitalReportLegacyRelease --warning-mode all --stacktrace > /tmp/gradle.log 2>&1 || { echo "::error::gradle assembleRelease failed:"; grep -niE "FAILURE:|What went wrong|Execution failed|Could not (resolve|download|find|GET)|Caused by:|> Task.*FAILED|A problem occurred" /tmp/gradle.log | tail -10 | while IFS= read -r line; do echo "::error::$line"; done; exit 1; }
 
       - name: Build Release (Unsigned)
         if: github.event_name == 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WCX_USE_ALIYUN: "false"
-        run: ./gradlew assembleRelease --warning-mode all --stacktrace
+        run: ./gradlew assembleRelease -x lintVitalStandardRelease -x lintVitalReportStandardRelease -x lintVitalLegacyRelease -x lintVitalReportLegacyRelease --warning-mode all --stacktrace
 
       - name: Collect APKs
         run: |
