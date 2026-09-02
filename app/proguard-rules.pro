@@ -7,7 +7,7 @@
 
 # ─── Feature / Hook Classes ─────────────────────────────────────────
 # Keep class structure (for reflection/Xposed callback) but allow obfuscation
--keep,allowobfuscation class com.Johnny.wcx.features.** { *; }
+-keep class com.Johnny.wcx.features.** { *; }
 -keep,allowobfuscation class com.Johnny.wcx.hooks.** { *; }
 -keep,allowobfuscation class com.Johnny.wcx.datas.** { *; }
 
@@ -20,6 +20,11 @@
 -keep class kotlin.Metadata { *; }
 -keep class kotlin.coroutines.Continuation { *; }
 -dontwarn kotlinx.coroutines.**
+
+# kotlin-reflect 经传递依赖存在于 APK：R8 不得裁剪其内建表
+# （否则 KotlinBuiltIns.getBuiltInClassByFqName 返回 null → 启用功能时 IllegalStateException）
+-keep class kotlin.reflect.** { *; }
+-dontwarn kotlin.reflect.**
 
 # ─── Serialization ──────────────────────────────────────────────────
 -keepattributes *Annotation*, InnerClasses
@@ -84,3 +89,7 @@
 -keepclassmembers class **.R$* {
     public static <fields>;
 }
+
+# R$plurals 类本身必须保留：R8 会因 R$plurals 成员被常量内联而整体移除该类，
+# 但 Kotlin 对 pluralStringResource(R.plurals.*) 的编译引用仍指向它。
+-keep class **.R$plurals { *; }

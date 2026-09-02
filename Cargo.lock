@@ -2756,7 +2756,7 @@ dependencies = [
 [[package]]
 name = "silk-v3-sys"
 version = "0.1.0"
-source = "git+https://github.com/Ujhhgtg/silk-v3-sys.git#336ac8a8962bce7e4948820fc58379e9f716be90"
+source = "git+https://ghproxy.net/https://github.com/Ujhhgtg/silk-v3-sys.git#336ac8a8962bce7e4948820fc58379e9f716be90"
 dependencies = [
  "bindgen 0.72.1",
  "cc",

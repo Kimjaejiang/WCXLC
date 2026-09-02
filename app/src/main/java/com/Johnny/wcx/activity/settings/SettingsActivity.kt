@@ -409,8 +409,26 @@ fun FeatureRow(
     val context = LocalComponentActivity.current
     val configKey = item.name
 
+    // API 服务 / 常驻常开功能等无开关项（非 SwitchFeature）：仅展示信息行，不注册开关
+    if (item !is SwitchFeature) {
+        BasicComponent(onClick = null) {
+            Text(
+                text = item.displayName,
+                fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                fontWeight = FontWeight.Medium,
+                color = BasicComponentDefaults.titleColor().color,
+            )
+            Text(
+                text = item.description,
+                fontSize = MiuixTheme.textStyles.body2.fontSize,
+                color = BasicComponentDefaults.summaryColor().color,
+            )
+        }
+        return
+    }
+
     DisposableEffect(configKey) {
-        (item as SwitchFeature).setToggleCompletionCallback { onCheckedChange(item.isEnabled) }
+        item.setToggleCompletionCallback { onCheckedChange(item.isEnabled) }
         onDispose {}
     }
 
