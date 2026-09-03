@@ -799,6 +799,92 @@ object ConversationAggregation : ClickableFeature(),
                 result = null
             }
         }
+        // WX 8.0.78+: conversation opens run through LauncherUI.NewChattingTabUI. The tap path is
+        // pf.a (mStartChattingRunnable) -> NewChattingTabUI.e(...) == prepareChattingFragment.
+        // Cancelling e() alone is NOT safe: pf.a dereferences the fragment view right after e()
+        // (newChattingTabUI.o.getView().findViewById) and NPEs because o stays null. So intercept
+        // pf.a itself: cancel the whole runnable (nothing runs afterwards) and open the folder
+        // container. e() stays hooked for observability only. 8.0.77 startChatting hooks above
+        // remain for older WeChat versions.
+        runCatching {
+            val pfCls = Class.forName("com.tencent.mm.ui.pf")
+            val pfRun = pfCls.declaredMethods.firstOrNull { it.name == "a" && it.parameterCount == 0 }
+            val ntCls = Class.forName("com.tencent.mm.ui.NewChattingTabUI")
+            val eM = ntCls.declaredMethods.firstOrNull { it.name == "e" && it.parameterCount == 3 }
+            if (eM != null) {
+                eM.isAccessible = true
+                de.robv.android.xposed.XposedBridge.hookMethod(eM, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val intent = param.args[1] as? Intent ?: return@beforeHookedMethod
+                        val username = intent.getStringExtra("Chat_User") ?: return@beforeHookedMethod
+                        WeLogger.i(TAG, "NewChattingTabUI.e: username=" + username + (if (isFolderId(username)) " (observe only)" else ""))
+                    }
+                })
+            }
+            if (pfRun != null) {
+                pfRun.isAccessible = true
+                de.robv.android.xposed.XposedBridge.hookMethod(pfRun, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val pfInst = param.thisObject ?: return@beforeHookedMethod
+                        val tab = findFieldOfType(pfInst, "com.tencent.mm.ui.NewChattingTabUI") ?: return@beforeHookedMethod
+                        val username = runCatching { tab.javaClass.getField("h").get(tab) as? String }.getOrNull() ?: return@beforeHookedMethod
+                        WeLogger.i(TAG, "pf.a(startChattingRunnable): Chat_User=" + username)
+                        if (isFolderId(username)) {
+                            param.result = null
+                            activeFolderId = username
+                            val act = runCatching { tab.javaClass.getField("a").get(tab) as? Activity }.getOrNull()
+                            if (act != null) launchFolderContainer(act, username)
+                            else WeLogger.w(TAG, "pf.a: folder id but no host activity")
+                        }
+                    }
+                })
+                WeLogger.i(TAG, "pf.a hooked (8.0.78 folder-open runnable)")
+            }
+        }.onFailure { WeLogger.w(TAG, "hook NewChattingTabUI.e/pf.a failed", it) }
+    }
+    // Find the first field whose declared type matches targetTypeName (e.g. the NewChattingTabUI
+    // stored inside the pf runnable). Obfuscated field names differ per WeChat build, so match on
+    // the resolved class name instead of the field name.
+    private fun findFieldOfType(holder: Any, targetTypeName: String): Any? {
+        var cls: Class<*>? = holder.javaClass
+        while (cls != null && cls != Any::class.java) {
+            for (fld in cls.declaredFields) {
+                if (fld.type.name == targetTypeName) {
+                    return runCatching { fld.isAccessible = true; fld.get(holder) }.getOrNull()
+                }
+            }
+            cls = cls.superclass
+        }
+        return null
+    }
+
+    private var serviceSHookArmed = false
+    private fun ensureConversationServiceSHook() {
+        if (serviceSHookArmed) return
+        serviceSHookArmed = true
+        runCatching {
+            val h9c = Class.forName("b41.h9")
+            val inst = h9c.getMethod("b").invoke(null)
+            val svc = inst.javaClass.getMethod("s").invoke(inst)
+            val svcCls = svc.javaClass
+            val sM = svcCls.methods.firstOrNull { m -> m.name == "s" && m.parameterCount == 4 && m.parameterTypes[2] == String::class.java }
+            if (sM != null) {
+                de.robv.android.xposed.XposedBridge.hookMethod(sM, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val folderId = activeFolderId ?: return@beforeHookedMethod
+                        val ref = param.args[2] as? String ?: return@beforeHookedMethod
+                        if (ref == "conversationboxservice") {
+                            param.args[2] = folderId
+                            WeLogger.i(TAG, "svc.s superUsername rewrite: conversationboxservice -> " + folderId)
+                        }
+                    }
+                })
+                WeLogger.i(TAG, "ConversationService.s hooked on " + svcCls.name)
+            } else {
+                WeLogger.w(TAG, "ConversationService.s(int,List,String,int) not found on " + svcCls.name)
+                serviceSHookArmed = false
+            }
+        }.onFailure { WeLogger.w(TAG, "hook ConversationService.s failed", it); serviceSHookArmed = false }
     }
 
     private inline fun interceptFolderChatOpen(
@@ -825,6 +911,24 @@ object ConversationAggregation : ClickableFeature(),
     }
 
     private fun hookConversationPages() {
+        // WX 8.0.78: the folder container adapter (u0.q) loads its list through the conversation
+        // service s(int,List,String,int) with a HARDCODED superUsername "conversationboxservice"
+        // (service-box semantics), ignoring the Contact_User folder id on the container intent.
+        // Ensure the service query rewrite (see ensureConversationServiceSHook) is armed whenever
+        // the container adapter refreshes, so queries hit parentRef=<folderId> rows again.
+        runCatching {
+            val u0Cls = Class.forName("com.tencent.mm.ui.conversation.u0")
+            val qm = u0Cls.declaredMethods.firstOrNull { it.name == "q" && it.parameterCount == 0 }
+            if (qm != null) {
+                qm.isAccessible = true
+                de.robv.android.xposed.XposedBridge.hookMethod(qm, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (activeFolderId != null) ensureConversationServiceSHook()
+                    }
+                })
+                WeLogger.i(TAG, "u0.q hooked (8.0.78 folder list refresh)")
+            }
+        }.onFailure { WeLogger.w(TAG, "hook u0.q failed", it) }
         ConvBoxServiceConversationUI::class.hookBeforeOnCreate {
             val activity = thisObject as? Activity ?: return@hookBeforeOnCreate
             activeFolderId = readFolderIdFromIntent(activity.intent) ?: activeFolderId
@@ -834,20 +938,21 @@ object ConversationAggregation : ClickableFeature(),
             runCatching { Class.forName(cls).getMethod("onResume").hookAfter { WeLogger.i(TAG, "aggPage onResume " + (thisObject?.javaClass?.name)) } }
         }
 
-        BaseConversationUI::class.reflekt().apply {
-            firstMethod("onResume").hookAfter {
-                val activity = thisObject as? BaseConversationUI ?: return@hookAfter
+        runCatching {
+            val bcu = Class.forName("com.tencent.mm.ui.conversation.BaseConversationUI")
+            bcu.getMethod("onResume").hookAfterDirectly {
+                val activity = thisObject as? BaseConversationUI ?: return@hookAfterDirectly
                 WeLogger.i(TAG, "onResume act=" + activity.javaClass.simpleName + " folder=" + activeFolderId + " extra=" + activity.intent?.getStringExtra(WeChatIntentExtra.CONTACT_USER))
                 activeFolderId = activeFolderId ?: readFolderIdFromIntent(activity.intent)
                 configureFolderActivity(activity)
             }
-
-            firstMethod("onDestroy").hookAfter {
+            WeLogger.i(TAG, "BaseConversationUI.onResume hooked (getMethod)")
+            bcu.getMethod("onDestroy").hookAfterDirectly {
                 if (thisObject is ConvBoxServiceConversationUI) {
                     activeFolderId = null
                 }
             }
-        }
+        }.onFailure { WeLogger.w(TAG, "hook BaseConversationUI onResume/onDestroy failed", it) }
         // Diagnose the method that opens the official-account flutter page from the home tab.
         runCatching {
             val mmLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
@@ -1759,7 +1864,7 @@ object ConversationAggregation : ClickableFeature(),
         methodSqliteWrapperRawQuery.hookBefore {
             if (suppressQueryRewrite.get()!!) return@hookBefore
             val sql = args.firstOrNull() as? String ?: return@hookBefore
-            if (sql.contains("rconversation") && (sql.contains("update", true) || sql.contains("unread", true))) {
+            if (sql.contains("rconversation") && (activeFolderId != null || sql.contains("update", true) || sql.contains("unread", true))) {
                 WeLogger.i(TAG, "rawQuery: $sql")
                 diagFile("rawQuery: $sql")
             }
@@ -1971,6 +2076,53 @@ object ConversationAggregation : ClickableFeature(),
         }
     }
 
+    /**
+     * WX 8.0.78: WeChat renders every parent conversation (incl. our folder rows) with the native
+     * "ConversationFolderItemView" fold template whose title text is a hardcoded "折叠置顶聊天".
+     * For rows whose adapter item is one of our folders, restore the folder name (blue title).
+     * Runs every dispatchDraw frame, but setText/setTextColor are skipped while the text is already
+     * what we want, so cost stays minimal after the first pass. Also restores the original row title
+     * when the recycled row is no longer bound to a folder.
+     */
+    private fun retitleFolderRow(list: View, row: ViewGroup) {
+        runCatching {
+            val pos = runCatching { list.javaClass.getMethod("getPositionForView", View::class.java).invoke(list, row) as? Int }.getOrDefault(-1)
+            if (pos == null || pos < 0) return
+            val item = runCatching { list.javaClass.getMethod("getItemAtPosition", Int::class.javaPrimitiveType).invoke(list, pos) }.getOrNull() ?: return
+            val uname = readRowUsername(item) ?: return
+            val folder = if (isFolderId(uname)) folderById(uname) else null
+            val title = findTitleTextView(row) ?: return
+            val cur = title.text?.toString().orEmpty()
+            if (folder == null) {
+                if (cur.startsWith(FOLDER_PREFIX)) {
+                    // Recycled row still shows an old folder name but no longer maps to a folder.
+                    WeLogger.i(TAG, "retitle: stale folder title cleared")
+                }
+                return
+            }
+            if (cur != folder.name) {
+                title.text = folder.name
+                title.setTextColor(adaptNight(row.context, MENTION_TITLE_BLUE))
+                WeLogger.i(TAG, "retitle: " + uname + " -> " + folder.name)
+            } else {
+                val blue = adaptNight(row.context, MENTION_TITLE_BLUE)
+                if (title.currentTextColor != blue) title.setTextColor(blue)
+            }
+        }.onFailure { WeLogger.w(TAG, "retitleFolderRow failed", it) }
+    }
+
+    /** Extract the conversation username (field_username) from an adapter item (com.tencent.mm.storage.k4). */
+    private fun readRowUsername(item: Any): String? {
+        var cls: Class<*>? = item.javaClass
+        var guard = 0
+        while (cls != null && cls != Any::class.java && guard++ < 5) {
+            val f = runCatching { cls.getDeclaredField("field_username") }.getOrNull()
+            if (f != null) { f.isAccessible = true; return f.get(item) as? String }
+            cls = cls.superclass
+        }
+        return null
+    }
+
     private fun tintFolderTitleByText(root: ViewGroup) {
         // 开关关闭时不染文件夹标题。
         if (!WePrefs.getBoolOrFalse(ConversationAggregationColors.ENABLED_PREF_KEY)) return
@@ -1994,8 +2146,6 @@ object ConversationAggregation : ClickableFeature(),
                 }
                 if (v is ViewGroup) for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
             }
-            diagFile("ConversationList dispatchDraw hooked")
-            WeLogger.i(TAG, "ConversationList dispatchDraw hooked")
         }.onFailure {
             diagFile("ConversationList dispatchDraw FAILED: $it")
             WeLogger.w(TAG, "ConversationList dispatchDraw hook fail", it)
@@ -2003,6 +2153,7 @@ object ConversationAggregation : ClickableFeature(),
     }
     /** Hook WeChat conversation list dispatchDraw: tint folder-title rows every frame (idempotent) */
     private fun hookConversationListDraw() {
+        var lastDump = 0L
         runCatching {
             val cls = Class.forName("com.tencent.mm.ui.conversation.ConversationListView")
             cls.getMethod("dispatchDraw", android.graphics.Canvas::class.java).hookAfterDirectly {
@@ -2010,18 +2161,18 @@ object ConversationAggregation : ClickableFeature(),
                 runCatching {
                     for (i in 0 until list.childCount) {
                         val row = list.getChildAt(i)
-                        if (row is ViewGroup) tintFolderTitleByText(row)
+                        if (row is ViewGroup) {
+                            tintFolderTitleByText(row)
+                            retitleFolderRow(list, row)
+                        }
                     }
                 }
             }
-            diagFile("ConversationList dispatchDraw hooked")
             WeLogger.i(TAG, "ConversationList dispatchDraw hooked")
         }.onFailure {
-            diagFile("ConversationList dispatchDraw FAILED: $it")
             WeLogger.w(TAG, "ConversationList dispatchDraw hook fail", it)
         }
     }
-
     /** Find title TextView in a row (largest textSize, not aggregate summary, contains letters) */
     private fun findTitleTextView(root: ViewGroup): TextView? {
         var title: TextView? = null
@@ -2475,6 +2626,10 @@ object ConversationAggregation : ClickableFeature(),
         activity.setTitle(folder.name)
 
         val fragment = activity.conversationFm
+        runCatching {
+            val fm = fragment.javaClass
+            fm.getMethod("setMMTitle", String::class.java).invoke(fragment, folder.name)
+        }.onFailure { WeLogger.w(TAG, "setMMTitle fallback failed", it) }
 
         // onResume may fire repeatedly; drop any previous entry before re-adding
         fragment.removeOptionMenu(FOLDER_CONFIG_MENU_ID)
