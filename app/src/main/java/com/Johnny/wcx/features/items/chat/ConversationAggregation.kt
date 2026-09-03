@@ -413,7 +413,6 @@ object ConversationAggregation : ClickableFeature(),
         hookConversationStorageUpdateUnread()
         WeLogger.i(TAG, "onEnable: after hookConversationStorageUpdateUnread")
         diagFile("onEnable: after hookConversationStorageUpdateUnread")
-        hookStorageReadProbe()
         hookMentionTint()
         WeLogger.i(TAG, "onEnable: after hookMentionTint")
         diagFile("onEnable: after hookMentionTint")
@@ -2314,32 +2313,6 @@ object ConversationAggregation : ClickableFeature(),
         }.onFailure { WeLogger.w(TAG, "restoreHomeBadge failed: " + it) }
     }
 
-    /** Diag: after leaving the folder page WeChat zeroes the home row badge in its own UI state.
-     * Dump every home-row node that looks like a badge/number view so we can restore it directly. */
-    private fun dumpHomeBadgeState(tag: String) {
-        runCatching {
-            val lv = cachedConvListView?.get() as? android.widget.ListView ?: return@runCatching
-            for (i in 0 until lv.childCount) {
-                val row = lv.getChildAt(i) as? ViewGroup ?: continue
-                val pos = runCatching { lv.javaClass.getMethod("getPositionForView", View::class.java).invoke(lv, row) as? Int }.getOrDefault(-1)
-                val item = runCatching { lv.javaClass.getMethod("getItemAtPosition", Int::class.javaPrimitiveType).invoke(lv, pos) }.getOrNull()
-                val uname = item?.let { readRowUsername(it) } ?: continue
-                if (!isFolderId(uname)) continue
-                val queue = java.util.ArrayDeque<View>(); queue.add(row); var g = 0
-                val sb = StringBuilder()
-                while (queue.isNotEmpty() && g++ < 200) {
-                    val v = queue.removeFirst()
-                    val nm = v.javaClass.simpleName
-                    val txt = if (v is android.widget.TextView) v.text?.toString()?.take(14) else null
-                    val vis = when (v.visibility) { View.VISIBLE -> "V"; View.INVISIBLE -> "I"; else -> "G" }
-                    sb.append("[" + nm + vis + "(" + v.left + "," + v.top + "," + v.width + "x" + v.height + ")" + (txt ?: "") + "]")
-                    if (v is ViewGroup) for (c in 0 until v.childCount) queue.addLast(v.getChildAt(c))
-                }
-                WeLogger.i(TAG, "BADGEDIAG($tag) uname=$uname FULL " + sb)
-            }
-        }.onFailure { WeLogger.w(TAG, "dumpHomeBadgeState failed: " + it) }
-    }
-
     private fun forceHomeRefresh(tag: String) {
         synchronized(digestCache) { digestCache.clear() }
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
@@ -2353,7 +2326,6 @@ object ConversationAggregation : ClickableFeature(),
                     target = runCatching { adapter.javaClass.getMethod("getWrappedAdapter").invoke(adapter) }
                         .getOrNull() ?: adapter
                 }
-                dumpHomeBadgeState(tag)
                 restoreHomeFolderBadge()
                 val m = runCatching { target.javaClass.getMethod("notifyDataSetChanged") }
                     .getOrElse { adapter.javaClass.methods.firstOrNull { it.name == "notifyDataSetChanged" && it.parameterCount == 0 } }
@@ -2845,33 +2817,6 @@ object ConversationAggregation : ClickableFeature(),
             // it clears the box aggregate read; our folder container reuses the box UI so block it too.
             if (isFolderId(username) || username == WeChatFolderPlaceholder.CONVERSATION_BOX) result = true
         }
-    }
-
-    /** 诊断：8.0.78 进 ConversationBox 页/离开时微信走哪个方法清未读(b0 若未命中则此探针定位新入口)。 */
-    private var storageReadProbeReady = true
-    private fun hookStorageReadProbe() {
-        runCatching {
-            val storage = when {
-                !methodConversationStorageUpdateUnreadByTalker.isPlaceholder -> methodConversationStorageUpdateUnreadByTalker.method.declaringClass
-                !methodConversationStorageQueryByParent.isPlaceholder -> methodConversationStorageQueryByParent.method.declaringClass
-                else -> Class.forName("com.tencent.mm.storage.m4")
-            }
-            var probeCount = 0
-            storage.declaredMethods.forEach { m ->
-                if (m.name.lowercase().contains("read") || m.name.contains("b0") ||
-                    (m.name.startsWith("update") && m.parameterTypes.any { it == String::class.java })
-                ) {
-                    m.isAccessible = true
-                    m.hookBeforeDirectly {
-                        if (storageReadProbeReady) {
-                            WeLogger.i(TAG, "STORAGEPROBE " + m.name + " args=" + (args?.joinToString(",", limit = 6) { a -> a?.toString()?.take(20) ?: "null" }))
-                        }
-                    }
-                    probeCount++
-                }
-            }
-            WeLogger.i(TAG, "STORAGEPROBE hooked $probeCount methods on " + storage.name)
-        }.onFailure { WeLogger.w(TAG, "hookStorageReadProbe failed", it) }
     }
 
     private fun launchFolderContainer(source: Any?, folderId: String) {
