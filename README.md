@@ -22,6 +22,16 @@
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 > ⚠️ 标记「已随 v247」的条目：v247 重构合入后**采用上游实现，本地无独有代码保留**（上游已含同等能力），仅作功能存档。
 
+### 2026-09-04
+
+- **🛠️ 聊天增强 · 群聊归拢（ConversationAggregation）WeChat 8.0.78 适配：摘要实时刷新 / 角标口径 / 返回恢复**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
+  - 修复 ①（启动自愈）：8.0.78 主界面不再走 `MainUI.onResume`，冷启动后成员索引（`folderByMember`）恒空导致刷新全部空转——首页列表首帧 `dispatchDraw` 发现索引为空即懒触发一次全量对账（`syncFoldersToDatabase`，2s 节流）。
+  - 修复 ②（新消息不滑动不刷新）：8.0.78 MStorage `notify` 不再触达静态首页列表——DB 监听刷新完成后丢弃 3s 摘要缓存，并在主线程对列表 adapter（自动解包 `HeaderViewListAdapter`）调 `notifyDataSetChanged` 强制重 bind，新消息到达首页不滚动即更新摘要与数字。
+  - 修复 ③（角标口径）：首页群聊归拢数字角标按用户口径 = 非免打扰（普通）会话未读消息数；免打扰群未读不再计入红色数字。
+  - 修复 ④（返回归拢页后角标消失）：微信 8.0.78 在离开归拢（ConversationBox）页时仅在其 UI 状态隐藏首页行的未读角标（头像右下数字 TextView + 红点置 INVISIBLE、数据未动）——返回瞬间按 DB 值恢复可见性与文本，无需等待全量重 bind（秒回）。
+  - 修复 ⑤（进归拢页误清未读）：拦截 `ConversationStorage.updateUnreadByTalker` 对 `conversationboxservice` / folder id 的调用（hookBefore `result=true`）。
+  - 修复 ⑥（摘要正文截断）：8.0.78 `DIGEST` 以 `\n` 分隔发送者与正文——单行摘要把换行并入空格，正文不再被截。
 ### 2026-09-02
 
 - **🎨 界面美化 · 微信主页侧边栏：同步上游 v247 实现（HomeSidePanelFeature 恢复为 upstream/master）**
