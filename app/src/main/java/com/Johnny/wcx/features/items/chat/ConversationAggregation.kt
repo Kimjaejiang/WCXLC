@@ -101,6 +101,7 @@ import java.io.File
 import java.text.Collator
 import java.util.Locale
 import java.util.UUID
+import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.nio.file.Path
@@ -342,6 +343,9 @@ object ConversationAggregation : ClickableFeature(),
     private var folderByMember: Map<String, String> = emptyMap()
 
     private val suppressQueryRewrite = ThreadLocal.withInitial { false }
+    /** 8.0.78 涓荤晫闈笉鍐嶈蛋 MainUI.onResume锛氶椤甸甯у彂鐜版垚鍛樼储寮曚负绌烘椂鎳掕Е鍙戜竴娆″叏閲忓璐︺€?*/
+    private var lastReconcileAttempt = 0L
+    @Volatile private var cachedConvListView: WeakReference<View>? = null
 
     // Reactive refresh: WeChat updates member conversation rows (new message / read state)
     // through the ContentValues insert/update path, but our materialized folder rows are
@@ -609,6 +613,7 @@ object ConversationAggregation : ClickableFeature(),
         if (table != ConversationTable.NAME) return
         val username = values.getAsString(ConversationTable.USERNAME) ?: return
         if (isFolderId(username)) return  // skip our own folder row writes
+        WeLogger.i(TAG, "dbListener onInsert row username=$username")
         scheduleRefresh(username)
     }
 
@@ -627,12 +632,16 @@ object ConversationAggregation : ClickableFeature(),
                 whereClause?.contains(ConversationTable.USERNAME, ignoreCase = true) == true
             }
         if (targetUsername != null && isFolderId(targetUsername)) return
+        val unreadKeys = listOf("unReadCount", "unReadMuteCount", "digest", "conversationTime")
+        val touches = values.keySet().any { unreadKeys.contains(it) }
+        WeLogger.i(TAG, "dbListener onUpdate row target=$targetUsername touchesUnread=$touches values=${values.keySet().take(6).joinToString()}")
         scheduleRefresh(targetUsername)
     }
 
     private fun scheduleRefresh(username: String?) {
-        val handler = refreshHandler ?: return
-        if (loadFolders().isEmpty()) return
+        WeLogger.i(TAG, "scheduleRefresh username=$username")
+        val handler = refreshHandler ?: run { WeLogger.i(TAG, "scheduleRefresh no handler"); return }
+        if (loadFolders().isEmpty()) { WeLogger.i(TAG, "scheduleRefresh no folders"); return }
         if (username == null) {
             refreshAllFolders.set(true)
         } else {
@@ -647,9 +656,10 @@ object ConversationAggregation : ClickableFeature(),
     }
 
     private fun doRefreshFolderSummaries() {
-        if (!WeDatabaseApi.isReady) return
+        WeLogger.i(TAG, "doRefresh begin")
+        if (!WeDatabaseApi.isReady) { WeLogger.i(TAG, "doRefresh db not ready"); return }
         val folders = loadFolders()
-        if (folders.isEmpty()) return
+        if (folders.isEmpty()) { WeLogger.i(TAG, "doRefresh no folders"); return }
         val changedMembers = synchronized(pendingRefreshLock) {
             pendingRefreshMembers.toSet().also { pendingRefreshMembers.clear() }
         }
@@ -669,7 +679,13 @@ object ConversationAggregation : ClickableFeature(),
         } else {
             changedMembers.mapNotNullTo(linkedSetOf()) { folderByMember[it] }
         }
-        if (affectedFolderIds.isEmpty()) return
+        if (affectedFolderIds.isEmpty()) {
+            WeLogger.i(TAG, "doRefresh no affected changed=${changedMembers.take(3)} " +
+                "fbSize=${folderByMember.size} mbSize=${membersByFolder.size} " +
+                "fbHasFirst=${changedMembers.firstOrNull()?.let { folderByMember.containsKey(it) }} " +
+                "cfgFolders=${folders.size} fbKeys=${folderByMember.keys.take(4)}")
+            return
+        }
 
         runCatching {
             val startedAt = SystemClock.elapsedRealtime()
@@ -687,6 +703,10 @@ object ConversationAggregation : ClickableFeature(),
                 }
             }
             WeConversationApi.reloadConversations()
+            // 8.0.78: notify does not rebind the static home list - force a redraw so the
+            // dispatchDraw retitle pass re-injects the freshly computed summary. The digest
+            // cache must be dropped first or retitle re-injects the pre-refresh summary.
+            forceHomeRefresh("new-msg")
             WeLogger.d(
                 TAG,
                 "refreshed ${affectedFolderIds.size} folders for ${changedMembers.size} members in " +
@@ -799,6 +819,92 @@ object ConversationAggregation : ClickableFeature(),
                 result = null
             }
         }
+        // WX 8.0.78+: conversation opens run through LauncherUI.NewChattingTabUI. The tap path is
+        // pf.a (mStartChattingRunnable) -> NewChattingTabUI.e(...) == prepareChattingFragment.
+        // Cancelling e() alone is NOT safe: pf.a dereferences the fragment view right after e()
+        // (newChattingTabUI.o.getView().findViewById) and NPEs because o stays null. So intercept
+        // pf.a itself: cancel the whole runnable (nothing runs afterwards) and open the folder
+        // container. e() stays hooked for observability only. 8.0.77 startChatting hooks above
+        // remain for older WeChat versions.
+        runCatching {
+            val pfCls = Class.forName("com.tencent.mm.ui.pf")
+            val pfRun = pfCls.declaredMethods.firstOrNull { it.name == "a" && it.parameterCount == 0 }
+            val ntCls = Class.forName("com.tencent.mm.ui.NewChattingTabUI")
+            val eM = ntCls.declaredMethods.firstOrNull { it.name == "e" && it.parameterCount == 3 }
+            if (eM != null) {
+                eM.isAccessible = true
+                de.robv.android.xposed.XposedBridge.hookMethod(eM, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val intent = param.args[1] as? Intent ?: return@beforeHookedMethod
+                        val username = intent.getStringExtra("Chat_User") ?: return@beforeHookedMethod
+                        WeLogger.i(TAG, "NewChattingTabUI.e: username=" + username + (if (isFolderId(username)) " (observe only)" else ""))
+                    }
+                })
+            }
+            if (pfRun != null) {
+                pfRun.isAccessible = true
+                de.robv.android.xposed.XposedBridge.hookMethod(pfRun, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val pfInst = param.thisObject ?: return@beforeHookedMethod
+                        val tab = findFieldOfType(pfInst, "com.tencent.mm.ui.NewChattingTabUI") ?: return@beforeHookedMethod
+                        val username = runCatching { tab.javaClass.getField("h").get(tab) as? String }.getOrNull() ?: return@beforeHookedMethod
+                        WeLogger.i(TAG, "pf.a(startChattingRunnable): Chat_User=" + username)
+                        if (isFolderId(username)) {
+                            param.result = null
+                            activeFolderId = username
+                            val act = runCatching { tab.javaClass.getField("a").get(tab) as? Activity }.getOrNull()
+                            if (act != null) launchFolderContainer(act, username)
+                            else WeLogger.w(TAG, "pf.a: folder id but no host activity")
+                        }
+                    }
+                })
+                WeLogger.i(TAG, "pf.a hooked (8.0.78 folder-open runnable)")
+            }
+        }.onFailure { WeLogger.w(TAG, "hook NewChattingTabUI.e/pf.a failed", it) }
+    }
+    // Find the first field whose declared type matches targetTypeName (e.g. the NewChattingTabUI
+    // stored inside the pf runnable). Obfuscated field names differ per WeChat build, so match on
+    // the resolved class name instead of the field name.
+    private fun findFieldOfType(holder: Any, targetTypeName: String): Any? {
+        var cls: Class<*>? = holder.javaClass
+        while (cls != null && cls != Any::class.java) {
+            for (fld in cls.declaredFields) {
+                if (fld.type.name == targetTypeName) {
+                    return runCatching { fld.isAccessible = true; fld.get(holder) }.getOrNull()
+                }
+            }
+            cls = cls.superclass
+        }
+        return null
+    }
+
+    private var serviceSHookArmed = false
+    private fun ensureConversationServiceSHook() {
+        if (serviceSHookArmed) return
+        serviceSHookArmed = true
+        runCatching {
+            val h9c = Class.forName("b41.h9")
+            val inst = h9c.getMethod("b").invoke(null)
+            val svc = inst.javaClass.getMethod("s").invoke(inst)
+            val svcCls = svc.javaClass
+            val sM = svcCls.methods.firstOrNull { m -> m.name == "s" && m.parameterCount == 4 && m.parameterTypes[2] == String::class.java }
+            if (sM != null) {
+                de.robv.android.xposed.XposedBridge.hookMethod(sM, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val folderId = activeFolderId ?: return@beforeHookedMethod
+                        val ref = param.args[2] as? String ?: return@beforeHookedMethod
+                        if (ref == "conversationboxservice") {
+                            param.args[2] = folderId
+                            WeLogger.i(TAG, "svc.s superUsername rewrite: conversationboxservice -> " + folderId)
+                        }
+                    }
+                })
+                WeLogger.i(TAG, "ConversationService.s hooked on " + svcCls.name)
+            } else {
+                WeLogger.w(TAG, "ConversationService.s(int,List,String,int) not found on " + svcCls.name)
+                serviceSHookArmed = false
+            }
+        }.onFailure { WeLogger.w(TAG, "hook ConversationService.s failed", it); serviceSHookArmed = false }
     }
 
     private inline fun interceptFolderChatOpen(
@@ -825,6 +931,24 @@ object ConversationAggregation : ClickableFeature(),
     }
 
     private fun hookConversationPages() {
+        // WX 8.0.78: the folder container adapter (u0.q) loads its list through the conversation
+        // service s(int,List,String,int) with a HARDCODED superUsername "conversationboxservice"
+        // (service-box semantics), ignoring the Contact_User folder id on the container intent.
+        // Ensure the service query rewrite (see ensureConversationServiceSHook) is armed whenever
+        // the container adapter refreshes, so queries hit parentRef=<folderId> rows again.
+        runCatching {
+            val u0Cls = Class.forName("com.tencent.mm.ui.conversation.u0")
+            val qm = u0Cls.declaredMethods.firstOrNull { it.name == "q" && it.parameterCount == 0 }
+            if (qm != null) {
+                qm.isAccessible = true
+                de.robv.android.xposed.XposedBridge.hookMethod(qm, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (activeFolderId != null) ensureConversationServiceSHook()
+                    }
+                })
+                WeLogger.i(TAG, "u0.q hooked (8.0.78 folder list refresh)")
+            }
+        }.onFailure { WeLogger.w(TAG, "hook u0.q failed", it) }
         ConvBoxServiceConversationUI::class.hookBeforeOnCreate {
             val activity = thisObject as? Activity ?: return@hookBeforeOnCreate
             activeFolderId = readFolderIdFromIntent(activity.intent) ?: activeFolderId
@@ -834,20 +958,24 @@ object ConversationAggregation : ClickableFeature(),
             runCatching { Class.forName(cls).getMethod("onResume").hookAfter { WeLogger.i(TAG, "aggPage onResume " + (thisObject?.javaClass?.name)) } }
         }
 
-        BaseConversationUI::class.reflekt().apply {
-            firstMethod("onResume").hookAfter {
-                val activity = thisObject as? BaseConversationUI ?: return@hookAfter
+        runCatching {
+            val bcu = Class.forName("com.tencent.mm.ui.conversation.BaseConversationUI")
+            bcu.getMethod("onResume").hookAfterDirectly {
+                val activity = thisObject as? BaseConversationUI ?: return@hookAfterDirectly
                 WeLogger.i(TAG, "onResume act=" + activity.javaClass.simpleName + " folder=" + activeFolderId + " extra=" + activity.intent?.getStringExtra(WeChatIntentExtra.CONTACT_USER))
                 activeFolderId = activeFolderId ?: readFolderIdFromIntent(activity.intent)
                 configureFolderActivity(activity)
             }
-
-            firstMethod("onDestroy").hookAfter {
+            WeLogger.i(TAG, "BaseConversationUI.onResume hooked (getMethod)")
+            bcu.getMethod("onDestroy").hookAfterDirectly {
                 if (thisObject is ConvBoxServiceConversationUI) {
                     activeFolderId = null
+                    // WeChat zeroes the home folder-row badge in its UI state on leaving the box
+                    // page (data untouched). Push the DB badge back once home resumes.
+                    forceHomeRefresh("leave-folder")
                 }
             }
-        }
+        }.onFailure { WeLogger.w(TAG, "hook BaseConversationUI onResume/onDestroy failed", it) }
         // Diagnose the method that opens the official-account flutter page from the home tab.
         runCatching {
             val mmLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
@@ -1759,7 +1887,7 @@ object ConversationAggregation : ClickableFeature(),
         methodSqliteWrapperRawQuery.hookBefore {
             if (suppressQueryRewrite.get()!!) return@hookBefore
             val sql = args.firstOrNull() as? String ?: return@hookBefore
-            if (sql.contains("rconversation") && (sql.contains("update", true) || sql.contains("unread", true))) {
+            if (sql.contains("rconversation") && (activeFolderId != null || sql.contains("update", true) || sql.contains("unread", true))) {
                 WeLogger.i(TAG, "rawQuery: $sql")
                 diagFile("rawQuery: $sql")
             }
@@ -1971,6 +2099,76 @@ object ConversationAggregation : ClickableFeature(),
         }
     }
 
+    /**
+     * WX 8.0.78: WeChat renders every parent conversation (incl. our folder rows) with the native
+     * "ConversationFolderItemView" fold template whose title text is a hardcoded "折叠置顶聊天".
+     * For rows whose adapter item is one of our folders, restore the folder name (blue title).
+     * Runs every dispatchDraw frame, but setText/setTextColor are skipped while the text is already
+     * what we want, so cost stays minimal after the first pass. Also restores the original row title
+     * when the recycled row is no longer bound to a folder.
+     */
+    private fun retitleFolderRow(list: View, row: ViewGroup) {
+        runCatching {
+            val pos = runCatching { list.javaClass.getMethod("getPositionForView", View::class.java).invoke(list, row) as? Int }.getOrDefault(-1)
+            if (pos == null || pos < 0) return
+            val item = runCatching { list.javaClass.getMethod("getItemAtPosition", Int::class.javaPrimitiveType).invoke(list, pos) }.getOrNull() ?: return
+            val uname = readRowUsername(item) ?: return
+            if (!isFolderId(uname)) return  // 普通会话行不处理(8.0.78 普通行标题也是 NoMeasuredTextView，避免误染)
+            val title = findTitleTextView(row)
+            if (title == null) {
+                WeLogger.w(TAG, "retitle: no title view for " + uname)
+                return
+            }
+            val folder = folderById(uname)
+            val cur = viewText(title)
+            if (folder == null) {
+                if (cur.startsWith(FOLDER_PREFIX)) {
+                    // Recycled row still shows an old folder name but no longer maps to a folder.
+                    WeLogger.i(TAG, "retitle: stale folder title cleared")
+                    setViewText(title, "")
+                }
+                return
+            }
+            // 文本修正：TextView(g_u 展开态/回收行) cur 可读时才改；NoMeasuredTextView(cur 空) 文本由微信 bind(folder 名)
+            if (cur.isNotEmpty() && cur != folder.name) setViewText(title, folder.name)
+            // 颜色驱动补色：微信 bind 会把颜色重置回默认——viewColor != blue 时补一次；开关关闭则保持微信默认
+            val blue = adaptNight(row.context, MENTION_TITLE_BLUE)
+            if (folderTitleEnabled) {
+                if (viewColor(title) != blue) {
+                    setViewColor(title, blue)
+                    val nT = System.currentTimeMillis()
+                    if (nT - (lastRetitleLog[uname] ?: 0L) > 2000) {
+                        lastRetitleLog[uname] = nT
+                        WeLogger.i(TAG, "retitle: " + uname + " -> " + folder.name)
+                    }
+                }
+            }
+            // —— 摘要上色：折叠模板摘要 = NoMeasuredTextView(ht5 自绘)；展开态 = TextView(dfs) ——
+            // 摘要各色值/独立开关在 tintAggSummary 内按 pref 实时读取(总开关关→原样文本无色)
+            val sv = findSummaryViewCompat(row, title)
+            if (sv != null) {
+                val digest = folderDigestCached(uname)
+                // 摘要文本在微信每次 bind/重绘时会被重置为纯文本(灰色)——必须在每次 dispatchDraw 重设彩色 span
+                // (幂等,内容相同无闪)；节流会留下「忽有忽无」灰色窗口。开关在 tintAggSummary 内实时读取。
+                if (digest.isNotEmpty() && isAggSummary(digest)) {
+                    setViewText(sv, tintAggSummary(digest, row.context))
+                }
+            }
+        }.onFailure { WeLogger.w(TAG, "retitleFolderRow failed", it) }
+    }
+
+    /** Extract the conversation username (field_username) from an adapter item (com.tencent.mm.storage.k4). */
+    private fun readRowUsername(item: Any): String? {
+        var cls: Class<*>? = item.javaClass
+        var guard = 0
+        while (cls != null && cls != Any::class.java && guard++ < 5) {
+            val f = runCatching { cls.getDeclaredField("field_username") }.getOrNull()
+            if (f != null) { f.isAccessible = true; return f.get(item) as? String }
+            cls = cls.superclass
+        }
+        return null
+    }
+
     private fun tintFolderTitleByText(root: ViewGroup) {
         // 开关关闭时不染文件夹标题。
         if (!WePrefs.getBoolOrFalse(ConversationAggregationColors.ENABLED_PREF_KEY)) return
@@ -1994,8 +2192,6 @@ object ConversationAggregation : ClickableFeature(),
                 }
                 if (v is ViewGroup) for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
             }
-            diagFile("ConversationList dispatchDraw hooked")
-            WeLogger.i(TAG, "ConversationList dispatchDraw hooked")
         }.onFailure {
             diagFile("ConversationList dispatchDraw FAILED: $it")
             WeLogger.w(TAG, "ConversationList dispatchDraw hook fail", it)
@@ -2003,41 +2199,193 @@ object ConversationAggregation : ClickableFeature(),
     }
     /** Hook WeChat conversation list dispatchDraw: tint folder-title rows every frame (idempotent) */
     private fun hookConversationListDraw() {
+        var lastDump = 0L
         runCatching {
             val cls = Class.forName("com.tencent.mm.ui.conversation.ConversationListView")
             cls.getMethod("dispatchDraw", android.graphics.Canvas::class.java).hookAfterDirectly {
                 val list = thisObject as? ViewGroup ?: return@hookAfterDirectly
+                cachedConvListView = WeakReference(list)
                 runCatching {
+                    // Self-heal: 8.0.78 never routes the home resume through MainUI.onResume,
+                    // so the folder index can stay empty after a cold start and refreshes no-op.
+                    if (folderByMember.isEmpty() && WeDatabaseApi.isReady &&
+                        SystemClock.uptimeMillis() - lastReconcileAttempt > 2000L
+                    ) {
+                        lastReconcileAttempt = SystemClock.uptimeMillis()
+                        WeLogger.i(TAG, "lazy reconcile: index empty on home frame")
+                        syncFoldersToDatabase()
+                    }
                     for (i in 0 until list.childCount) {
                         val row = list.getChildAt(i)
-                        if (row is ViewGroup) tintFolderTitleByText(row)
+                        if (row is ViewGroup) {
+                            tintFolderTitleByText(row)
+                            retitleFolderRow(list, row)
+                        }
                     }
                 }
             }
-            diagFile("ConversationList dispatchDraw hooked")
             WeLogger.i(TAG, "ConversationList dispatchDraw hooked")
         }.onFailure {
-            diagFile("ConversationList dispatchDraw FAILED: $it")
             WeLogger.w(TAG, "ConversationList dispatchDraw hook fail", it)
         }
     }
-
-    /** Find title TextView in a row (largest textSize, not aggregate summary, contains letters) */
-    private fun findTitleTextView(root: ViewGroup): TextView? {
-        var title: TextView? = null
+    /** 8.0.78 fold 行标题可能是 NoMeasuredTextView(X2C 自绘,非 TextView,getText 空)。
+     * 候选 = 可见 且 (NoMeasured 或 含字母非摘要 TextView)；字号最大优先(NoMeasured 不可读给 0)。
+     * GONE 子树直接跳过——修正此前常改到回收/GONE 区视图的问题。 */
+    private fun findTitleTextView(root: ViewGroup): View? {
+        var best: View? = null
+        var bestSize = -1f
         val queue = java.util.ArrayDeque<View>()
         queue.add(root)
         while (queue.isNotEmpty()) {
             val v = queue.removeFirst()
-            if (v is TextView) {
-                val t = v.text?.toString().orEmpty()
-                if (!isAggSummary(t) && t.any { it.isLetter() } && (title == null || v.textSize > title.textSize)) {
-                    title = v
-                }
-            }
+            if (!v.isShown) continue
+            val isNM = v.javaClass.name.contains("NoMeasured")
+            val tvText = (v as? TextView)?.text?.toString().orEmpty()
+            val size = if (v is TextView) v.textSize else runCatching { v.javaClass.getMethod("getTextSize").invoke(v) as? Float }.getOrNull() ?: -1f
+            val ok = isNM || (!isAggSummary(tvText) && tvText.any { it.isLetter() })
+            if (ok && (best == null || size > bestSize)) { best = v; bestSize = size }
             if (v is ViewGroup) for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
         }
-        return title
+        return best
+    }
+
+    private fun viewText(v: View): String = (v as? TextView)?.text?.toString().orEmpty()
+
+    private fun viewColor(v: View): Int = (v as? TextView)?.currentTextColor
+        ?: runCatching { v.javaClass.getMethod("getCurrentTextColor").invoke(v) as? Int }.getOrNull() ?: 0
+
+    /** 8.0.78 home list is static: MStorage notify does not rebind. Drop the digest cache then
+     * force the ListView adapter to rebind on the main thread so WeChat re-queries (module
+     * rewrite returns the fresh digest) and re-renders folder rows. */
+    /** 8.0.78 leave-folder: WeChat hides the home folder-row unread badge (TextView + red-dot
+     * ImageView around the avatar lower-right) instead of clearing data. Flip visibility back
+     * and refresh the number from the DB so the badge returns instantly, no full rebind. */
+    private fun restoreHomeFolderBadge() {
+        runCatching {
+            val lv = cachedConvListView?.get() as? android.widget.ListView ?: return@runCatching
+            for (i in 0 until lv.childCount) {
+                val row = lv.getChildAt(i) as? ViewGroup ?: continue
+                val pos = runCatching { lv.javaClass.getMethod("getPositionForView", View::class.java).invoke(lv, row) as? Int }.getOrDefault(-1)
+                val item = runCatching { lv.javaClass.getMethod("getItemAtPosition", Int::class.javaPrimitiveType).invoke(lv, pos) }.getOrNull() ?: continue
+                val uname = readRowUsername(item) ?: continue
+                if (!isFolderId(uname)) continue
+                val unread = runCatching {
+                    var u = 0
+                    WeDatabaseApi.rawQuery(
+                        "SELECT ${ConversationTable.UNREAD_COUNT} FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME}=?",
+                        arrayOf(uname)
+                    ).use { c -> if (c.moveToFirst()) u = c.getIntOrZero(ConversationTable.UNREAD_COUNT) }
+                    u
+                }.getOrDefault(0).coerceAtLeast(0)
+                val queue = java.util.ArrayDeque<View>(); queue.add(row); var g = 0
+                var badgeTv: android.widget.TextView? = null
+                var dotIv: View? = null
+                while (queue.isNotEmpty() && g++ < 120) {
+                    val v = queue.removeFirst()
+                    if (v is android.widget.TextView && v.width in 30..100 && v.height in 30..100 &&
+                        v.left < 320 && (v.text?.toString()?.all { it.isDigit() } == true)
+                    ) {
+                        badgeTv = v
+                        // red-dot bg only when the sibling overlaps the number closely and is about
+                        // the same size; small corner icons (mute/folded etc) must be left alone
+                        if (v.parent is ViewGroup) {
+                            val p = v.parent as ViewGroup
+                            for (c in 0 until p.childCount) {
+                                val s = p.getChildAt(c)
+                                if (s !== v && s.width in 40..v.width + 30 && s.height in 40..v.height + 30 &&
+                                    s is android.widget.ImageView && Math.abs(s.left - v.left) < v.width / 2) dotIv = s
+                            }
+                        }
+                        break
+                    }
+                    if (v is ViewGroup) for (c in 0 until v.childCount) queue.addLast(v.getChildAt(c))
+                }
+                if (badgeTv != null) {
+                    badgeTv.text = if (unread > 0) unread.toString() else ""
+                    badgeTv.visibility = if (unread > 0) View.VISIBLE else View.INVISIBLE
+                    if (dotIv != null) dotIv.visibility = if (unread > 0) View.VISIBLE else View.INVISIBLE
+                    WeLogger.i(TAG, "restoreHomeBadge uname=$uname unread=$unread tv=${badgeTv.javaClass.simpleName} dot=${dotIv != null}")
+                } else {
+                    WeLogger.i(TAG, "restoreHomeBadge uname=$uname unread=$unread no badge tv found")
+                }
+            }
+        }.onFailure { WeLogger.w(TAG, "restoreHomeBadge failed: " + it) }
+    }
+
+    private fun forceHomeRefresh(tag: String) {
+        synchronized(digestCache) { digestCache.clear() }
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            runCatching {
+                val lv = cachedConvListView?.get() as? android.widget.ListView ?: return@runCatching
+                val adapter = lv.javaClass.getMethod("getAdapter").invoke(lv) ?: return@runCatching
+                // 8.0.78 home list adapter is wrapped in HeaderViewListAdapter; its own
+                // notifyDataSetChanged is not resolvable via getMethod, unwrap first.
+                var target = adapter
+                if (adapter.javaClass.name.contains("HeaderViewListAdapter")) {
+                    target = runCatching { adapter.javaClass.getMethod("getWrappedAdapter").invoke(adapter) }
+                        .getOrNull() ?: adapter
+                }
+                restoreHomeFolderBadge()
+                val m = runCatching { target.javaClass.getMethod("notifyDataSetChanged") }
+                    .getOrElse { adapter.javaClass.methods.firstOrNull { it.name == "notifyDataSetChanged" && it.parameterCount == 0 } }
+                    ?: throw NoSuchMethodException("notifyDataSetChanged on " + target.javaClass.name)
+                m.isAccessible = true
+                m.invoke(target)
+                WeLogger.i(TAG, "adapter notifyDataSetChanged ($tag) on " + target.javaClass.name)
+                lv.postDelayed({ runCatching { lv.invalidate() } }, 60)
+            }.onFailure { WeLogger.w(TAG, "adapter refresh ($tag) failed: " + it, it) }
+        }, 300)
+    }
+
+    private fun setViewText(v: View, s: CharSequence) {
+        if (v is TextView) v.text = s
+        else runCatching { v.javaClass.getMethod("setText", CharSequence::class.java).invoke(v, s) }.onFailure { WeLogger.w(TAG, "setViewText fail " + v.javaClass.name + ": " + it) }
+    }
+
+    /** 折叠行摘要 View：压缩态=可见 NoMeasuredTextView(ht5 自绘, 非标题)；展开态=与标题同父可见含字母 TextView(dfs)。 */
+    private fun findSummaryViewCompat(row: ViewGroup, title: View?): View? {
+        runCatching {
+            val nmTitle = title?.javaClass?.name?.contains("NoMeasured") == true
+            val queue = java.util.ArrayDeque<View>(); queue.add(row)
+            var guard = 0
+            while (queue.isNotEmpty() && guard++ < 120) {
+                val v = queue.removeFirst()
+                if (!v.isShown || v === title) continue
+                if (v.javaClass.name.contains("NoMeasured")) {
+                    if (nmTitle) return v
+                } else if (v is TextView && !nmTitle) {
+                    val t = v.text?.toString().orEmpty()
+                    if (t.any { it.isLetter() } && !isAggSummary(t)) return v
+                }
+                if (v is ViewGroup) for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
+            }
+        }.onFailure { }
+        return null
+    }
+
+    private val digestCache = HashMap<String, Pair<String, Long>>()
+    private fun folderDigestCached(username: String): String {
+        val now = System.currentTimeMillis()
+        synchronized(digestCache) { digestCache[username]?.let { (d, ts) -> if (now - ts < 3000) return d } }
+        val d = runCatching {
+            var res = ""
+            WeDatabaseApi.rawQuery(
+                "SELECT ${ConversationTable.DIGEST} FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME}=?",
+                arrayOf(username)
+            ).use { cursor -> if (cursor.moveToFirst()) res = cursor.getStringOrEmpty(ConversationTable.DIGEST) }
+            res
+        }.getOrDefault("")
+        synchronized(digestCache) { digestCache[username] = d to now }
+        return d
+    }
+
+    private val summarySpanTs = HashMap<String, Long>()
+    private val lastRetitleLog = HashMap<String, Long>()
+
+    private fun setViewColor(v: View, c: Int) {
+        if (v is TextView) v.setTextColor(c)
+        else runCatching { v.javaClass.getMethod("setTextColor", Int::class.javaPrimitiveType).invoke(v, c) }.onFailure { WeLogger.w(TAG, "setViewColor fail " + v.javaClass.name + ": " + it) }
     }
 
     /** Fallback for cache-adapter rows: tint the row title with folder-title color */
@@ -2055,12 +2403,12 @@ object ConversationAggregation : ClickableFeature(),
                 if (v is ViewGroup) {
                     if (firstGroup == null) firstGroup = v
                     val title = findTitleTextView(v)
-                    diagFile("tintFolderTitle: title=" + (title?.text?.toString()?.take(15) ?: "NULL"))
+                    val tt = title?.let { viewText(it) } ?: ""
+                    diagFile("tintFolderTitle: title=" + (tt.take(15)))
                     if (title == null) continue
-                    val t = title.text?.toString() ?: continue
-                    if (!folderTitleNames().contains(t)) { diagFile("tintFolderTitle: skip not-whitelist: " + t.take(15)); continue }
-                    if (folderTitleEnabled) title.setTextColor(adaptNight(summaryView.context, MENTION_TITLE_BLUE))
-                    diagFile("tintFolderTitle: tinted " + t.take(20) + " color=" + Integer.toHexString(MENTION_TITLE_BLUE))
+                    if (!folderTitleNames().contains(tt)) { diagFile("tintFolderTitle: skip not-whitelist: " + tt.take(15)); continue }
+                    if (folderTitleEnabled) setViewColor(title, adaptNight(summaryView.context, MENTION_TITLE_BLUE))
+                    diagFile("tintFolderTitle: tinted " + tt.take(20) + " color=" + Integer.toHexString(MENTION_TITLE_BLUE))
                     return@runCatching
                 }
             }
@@ -2277,7 +2625,17 @@ object ConversationAggregation : ClickableFeature(),
         runCatching {
             cls.getMethod("dispatchDraw", android.graphics.Canvas::class.java).hookAfterDirectly {
                 val list = thisObject as? ViewGroup ?: return@hookAfterDirectly
+                cachedConvListView = WeakReference(list)
                 runCatching {
+                    // Self-heal: 8.0.78 never routes the home resume through MainUI.onResume,
+                    // so the folder index can stay empty after a cold start and refreshes no-op.
+                    if (folderByMember.isEmpty() && WeDatabaseApi.isReady &&
+                        SystemClock.uptimeMillis() - lastReconcileAttempt > 2000L
+                    ) {
+                        lastReconcileAttempt = SystemClock.uptimeMillis()
+                        WeLogger.i(TAG, "lazy reconcile: index empty on home frame")
+                        syncFoldersToDatabase()
+                    }
                     for (i in 0 until list.childCount) {
                         val row = list.getChildAt(i)
                         if (row is ViewGroup) tintFolderTitleByText(row)
@@ -2446,12 +2804,18 @@ object ConversationAggregation : ClickableFeature(),
     }
 
     private fun hookConversationStorageUpdateUnread() {
-        if (methodConversationStorageUpdateUnreadByTalker.isPlaceholder) return
+        if (methodConversationStorageUpdateUnreadByTalker.isPlaceholder) {
+            WeLogger.i(TAG, "updateUnreadByTalker hook MISSING in 8.0.78 — box read-on-leave not blocked")
+            diagFile("updateUnreadByTalker hook MISSING in 8.0.78")
+            return
+        }
         methodConversationStorageUpdateUnreadByTalker.hookBefore {
             val username = args.firstOrNull() as? String ?: return@hookBefore
             WeLogger.i(TAG, "updateUnreadByTalker: $username folder=${isFolderId(username)}")
             diagFile("updateUnreadByTalker: $username folder=${isFolderId(username)}")
-            if (isFolderId(username)) result = true
+            // WeChat fires b0(conversationboxservice) while ENTERING the box page (8.0.78 observed) -
+            // it clears the box aggregate read; our folder container reuses the box UI so block it too.
+            if (isFolderId(username) || username == WeChatFolderPlaceholder.CONVERSATION_BOX) result = true
         }
     }
 
@@ -2475,6 +2839,10 @@ object ConversationAggregation : ClickableFeature(),
         activity.setTitle(folder.name)
 
         val fragment = activity.conversationFm
+        runCatching {
+            val fm = fragment.javaClass
+            fm.getMethod("setMMTitle", String::class.java).invoke(fragment, folder.name)
+        }.onFailure { WeLogger.w(TAG, "setMMTitle fallback failed", it) }
 
         // onResume may fire repeatedly; drop any previous entry before re-adding
         fragment.removeOptionMenu(FOLDER_CONFIG_MENU_ID)
@@ -3006,7 +3374,7 @@ object ConversationAggregation : ClickableFeature(),
                 WeLogger.i(
                     TAG,
                     "folderSummary diag folderId=$folderId atMeCount=${state.atMeCount} " +
-                        "unreadChatCount=${state.unreadChatCount} everyoneHit=$everyoneHit " +
+                        "unreadChatCount=${state.unreadChatCount} normal=${state.normalUnread} muted=${state.mutedUnread} everyoneHit=$everyoneHit " +
                         "digest=[${latest.digest}] content=[${latest.content.take(80)}]"
                 )
                 FolderSummary(
@@ -3026,8 +3394,12 @@ object ConversationAggregation : ClickableFeature(),
                     conversationTime = latest.conversationTime.takeIf { it > 0L }
                         ?: storedRows[folderId]?.summary?.conversationTime
                         ?: System.currentTimeMillis(),
+                    // 8.0.78: WeChat renders the folder badge from unReadCount alone and gives
+                    // unReadMuteCount a separate muted style - folding all unread chats (incl.
+                    // muted) into the count matches 8.0.77 (badge = unread chat count).
+                    // User expectation: home badge = normal (non-muted) unread messages only.
                     unreadCount = state.normalUnread,
-                    unreadMuteCount = state.mutedUnread,
+                    unreadMuteCount = 0,
                     content = latest.content,
                     msgType = latest.msgType,
                     chatMode = latest.chatMode
@@ -3091,12 +3463,13 @@ object ConversationAggregation : ClickableFeature(),
                 val rawSender = resolveSenderDisplayName(sender, senderWxid, groupId)
                 val senderName = rawSender.take(MAX_SENDER_NAME_LEN) +
                     if (rawSender.length > MAX_SENDER_NAME_LEN) "\u2026" else ""
-                val rest = digest.substring(m.value.length)
+                // 8.0.78 微信把发送者与正文用换行分隔(DIGEST=「wxid:\\\\n内容」)——单行摘要需并入空格，否则正文被截
+                val rest = digest.substring(m.value.length).replace("\\r?\\n", " ").trimStart()
                 // 发送者名无法解析（无备注、无群名片）时不显示空括号
                 return if (senderName.isBlank()) "$name: $rest" else "$name($senderName):$rest"
             }
         }
-        return "$name: $digest"
+        return "$name: ${digest.replace("\\r?\\n", " ")}"
     }
 
     private val senderNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
