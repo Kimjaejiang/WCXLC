@@ -127,6 +127,8 @@ object MessageFilterShield : ClickableFeature(),
 
     // 可屏蔽的消息类型
     private val shieldableMessageTypes = listOf(
+        MessageType.TEXT to "文本",
+        MessageType.QUOTE to "引用文本",
         MessageType.RED_PACKET to "红包",
         MessageType.SPECIAL_RED_PACKET to "裂变红包",
         MessageType.TRANSFER to "转账",
