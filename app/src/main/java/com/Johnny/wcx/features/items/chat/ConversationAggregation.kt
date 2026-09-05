@@ -72,7 +72,6 @@ import com.Johnny.wcx.features.api.ui.WeStartActivityApi
 import com.Johnny.wcx.features.api.ui.WeConversationContextMenuApi
 import com.Johnny.wcx.features.core.ClickableFeature
 import com.Johnny.wcx.features.core.Feature
-import com.Johnny.wcx.features.items.chat.ConversationAggregation.syncFoldersToDatabase
 import com.Johnny.wcx.features.items.contacts.CustomLocalFriendAvatars
 import com.Johnny.wcx.ui.content.AlertDialogContent
 import com.Johnny.wcx.ui.content.BaseContactSelector
@@ -121,6 +120,10 @@ object ConversationAggregation : ClickableFeature(),
 
     private const val TAG = "AggregateChats"
     const val FOLDER_PREFIX = "wekit_folder_"
+    @Volatile private var mvvmRedirecting = false
+    @Volatile private var mvvmSelectedWxid: String? = null
+    @Volatile private var mvvmSelectedTs = 0L
+    @Volatile private var mvvmPickedMember: String? = null  // 最近一次 folder picker 所选成员(持久,无过期)
     // 拦截首页长按菜单「标为已读」：对归拢文件夹行改为标记其全部成员会话（见 markFolderAsRead）。
     private val folderMarkReadInterceptor = WeConversationContextMenuApi.INativeMenuInterceptor { context, menuItem ->
         val title = menuItem.title?.toString().orEmpty()
@@ -356,6 +359,8 @@ object ConversationAggregation : ClickableFeature(),
     private val REFRESH_TASK_TOKEN = Any()
     private val RECONCILE_TASK_TOKEN = Any()
     private const val SQLITE_BIND_CHUNK_SIZE = 900
+    private var lastDoRefreshAt = 0L
+    private const val MIN_REFRESH_GAP = 800L
     private val pendingRefreshMembers = ConcurrentHashMap.newKeySet<String>()
     private val pendingRefreshLock = Any()
     private val refreshAllFolders = AtomicBoolean(false)
@@ -382,6 +387,7 @@ object ConversationAggregation : ClickableFeature(),
         WeLogger.i(TAG, "onEnable: after hookMainUiRefresh")
         diagFile("onEnable: after hookMainUiRefresh")
         hookOpenFolder()
+        hookChattingUiFolderRedirect()
         WeLogger.i(TAG, "onEnable: after hookOpenFolder")
         diagFile("onEnable: after hookOpenFolder")
         // 尽早 hook 微信打开链（ok0.l1），捕获其实例；微信启动早期会自动调用一次（如 voip 页），
@@ -391,7 +397,11 @@ object ConversationAggregation : ClickableFeature(),
         hookConversationPages()
         WeLogger.i(TAG, "onEnable: after hookConversationPages")
         diagFile("onEnable: after hookConversationPages")
-        hookFolderContextMenu()
+hookRowMenuInjectG()
+        hookRowMenuHost()
+hookConversationLongMenuProbe()
+hookViewLongClickProbe()
+        hookPopupHostProbe()
         hookConversationClick()
         hookFolderFragmentMethods()
         hookFolderItemClick()
@@ -608,12 +618,23 @@ object ConversationAggregation : ClickableFeature(),
         }
     }
 
+    private val dbDiagLast = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private fun diagDb(kind: String, key: String, msg: String) {
+        val now = System.currentTimeMillis()
+        val k = kind + "|" + key
+        val last = dbDiagLast[k] ?: 0L
+        if (now - last < 10000) return
+        dbDiagLast[k] = now
+        diagFile(msg)
+    }
+
     // Called by WeDatabaseListenerApi when WeChat inserts a conversation row
     override fun onInsert(table: String, values: ContentValues) {
         if (table != ConversationTable.NAME) return
         val username = values.getAsString(ConversationTable.USERNAME) ?: return
         if (isFolderId(username)) return  // skip our own folder row writes
         WeLogger.i(TAG, "dbListener onInsert row username=$username")
+        diagDb("ins", username, "db onInsert u=" + username)
         scheduleRefresh(username)
     }
 
@@ -635,6 +656,9 @@ object ConversationAggregation : ClickableFeature(),
         val unreadKeys = listOf("unReadCount", "unReadMuteCount", "digest", "conversationTime")
         val touches = values.keySet().any { unreadKeys.contains(it) }
         WeLogger.i(TAG, "dbListener onUpdate row target=$targetUsername touchesUnread=$touches values=${values.keySet().take(6).joinToString()}")
+        diagDb("upd", targetUsername ?: "?", "db onUpdate u=" + targetUsername + " touches=" + touches + " keys=" + values.keySet().take(8).joinToString(","))
+        if (!touches) return  // 仅摘要相关列变化才刷新(消息风暴降频)
+        diagDb("upd", targetUsername ?: "?", "db onUpdate u=" + targetUsername + " touches=" + touches + " keys=" + values.keySet().take(8).joinToString(","))
         scheduleRefresh(targetUsername)
     }
 
@@ -657,6 +681,7 @@ object ConversationAggregation : ClickableFeature(),
 
     private fun doRefreshFolderSummaries() {
         WeLogger.i(TAG, "doRefresh begin")
+        diagFile("refresh begin")
         if (!WeDatabaseApi.isReady) { WeLogger.i(TAG, "doRefresh db not ready"); return }
         val folders = loadFolders()
         if (folders.isEmpty()) { WeLogger.i(TAG, "doRefresh no folders"); return }
@@ -664,6 +689,20 @@ object ConversationAggregation : ClickableFeature(),
             pendingRefreshMembers.toSet().also { pendingRefreshMembers.clear() }
         }
         val refreshAll = refreshAllFolders.getAndSet(false)
+
+        val nowGap = SystemClock.uptimeMillis()
+        if (nowGap - lastDoRefreshAt < MIN_REFRESH_GAP) {
+            synchronized(pendingRefreshLock) {
+                pendingRefreshMembers += changedMembers
+                if (refreshAll) refreshAllFolders.set(true)
+            }
+            val h = refreshHandler ?: return@doRefreshFolderSummaries
+            h.removeCallbacksAndMessages(REFRESH_TASK_TOKEN)
+            h.postAtTime(::doRefreshFolderSummaries, REFRESH_TASK_TOKEN, lastDoRefreshAt + MIN_REFRESH_GAP)
+            diagFile("refresh throttled")
+            return
+        }
+        lastDoRefreshAt = nowGap
 
         // A custom SQL rule may depend on any rconversation column. Reconcile it before using the
         // reverse index, because this write may have changed membership rather than just a summary.
@@ -680,6 +719,7 @@ object ConversationAggregation : ClickableFeature(),
             changedMembers.mapNotNullTo(linkedSetOf()) { folderByMember[it] }
         }
         if (affectedFolderIds.isEmpty()) {
+            diagFile("refresh noAffected changed=" + changedMembers.take(5).joinToString(",") + " fb=" + folderByMember.size + " mb=" + membersByFolder.size)
             WeLogger.i(TAG, "doRefresh no affected changed=${changedMembers.take(3)} " +
                 "fbSize=${folderByMember.size} mbSize=${membersByFolder.size} " +
                 "fbHasFirst=${changedMembers.firstOrNull()?.let { folderByMember.containsKey(it) }} " +
@@ -862,6 +902,50 @@ object ConversationAggregation : ClickableFeature(),
             }
         }.onFailure { WeLogger.w(TAG, "hook NewChattingTabUI.e/pf.a failed", it) }
     }
+    // 最终兜底：某些分享/转发路径直接启动 ChattingUI(folderId)（不经 pf.a/NewChattingTab），
+    // 假会话没有真实聊天线程会在触摸时崩。拦 ChattingUI 打开：folder 目标 -> 弹成员选择器，
+    // 选定后以原 intent（保留分享草稿 extra）重定向到该成员聊天窗。
+    private var lastChattingFolderPickTs = 0L
+    private fun hookChattingUiFolderRedirect() {
+        runCatching {
+            val cCls = Class.forName("com.tencent.mm.ui.chatting.ChattingUI")
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                cCls, "onCreate", android.os.Bundle::class.java,
+                object : de.robv.android.xposed.XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        try {
+                            val act = param.thisObject as? android.app.Activity ?: return
+                            val intent = act.intent ?: return
+                            val username = intent.getStringExtra("Chat_User") ?: return
+                            if (!isFolderId(username)) return
+                            val folder = folderById(username) ?: return
+                            val now = System.currentTimeMillis()
+                            if (now - lastChattingFolderPickTs < 1500) return
+                            lastChattingFolderPickTs = now
+                            WeLogger.i(TAG, "ChattingUI folder open intercepted: " + username)
+                            val origIntent = android.content.Intent(intent)
+                            act.window?.decorView?.post({
+                                try {
+                                    showFolderMemberPicker(act, folder) { selected ->
+                                        runCatching {
+                                            android.content.Intent(origIntent).putExtra("Chat_User", selected).let {
+                                                act.startActivity(it)
+                                                act.finish()
+                                            }
+                                        }.onFailure { e -> WeLogger.e(TAG, "ChattingUI redirect to member failed", e) }
+                                    }
+                                } catch (e: Throwable) { WeLogger.e(TAG, "ChattingUI folder picker err", e) }
+                            })
+                        } catch (e: Throwable) { WeLogger.e(TAG, "ChattingUI folder intercept err", e) }
+                    }
+                }
+            )
+            WeLogger.i(TAG, "ChattingUI folder-open redirect hooked (8.0.78 fallback)")
+        }.onFailure { WeLogger.w(TAG, "hook ChattingUI folder redirect failed", it) }
+    }
+
+    // Find the first field whose declared type matches targetTypeName (e.g. the NewChattingTabUI
+    // stored inside the pf runnable). Obfuscated field names differ per WeChat build, so match on
     // Find the first field whose declared type matches targetTypeName (e.g. the NewChattingTabUI
     // stored inside the pf runnable). Obfuscated field names differ per WeChat build, so match on
     // the resolved class name instead of the field name.
@@ -964,6 +1048,9 @@ object ConversationAggregation : ClickableFeature(),
                 val activity = thisObject as? BaseConversationUI ?: return@hookAfterDirectly
                 WeLogger.i(TAG, "onResume act=" + activity.javaClass.simpleName + " folder=" + activeFolderId + " extra=" + activity.intent?.getStringExtra(WeChatIntentExtra.CONTACT_USER))
                 activeFolderId = activeFolderId ?: readFolderIdFromIntent(activity.intent)
+                configureFolderActivity(activity)
+                diagFile("onResume act=" + activity.javaClass.simpleName + " folder=" + activeFolderId + " extra=" + activity.intent?.getStringExtra(WeChatIntentExtra.CONTACT_USER))
+                if (activity is ConvBoxServiceConversationUI) dumpContainerViews(activity)
                 configureFolderActivity(activity)
             }
             WeLogger.i(TAG, "BaseConversationUI.onResume hooked (getMethod)")
@@ -1105,6 +1192,7 @@ object ConversationAggregation : ClickableFeature(),
                 m.hookBeforeDirectly {
                     val argsStr = args.joinToString("|") { a: Any? -> a?.javaClass?.simpleName ?: "null" }
                     WeLogger.i(TAG, "ConvClick: " + m.name + " args=" + argsStr)
+                    diagDb("conv", m.name, "ConvClick " + m.name + " args=" + argsStr + " self=" + thisObject?.javaClass?.name)
                 }
             }.onFailure { }
         }
@@ -1125,6 +1213,7 @@ object ConversationAggregation : ClickableFeature(),
                     val raw = args.joinToString("|") { a: Any? -> a?.javaClass?.simpleName ?: "null" }
                     val argsStr = if (raw.length > 80) raw.substring(0, 80) else raw
                     WeLogger.i(TAG, "FmUI: " + mn + " args=" + argsStr)
+                    diagDb("fm", mn, "FmUI " + mn + " args=" + argsStr)
                 }
             }.onFailure { }
         }
@@ -1649,7 +1738,309 @@ object ConversationAggregation : ClickableFeature(),
         }.onFailure { }
     }
 
+    // 8.0.78 容器长按若改走与首页一致的 ConversationLongClickListener(不再经 MMPopupMenu.showMenu)，
+    // 在此探测并在菜单构建后注入「移出/移到文件夹」项。
+    private var dumpedContainerOnce = false
+    private var lastLongClickDiag = 0L
+    private var lastPopupDiag = 0L
+    private var pendingMenuTalker: String? = null
+    private var pendingMenuCtx: android.content.Context? = null
+    private fun hookRowMenuInjectG() {
+        val gCls = runCatching { Class.forName("eu5.s0") }.getOrNull()
+        if (gCls == null) { diagFile("gm s0 missing"); return }
+        val gm = gCls.declaredMethods.firstOrNull { it.name == "g" && it.parameterCount == 7 }
+        if (gm == null) { diagFile("gm g missing"); return }
+        gm.isAccessible = true
+        de.robv.android.xposed.XposedBridge.hookMethod(gm, object : de.robv.android.xposed.XC_MethodHook() {
+            override fun beforeHookedMethod(p: de.robv.android.xposed.XC_MethodHook.MethodHookParam) {
+                runCatching {
+                    if (activeFolderId == null) return@runCatching
+                    val folderId = activeFolderId ?: return@runCatching
+                    val folder = folderById(folderId) ?: return@runCatching
+                    if (folder.type != FolderType.MANUAL) return@runCatching
+                    val createListener = p.args.getOrNull(3) as? android.view.View.OnCreateContextMenuListener ?: return@runCatching
+                    val selectCb = p.args.getOrNull(4) ?: return@runCatching
+                    val position = p.args.getOrNull(1) as? Int ?: return@runCatching
+                    val talker = resolveContainerRowUsername(createListener, position)
+                    diagFile("gm hit talker=" + talker + " pos=" + position + " listener=" + createListener.javaClass.name)
+                    if (talker == null || talker == folderId || talker !in folder.members) {
+                        diagFile("gm skip talker=" + talker + " folderId=" + folderId + " members=" + folder.members.take(6).joinToString(","))
+                        return@runCatching
+                    }
+                    val rowCtx = (p.args.getOrNull(0) as? android.view.View)?.context
+                    val listener0 = createListener
+                    p.args[3] = android.view.View.OnCreateContextMenuListener { menu, view, menuInfo ->
+                        listener0.onCreateContextMenu(menu, view, menuInfo)
+                        runCatching {
+                            menu.add(0, REMOVE_FROM_FOLDER_MENU_ID, REMOVE_FROM_FOLDER_MENU_ORDER, "移出文件夹")
+                            menu.add(0, MOVE_TO_FOLDER_MENU_ID, MOVE_TO_FOLDER_MENU_ORDER, "移到文件夹")
+                        }
+                    }
+                    p.args[4] = java.lang.reflect.Proxy.newProxyInstance(
+                        gm.parameterTypes[4].classLoader,
+                        arrayOf(gm.parameterTypes[4])
+                    ) { _, method, methodArgs ->
+                        val params = methodArgs ?: emptyArray()
+                        if (method.name == "onMMMenuItemSelected") {
+                            val menuItem = params.getOrNull(0) as? android.view.MenuItem
+                            if (menuItem?.itemId == REMOVE_FROM_FOLDER_MENU_ID) {
+                                diagFile("gm click remove talker=" + talker)
+                                removeMemberFromFolder(folderId, talker)
+                                return@newProxyInstance null
+                            }
+                            if (menuItem?.itemId == MOVE_TO_FOLDER_MENU_ID) {
+                                diagFile("gm click move talker=" + talker)
+                                if (rowCtx != null) showMoveToFolderDialog(rowCtx, talker)
+                                return@newProxyInstance null
+                            }
+                        }
+                        method.invoke(selectCb, *params)
+                    }
+                    diagFile("gm inject ok talker=" + talker)
+                }.onFailure { diagFile("gm err: " + it) }
+            }
+        })
+        diagFile("gm s0.g inject armed")
+    }
+
+    private fun resolveContainerRowUsername(listener: Any, pos: Int): String? {
+        runCatching {
+            var owner: Any? = listener
+            var c: Class<*>? = listener.javaClass
+            while (c != null && c != Any::class.java) {
+                for (f in c.declaredFields) runCatching {
+                    if (f.type.name.endsWith(".r0")) { f.isAccessible = true; owner = f.get(listener) }
+                }
+                c = c.superclass
+            }
+            var frag: Any? = null
+            if (owner != null && owner !== listener) {
+                c = owner.javaClass
+                while (c != null && c != Any::class.java) {
+                    for (f in c.declaredFields) runCatching {
+                        if (f.type.name.contains("FmUI")) { f.isAccessible = true; frag = f.get(owner) }
+                    }
+                    c = c.superclass
+                }
+            }
+            val roots = mutableListOf<Any>()
+            if (frag != null) roots.add(frag)
+            if (owner != null) roots.add(owner)
+            roots.add(listener)
+            for (root in roots) {
+                val item = runCatching { listItemAt(root, pos) }.getOrNull()
+                if (item == null) continue
+                readRowUsername(item)?.let { if (it.isNotEmpty()) return it }
+                strictItemUsername(item)?.let { if (it.isNotEmpty()) return it }
+            }
+        }
+        return null
+    }
+
+    private fun listItemAt(owner: Any, pos: Int): Any? {
+        var c: Class<*>? = owner.javaClass
+        while (c != null && c != Any::class.java) {
+            for (f in c.declaredFields) {
+                val v = runCatching { f.isAccessible = true; f.get(owner) }.getOrNull() ?: continue
+                if (v is android.widget.AdapterView<*>) {
+                    val it = runCatching { (v as android.widget.AbsListView).getItemAtPosition(pos) }.getOrNull()
+                    if (it != null) return it
+                } else if (v is android.widget.ListAdapter) {
+                    if (pos in 0 until v.count) {
+                        val it = runCatching { v.getItem(pos) }.getOrNull()
+                        if (it != null) return it
+                    }
+                }
+            }
+            c = c.superclass
+        }
+        return null
+    }
+
+    private fun strictItemUsername(item: Any): String? {
+        runCatching {
+            for (m in item.javaClass.methods) {
+                if (m.parameterCount == 0 && m.name in setOf("getUsername", "getUserName", "getTalker", "getWxId", "getWxid")) {
+                    val v = m.invoke(item)?.toString()
+                    if (!v.isNullOrEmpty() && isPlainUsername(v)) return v
+                }
+            }
+            var c: Class<*>? = item.javaClass
+            while (c != null && c != Any::class.java) {
+                for (f in c.declaredFields) {
+                    if (f.type == String::class.java) {
+                        runCatching { f.isAccessible = true
+                            val v = f.get(item) as? String
+                            if (v != null && isPlainUsername(v)) return v
+                        }
+                    }
+                }
+                c = c.superclass
+            }
+        }
+        return null
+    }
+
+    private fun isPlainUsername(v: String): Boolean {
+        if (v.isEmpty() || v.length > 80) return false
+        if (v == WeChatFolderPlaceholder.CONVERSATION_BOX || v == WeChatFolderPlaceholder.MESSAGE_FOLD) return false
+        if (v.startsWith(FOLDER_PREFIX)) return false
+        if (v.any { it.code > 127 }) return false
+        return true
+    }
+
+
+    private fun hookRowMenuHost() {
+        // r0 = 8.0.78 会话列表(首页/文件夹容器共用)行点击监听器。长按弹菜单主入口=r0.onItemLongClick。
+        val r0Cls = runCatching { Class.forName("com.tencent.mm.ui.conversation.r0") }.getOrNull()
+        if (r0Cls == null) { diagFile("rowmenu r0 missing"); return }
+        r0Cls.declaredMethods.forEach { m ->
+            when {
+                m.name == "onItemLongClick" && m.parameterCount == 4 -> {
+                    de.robv.android.xposed.XposedBridge.hookMethod(m, object : de.robv.android.xposed.XC_MethodHook() {
+                        override fun afterHookedMethod(p: de.robv.android.xposed.XC_MethodHook.MethodHookParam) {
+                            runCatching {
+                                val parent = p.args.getOrNull(0) as? android.widget.AdapterView<*>
+                                val pos = p.args.getOrNull(2) as? Int
+                                if (activeFolderId == null || parent == null || pos == null || pos < 0) return
+                                val item = runCatching { parent.adapter.getItem(pos) }.getOrNull() ?: return
+                                val talker = itemToUsername(item)
+                                pendingMenuTalker = talker
+                                pendingMenuCtx = parent.context
+                                diagFile("rowmenu longClick talker=" + talker + " pos=" + pos)
+                            }
+                        }
+                    })
+                    diagFile("rowmenu r0.onItemLongClick armed")
+                }
+                m.name == "onCreateContextMenu" && m.parameterCount == 3 -> {
+                    de.robv.android.xposed.XposedBridge.hookMethod(m, object : de.robv.android.xposed.XC_MethodHook() {
+                        override fun afterHookedMethod(p: de.robv.android.xposed.XC_MethodHook.MethodHookParam) {
+                            runCatching {
+                                if (activeFolderId == null) return
+                                val folderId = activeFolderId ?: return
+                                val folder = folderById(folderId) ?: return
+                                if (folder.type != FolderType.MANUAL) return
+                                val talker = pendingMenuTalker ?: return
+                                if (talker !in folder.members) return
+                                val menu = p.args.getOrNull(0) as? android.view.Menu ?: return
+                                diagFile("rowmenu createCtx talker=" + talker + " menu=" + menu.javaClass.name + " size=" + menu.size())
+                                val rem = menu.add(0, REMOVE_FROM_FOLDER_MENU_ID, REMOVE_FROM_FOLDER_MENU_ORDER, "移出文件夹")
+                                rem.setOnMenuItemClickListener { removeMemberFromFolder(folderId, talker); true }
+                                val mv = menu.add(0, MOVE_TO_FOLDER_MENU_ID, MOVE_TO_FOLDER_MENU_ORDER, "移到文件夹")
+                                mv.setOnMenuItemClickListener {
+                                    val ac = pendingMenuCtx
+                                    if (ac != null) showMoveToFolderDialog(ac, talker) else { showToast("移出/移动需在文件夹内使用") }
+                                    true
+                                }
+                            }
+                        }
+                    })
+                    diagFile("rowmenu r0.onCreateContextMenu armed")
+                }
+            }
+        }
+    }
+
+
+    private fun hookPopupHostProbe() {
+        val clsNames = listOf("android.widget.PopupWindow", "android.app.Dialog")
+        for (cn in clsNames) {
+            runCatching {
+                val cls = Class.forName(cn)
+                val ms = cls.declaredMethods.filter { it.name == "showAtLocation" || it.name == "show" }
+                for (m in ms) {
+                    de.robv.android.xposed.XposedBridge.hookMethod(m, object : de.robv.android.xposed.XC_MethodHook() {
+                        override fun beforeHookedMethod(p: de.robv.android.xposed.XC_MethodHook.MethodHookParam) {
+                            runCatching {
+                                if (activeFolderId == null) return
+                                val now = System.currentTimeMillis()
+                                if (now - lastPopupDiag < 2000) return
+                                lastPopupDiag = now
+                                val self = p.thisObject?.javaClass?.name
+                                val st = Thread.currentThread().stackTrace
+                                diagFile("POPUPMENU self=" + self + " " + m.name + "\\n" + st.take(12).joinToString("\\n") { "   " + it.className + "." + it.methodName })
+                            }
+                        }
+                    })
+                }
+            }.onFailure { }
+        }
+        diagFile("popup probe armed")
+    }
+
+
+    private fun hookViewLongClickProbe() {
+        runCatching {
+            val cls = android.view.View::class.java
+            val targets = cls.declaredMethods.filter { it.name == "performLongClick" && it.parameterCount == 0 }
+            for (m in targets) {
+                de.robv.android.xposed.XposedBridge.hookMethod(m, object : de.robv.android.xposed.XC_MethodHook() {
+                    override fun beforeHookedMethod(p: de.robv.android.xposed.XC_MethodHook.MethodHookParam) {
+                        runCatching {
+                            if (activeFolderId == null) return
+                            val now = System.currentTimeMillis()
+                            if (now - lastLongClickDiag < 1500) return
+                            lastLongClickDiag = now
+                            val v = p.thisObject as? android.view.View
+                            val top = v?.context as? android.app.Activity
+                            if (top !is ConvBoxServiceConversationUI) return
+                            val st = Thread.currentThread().stackTrace
+                            diagFile("LONGCLICK view=" + v?.javaClass?.name + "\\n" + st.take(10).joinToString("\\n") { "   " + it.className + "." + it.methodName })
+                        }
+                    }
+                })
+            }
+            diagFile("longclick probe armed")
+        }.onFailure { diagFile("longclick probe err: " + it) }
+    }
+
+
+    private fun dumpContainerViews(activity: Activity) {
+        if (dumpedContainerOnce) return
+        dumpedContainerOnce = true
+        val root = activity.window?.decorView ?: return
+        root.postDelayed({
+            runCatching {
+                val seen = linkedSetOf<String>()
+                val queue = java.util.ArrayDeque<android.view.View>()
+                queue.add(root)
+                var guard = 0
+                while (queue.isNotEmpty() && guard++ < 600) {
+                    val v = queue.removeFirst()
+                    val n = v.javaClass.name
+                    if (n.contains("Folder", true) || n.contains("Conv", true) || n.contains("Adapter", true) || n.contains("Box", true) || n.contains("ListView", true) || n.contains("Recycler", true) || n.contains("u0", true)) {
+                        if (seen.size < 36) seen.add(n)
+                    }
+                    if (v is android.view.ViewGroup) for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
+                }
+                diagFile("container dump:\\n" + seen.joinToString("\\n"))
+            }.onFailure { diagFile("container dump err: " + it) }
+        }, 500)
+    }
+
+
+    private fun hookConversationLongMenuProbe() {
+        runCatching {
+            val clz = Class.forName("com.tencent.mm.ui.conversation.ConversationLongClickListener")
+            val createM = clz.declaredMethods.firstOrNull { it.name == "onCreateContextMenu" && it.parameterCount == 3 }
+            if (createM == null) { diagFile("menu long no create"); return@runCatching }
+            de.robv.android.xposed.XposedBridge.hookMethod(createM, object : de.robv.android.xposed.XC_MethodHook() {
+                override fun afterHookedMethod(p: de.robv.android.xposed.XC_MethodHook.MethodHookParam) {
+                    runCatching {
+                        val info = p.args.getOrNull(2) as? android.widget.AdapterView.AdapterContextMenuInfo
+                        val self = p.thisObject?.javaClass?.name
+                        diagFile("menu long create folder=" + activeFolderId + " self=" + self + " pos=" + (info?.position) + "\\n" + Thread.currentThread().stackTrace.take(6).joinToString("\\n") { "   " + it.className + "." + it.methodName })
+                    }
+                }
+            })
+            diagFile("menu long probe armed on " + createM.declaringClass.name)
+        }.onFailure { diagFile("menu long probe err: " + it) }
+    }
+
+
     private fun hookFolderContextMenu() {
+        diagFile("menu hookFolderContextMenu placeholder=" + methodShowPopupMenu.isPlaceholder + " m=" + (methodShowPopupMenu.method))
         if (methodShowPopupMenu.isPlaceholder) return
 
 
@@ -1658,6 +2049,7 @@ object ConversationAggregation : ClickableFeature(),
         val selectCallbackInterface = methodShowPopupMenu.method.parameterTypes[4]
 
         methodShowPopupMenu.hookBefore {
+            diagFile("menu hook hit folder=" + activeFolderId + " viewCls=" + runCatching { args[0]?.javaClass?.name }.getOrNull() + " listener=" + runCatching { args[3]?.javaClass?.name }.getOrNull() + " pos=" + args[1] + "\\n" + Thread.currentThread().stackTrace.take(5).joinToString("\\n") { "   " + it.className + "." + it.methodName })
             val folderId = activeFolderId ?: return@hookBefore
             val menuContext = (args[0] as? android.view.View)?.context ?: return@hookBefore
             val folder = folderById(folderId) ?: return@hookBefore
@@ -1669,7 +2061,9 @@ object ConversationAggregation : ClickableFeature(),
 
             val talker = runCatching { extractFolderTalker(createListener, position) }
                 .onFailure { WeLogger.w(TAG, "failed to resolve long-pressed conversation", it) }
-                .getOrNull() ?: return@hookBefore
+                .getOrNull()
+            diagFile("menu hook talker=" + talker + " pos=" + position + " listener=" + createListener.javaClass.name + " inMembers=" + (talker?.let { it in folder.members }))
+            if (talker == null) return@hookBefore
             WeLogger.i(TAG, "longpress talker=" + talker + " pos=" + position)
 
             // Only offer removal on a row that is actually a member of this manual folder.
@@ -1711,8 +2105,218 @@ object ConversationAggregation : ClickableFeature(),
     // but they have no real chat thread — forwarding to one crashes. We cancel the call, show a
     // picker scoped to that folder's members, then re-invoke doClickUser with the chosen member so
     // the original share flow proceeds normally.
+    private fun itemToUsername(item: Any?): String? {
+        if (item == null) return null
+        if (item is String) return item
+        runCatching {
+            for (m in item.javaClass.methods) {
+                if (m.parameterCount == 0 && m.name in setOf("getUsername", "getUserName", "getTalker", "getTalkerName", "getWxId", "getWxid")) {
+                    val v = m.invoke(item)?.toString()
+                    if (!v.isNullOrEmpty()) return v
+                }
+            }
+        }
+        // 部分 8.0.78 行 item（如 contact.item.c0）没有标准 getter，扫描字段找归拢 folder id
+        runCatching {
+            var cls: Class<*>? = item.javaClass
+            while (cls != null && cls != Any::class.java) {
+                for (f in cls.declaredFields) {
+                    if (f.type == String::class.java) {
+                        f.isAccessible = true
+                        val v = f.get(item) as? String
+                        if (v != null && v.startsWith(FOLDER_PREFIX)) return v
+                    }
+                }
+                cls = cls.superclass
+            }
+        }
+        return null
+    }
+
+    // [TEMP-DIAG] 捕获联系人/会话/分享列表上注册的行点击监听器（定位 8.0.78 Mvvm 分享列表真实点击入口）
+    private var diagClickListenerHooked = false
+    private fun hookViewClickListenersDiag() {
+        if (diagClickListenerHooked) return
+        diagClickListenerHooked = true
+        runCatching { diagFile("DIAG begin hookViewClickListenersDiag") }
+        runCatching {
+            diagFile("DIAG hooking setOnClickListener")
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                android.view.View::class.java, "setOnClickListener",
+                android.view.View.OnClickListener::class.java,
+                object : de.robv.android.xposed.XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        try {
+                            val v = param.thisObject as? android.view.View ?: return
+                            val act = v.context as? android.app.Activity ?: return
+                            val cn = act.javaClass.name
+                            if (cn.contains("Contact") || cn.contains("Select") || cn.contains("Transmit") || cn.contains("Mvvm")) {
+                                val l = param.args[0]
+                                WeLogger.i(TAG, "DIAG clickListener act=$cn view=${v.javaClass.name} listener=${l?.javaClass?.name}")
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
+            )
+            WeLogger.i(TAG, "DIAG setOnClickListener hook armed")
+        }.onFailure { WeLogger.w(TAG, "DIAG hook failed", it); diagFile("DIAG hook failed: $it") }
+        diagFile("DIAG armed ok")
+    }
+
+    // [TEMP-DIAG2] 目标 UI onResume 后 dump 列表结构与行点击载体
+    private var lastResumedDiag: String? = null
+    private fun hookActivityListDumpDiag() {
+        runCatching {
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                android.app.Activity::class.java, "onResume",
+                object : de.robv.android.xposed.XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val act = param.thisObject as? android.app.Activity ?: return
+                        val cn = act.javaClass.name
+                        try { if (cn != lastResumedDiag) { lastResumedDiag = cn; diagFile("DIAG2 resumed: $cn") } } catch (_: Throwable) {}
+                        if (!cn.contains("Contact") && !cn.contains("Select") && !cn.contains("Transmit") && !cn.contains("Mvvm")) return
+                        val rvRef = java.lang.ref.WeakReference(act)
+                        act.window?.decorView?.postDelayed({
+                            val a = rvRef.get() ?: return@postDelayed
+                            runCatching { dumpActivityLists(a, cn) }
+                        }, 1200)
+                    }
+                }
+            )
+            diagFile("DIAG2 Activity.onResume dump hook armed")
+        }.onFailure { diagFile("DIAG2 arm failed: $it") }
+    }
+
+    private fun dumpActivityLists(act: android.app.Activity, cn: String) {
+        try {
+            val roots = java.util.ArrayList<android.view.View>()
+            collectAdapterViews(act.window.decorView, roots, 0, java.util.HashSet<String>())
+            diagFile("DIAG2 act=$cn scan foundAdapterViews=${roots.size}")
+            for (rv in roots) {
+                val ad = runCatching { rv.javaClass.getMethod("getAdapter").invoke(rv) }.getOrNull()
+                diagFile("DIAG2   list=${rv.javaClass.name} adapter=${ad?.javaClass?.name} childCount=${(rv as? android.view.ViewGroup)?.childCount}")
+                if (ad?.javaClass?.name == "android.widget.HeaderViewListAdapter") {
+                    val wrapped = runCatching { ad.javaClass.getMethod("getWrappedAdapter").invoke(ad) }.getOrNull()
+                    diagFile("DIAG2     wrappedAdapter=${wrapped?.javaClass?.name}")
+                }
+                val oicl = runCatching { rv.javaClass.getMethod("getOnItemClickListener").invoke(rv) }.getOrNull()
+                if (oicl != null) diagFile("DIAG2     OnItemClick=${oicl.javaClass.name}")
+                val oilcl = runCatching { rv.javaClass.getMethod("getOnItemLongClickListener").invoke(rv) }.getOrNull()
+                if (oilcl != null) diagFile("DIAG2     OnItemLongClick=${oilcl.javaClass.name}")
+                if (rv.javaClass.name.contains("RecyclerView")) {
+                    val vh = runCatching { rv.javaClass.getMethod("findViewHolderForAdapterPosition", Int::class.javaPrimitiveType).invoke(rv, 0) }.getOrNull()
+                    val iv = if (vh != null) runCatching { vh.javaClass.getField("itemView").get(vh) as? android.view.View }.getOrNull() else null
+                    if (iv != null) {
+                        diagFile("DIAG2     itemView=${iv.javaClass.name} clickable=${iv.isClickable}")
+                        dumpViewListener(iv, "     iv")
+                        if (iv is android.view.ViewGroup) dumpChildListeners(iv, 0)
+                    } else diagFile("DIAG2     holder/invisible: vh=${vh?.javaClass?.name}")
+                } else if (rv is android.view.ViewGroup && rv.childCount > 0) {
+                    for (ci in 0 until rv.childCount) {
+                        val row = rv.getChildAt(ci)
+                        dumpViewListener(row, "     row$ci")
+                        if (row is android.view.ViewGroup) dumpChildListeners(row, 0)
+                    }
+                }
+            }
+        } catch (e: Throwable) { diagFile("DIAG2 dump failed: $e") }
+    }
+
+    private fun collectAdapterViews(v: android.view.View, out: java.util.ArrayList<android.view.View>, depth: Int, seen: java.util.HashSet<String>) {
+        if (depth > 25 || out.size >= 6) return
+        val n = v.javaClass.name
+        if (v.isClickable || v.isLongClickable) dumpViewListener(v, "   click@$depth")
+        if ((n.contains("RecyclerView") || n.contains("ListView") || v is android.widget.AbsListView || v is android.widget.AdapterView<*>)) {
+            if (seen.add(n)) out.add(v)
+            return
+        }
+        if (v is android.view.ViewGroup) {
+            for (i in 0 until v.childCount) collectAdapterViews(v.getChildAt(i), out, depth + 1, seen)
+        }
+    }
+
+    private fun dumpChildListeners(vg: android.view.ViewGroup, depth: Int) {
+        if (depth > 2) return
+        for (i in 0 until vg.childCount) {
+            val c = vg.getChildAt(i)
+            if (c.javaClass.name.contains("RecyclerView")) continue
+            if (c.isClickable || c.isLongClickable) dumpViewListener(c, "   c$depth")
+            if (c is android.view.ViewGroup && c.childCount > 0) dumpChildListeners(c, depth + 1)
+        }
+    }
+
+    private fun dumpViewListener(v: android.view.View, tag: String) {
+        try {
+            val m = android.view.View::class.java.getDeclaredMethod("getListenerInfo")
+            m.isAccessible = true
+            val li = m.invoke(v) ?: return
+            val fOnClick = li.javaClass.getDeclaredField("mOnClickListener")
+            fOnClick.isAccessible = true
+            val clk = fOnClick.get(li)
+            val fOnTouch = li.javaClass.getDeclaredField("mOnTouchListener")
+            fOnTouch.isAccessible = true
+            val tch = fOnTouch.get(li)
+            diagFile("DIAG2 $tag ${v.javaClass.name} clickL=${clk?.javaClass?.name} touchL=${tch?.javaClass?.name}")
+        } catch (e: Throwable) { diagFile("DIAG2 listener read fail ${v.javaClass.name}: $e") }
+    }
+
     private fun hookSelectConversationUi() {
         if (methodSelectConversationDoClickUser.isPlaceholder) return
+        // [DIAG7] 抓 SelectConversationUI 正常行点击后回传调用方的 result 内容（keys+flags）
+        // [DIAG9] 分享 wrapper SendAppMessageWrapperUI 的目标传递探针
+        runCatching {
+            val wr = Class.forName("com.tencent.mm.ui.transmit.SendAppMessageWrapperUI")
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(wr, "onCreate", android.os.Bundle::class.java, object : XC_MethodHook() {
+                override fun afterHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val act = p.thisObject as? android.app.Activity ?: return@runCatching
+                        val i = act.intent ?: return@runCatching
+                        val ex = i.extras
+                        diagFile("DIAG9 wrapper onCreate intent cmp=" + i.component + " keys=" + (ex?.keySet()?.joinToString(",") ?: "null"))
+                        if (ex != null) {
+                            val ks = ex.keySet().toList()
+                            for (k in ks) {
+                                val v = ex.get(k)
+                                if (v is String && v.length < 200) diagFile("DIAG9   " + k + "=" + v)
+                            }
+                        }
+                    }
+                }
+            })
+            diagFile("DIAG9 armed")
+        }.onFailure { diagFile("DIAG9 arm err: " + it) }
+        runCatching {
+            val sconD = Class.forName("com.tencent.mm.ui.transmit.SelectConversationUI")
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "setResult", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    try {
+                        val act = p.thisObject as? android.app.Activity ?: return
+                        if (act.javaClass.name != sconD.name) return
+                        val i = p.args[1] as? android.content.Intent
+                        val extra = if (i != null) i.extras?.keySet()?.joinToString(",") else "null-intent"
+                        diagFile("DIAG7 setResult code=" + p.args[0] + " keys=" + extra + " flags=" + (i?.flags))
+                        if (i != null) {
+                            val ks = i.extras?.keySet() ?: emptySet()
+                            for (k in ks) {
+                                val v = i.extras?.get(k)
+                                if (v is String) diagFile("DIAG7   $k=" + v)
+                            }
+                        }
+                    } catch (e: Throwable) { diagFile("DIAG7 setResult err: " + e) }
+                }
+            })
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "finish", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    try {
+                        val act = p.thisObject as? android.app.Activity ?: return
+                        if (act.javaClass.name != sconD.name) return
+                        diagFile("DIAG7 finish called")
+                        runCatching { val ex = act.intent?.extras; diagFile("DIAG7   intent keys=" + (ex?.keySet()?.joinToString(",") ?: "null")) ; if (ex != null) { for (k in listOf("Select_Open_Id","Select_Conv_Type","Select_Conv_NextStep","Select_App_Id")) { val v = ex.get(k); diagFile("DIAG7   " + k + "=" + v) } } }
+                    } catch (e: Throwable) { }
+                }
+            })
+            diagFile("DIAG7 armed")
+        }.onFailure { diagFile("DIAG7 arm err: " + it) }
         methodSelectConversationDoClickUser.hookBefore {
             val username = args.firstOrNull() as? String ?: return@hookBefore
             if (!isFolderId(username)) return@hookBefore
@@ -1732,6 +2336,90 @@ object ConversationAggregation : ClickableFeature(),
                 }
             }
         }
+
+        // 8.0.78: SelectConversationUI 行点击由列表 OnItemClickListener 处理，但 8.0.78 中该
+        // Activity 自身不再实现 onItemClick（在父类链上），hookAllMethods 只覆盖子类声明方法，
+        // 因此沿继承链找第一个 onItemClick 实现并 hook，识别 folder 行，防止微信把假会话当真会话处理。
+        runCatching {
+            val sconUi = Class.forName("com.tencent.mm.ui.transmit.SelectConversationUI")
+            var hooked = false
+            var cls: Class<*>? = sconUi
+            while (cls != null && cls != Any::class.java) {
+                val m = cls.declaredMethods.firstOrNull {
+                    it.name == "onItemClick" && it.parameterCount == 4
+                            && it.parameterTypes[0] == android.widget.AdapterView::class.java
+                            && it.parameterTypes[1] == android.view.View::class.java
+                }
+                if (m != null) {
+                    de.robv.android.xposed.XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            try {
+                                val parent = param.args[0] as? android.widget.AdapterView<*> ?: return
+                                val pos = (param.args[2] as? Int) ?: return
+                                val item = runCatching { parent.adapter?.getItem(pos) }.getOrNull()
+                                val username = itemToUsername(item)
+                                diagFile("DIAG3 onItemClick host=${param.thisObject?.javaClass?.name} pos=$pos itemCls=${item?.javaClass?.name} username=$username")
+                                if (username != null && !isFolderId(username)) {
+                                    diagFile("DIAG8 normal-row stack:\\n" + Thread.currentThread().stackTrace.take(16).joinToString("\\n") { "    " + it.className + "." + it.methodName + ":" + it.lineNumber })
+                                }
+                                if (username != null && isFolderId(username)) {
+                                    diagFile("DIAG3 folder row tapped username=$username")
+                                    val folder = folderById(username) ?: return
+                                    var fld: java.lang.reflect.Field? = null
+                                    if (item != null) {
+                                        var c: Class<*>? = item.javaClass
+                                        while (c != null && c != Any::class.java && fld == null) {
+                                            for (f in c.declaredFields) {
+                                                if (f.type == String::class.java) {
+                                                    f.isAccessible = true
+                                                    if (f.get(item) == username) { fld = f; break }
+                                                }
+                                            }
+                                            c = c.superclass
+                                        }
+                                    }
+                                    param.result = null // 取消微信对假会话的处理
+                                    val act = param.thisObject as? android.app.Activity ?: return
+                                    val orig: java.lang.reflect.Method = param.method as java.lang.reflect.Method
+                                    val self: Any? = param.thisObject
+                                    val argsCopy = param.args.copyOf()
+                                    showFolderMemberPicker(act, folder) { selectedWxId ->
+                                        diagFile("folder member chosen=" + selectedWxId + ", resuming original with all-fields rewrite")
+                                        runCatching {
+                                            val fldsAll = java.util.ArrayList<Pair<java.lang.reflect.Field, Any>>()
+                                            if (item != null) {
+                                                var c: Class<*>? = item.javaClass
+                                                while (c != null && c != Any::class.java) {
+                                                    for (f in c.declaredFields) {
+                                                        if (f.type == String::class.java) {
+                                                            f.isAccessible = true
+                                                            if (f.get(item) == username) fldsAll.add(Pair(f, item))
+                                                        }
+                                                    }
+                                                    c = c.superclass
+                                                }
+                                            }
+                                            diagFile("folder rewrite fields=" + fldsAll.size)
+                                            if (fldsAll.isEmpty()) {
+                                                diagFile("folder rewrite NO FIELD")
+                                            } else {
+                                                for (fp in fldsAll) fp.first.set(fp.second, selectedWxId)
+                                            }
+                                            try { orig.invoke(self, *argsCopy) } finally { for (fp in fldsAll) fp.first.set(fp.second, username) }
+                                        }.onFailure { e -> diagFile("folder resume err: " + e) }
+                                    }
+                                }
+                            } catch (e: Throwable) { diagFile("DIAG3 oic err: $e") }
+                        }
+                    })
+                    diagFile("DIAG3 onItemClick hooked on ${cls!!.name}")
+                    hooked = true
+                    break
+                }
+                cls = cls.superclass
+            }
+            if (!hooked) diagFile("DIAG3 onItemClick NOT found on class chain")
+        }.onFailure { diagFile("DIAG3 arm err: $it") }
     }
 
     // Same folder-row problem as SelectConversationUI, but for the MVVM contact picker
@@ -1742,6 +2430,414 @@ object ConversationAggregation : ClickableFeature(),
     // crash. We cancel the tap and re-run the ORIGINAL listener with the model's username rewritten
     // to the chosen member so WeChat's own forward flow proceeds.
     private fun hookMvvmContactListItemClick() {
+        // [DIAG-SEND] 侦察发送按钮：MvvmContactListUI 页面所有非行监听器(发送/确认按钮)的 onClick。
+        runCatching {
+            fun ctxAct(c: android.content.Context?): android.app.Activity? {
+                var cur: android.content.Context? = c
+                while (cur is android.content.ContextWrapper) {
+                    if (cur is android.app.Activity) return cur
+                    cur = cur.baseContext
+                }
+                return null
+            }
+            val known = setOf("vv5.f1", "vv5.k0")
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.view.View::class.java, "setOnClickListener", object : XC_MethodHook() {
+                override fun afterHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val v = p.thisObject as? android.view.View ?: return@runCatching
+                        val act = ctxAct(v.context) ?: return@runCatching
+                        if (act.javaClass.name != "com.tencent.mm.ui.mvvm.MvvmContactListUI") return@runCatching
+                        val l = p.args[0] ?: return@runCatching
+                        val ln = l.javaClass.name
+                        if (known.any { ln == it || ln.startsWith(it) }) return@runCatching
+                        diagFile("mvvm sendbtn listener=" + ln + " view=" + v.javaClass.name)
+                        runCatching {
+                            for (m in l.javaClass.methods.filter { it.name == "onClick" }) {
+                                de.robv.android.xposed.XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                                    override fun beforeHookedMethod(p: MethodHookParam) {
+                                        runCatching {
+                                            val btnObj = p.thisObject
+                                            val selM = mvvmPickedMember ?: mvvmSelectedWxid
+                                            var hostAct: android.app.Activity? = null
+                                            var ctxIt: android.content.Context? = (btnObj as? android.view.View)?.context
+                                            var ccw = ctxIt
+                                            while (ccw is android.content.ContextWrapper) {
+                                                if (ccw is android.app.Activity) { hostAct = ccw; break }
+                                                ccw = ccw.baseContext
+                                            }
+                                            if (hostAct == null) {
+                                                runCatching {
+                                                    val at = Class.forName("android.app.ActivityThread").getMethod("currentActivityThread").invoke(null)
+                                                    val fAms = at.javaClass.getDeclaredField("mActivities"); fAms.isAccessible = true
+                                                    val ams = fAms.get(at) as? java.util.Map<*, *>
+                                                    val top = ams?.entrySet()?.mapNotNull { en -> val ev = en.value; runCatching { ev.javaClass.getDeclaredField("activity").apply { isAccessible = true }.get(ev) as? android.app.Activity }.getOrNull() }?.firstOrNull()
+                                                    hostAct = top
+                                                }
+                                            }
+                                            diagFile("mvvm sendbtn click host=" + hostAct?.javaClass?.name + " btn=" + btnObj?.javaClass?.name + " sel=" + selM + "\\n" + Thread.currentThread().stackTrace.take(8).joinToString("\\n") { "   " + it.className + "." + it.methodName })
+                                            val selV = selM
+                                            val rootA = hostAct
+                                            if (selV != null && rootA != null) {
+                                                runCatching {
+                                                    var repAll = 0
+                                                    val queue3 = java.util.ArrayDeque<Pair<Any, Int>>()
+                                                    val seen3 = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
+                                                    queue3.add(Pair(rootA, 0))
+                                                    var visited3 = 0
+                                                    while (queue3.isNotEmpty() && visited3 < 60000) {
+                                                        val (cur, dep) = queue3.poll()
+                                                        if (cur == null || !seen3.add(cur)) continue
+                                                        visited3++
+                                                        if (dep > 8) continue
+                                                        var cc3: Class<*>? = cur.javaClass
+                                                        while (cc3 != null && cc3 != Any::class.java) {
+                                                            for (f in cc3.declaredFields) {
+                                                                runCatching {
+                                                                    f.isAccessible = true
+                                                                    val v = f.get(cur) ?: return@runCatching
+                                                                    if (v is String) {
+                                                                        if (isFolderId(v)) { f.set(cur, selV); repAll++ }
+                                                                    } else if (v is java.util.List<*>) {
+                                                                        for (i in 0 until v.size) {
+                                                                            val e = v[i]
+                                                                            if (e is String && isFolderId(e)) { runCatching { (v as java.util.List<Any>).set(i, selV); repAll++ } }
+                                                                        }
+                                                                        if (v.size < 120) for (e in v) if (e != null && e !== cur) queue3.add(Pair(e, dep + 1))
+                                                                    } else if (v is java.util.Set<*>) {
+                                                                        val fv = v.firstOrNull { it is String && isFolderId(it) }
+                                                                        if (fv != null) { runCatching { v.remove(fv); (v as java.util.Set<Any>).add(selV) }; repAll++ }
+                                                                    } else if (v is java.util.Map<*, *>) {
+                                                                        val jm = v as java.util.Map<Any?, Any?>
+                                                                        for (en in jm.entrySet()) {
+                                                                            val vv = en.value
+                                                                            if (vv is String && isFolderId(vv)) { runCatching { jm.put(en.key, selV) }; repAll++ }
+                                                                        }
+                                                                    } else if (v is Array<*>) {
+                                                                        for (i in v.indices) {
+                                                                            val e = v[i]
+                                                                            if (e is String && isFolderId(e)) { runCatching { (v as Array<Any?>)[i] = selV; repAll++ } }
+                                                                        }
+                                                                    } else if (v.javaClass.name.startsWith("[")) {
+                                                                    } else if (!(v is Number || v is Boolean || v is CharSequence || v is Class<*> || v.javaClass.name.startsWith("java.") || v.javaClass.name.startsWith("kotlin.") || v.javaClass.name.startsWith("android."))) {
+                                                                        if (dep < 7) queue3.add(Pair(v, dep + 1))
+                                                                    }
+                                                                }
+                                                            }
+                                                            cc3 = cc3.superclass
+                                                        }
+                                                    }
+                                                    diagFile("mvvm sendbtn replace visited=" + visited3 + " replaced=" + repAll)
+                                                }.onFailure { diagFile("mvvm sendbtn replace err: " + it) }
+                                            }
+                                        }
+                                    }
+                                })
+                            }
+                        }
+                    }
+                }
+            })
+            diagFile("mvvm sendbtn hook armed")
+        }.onFailure { diagFile("mvvm sendbtn err: " + it) }
+
+        // [PERFCLK] 抓发送按钮点击调用栈(定提交入口)
+        runCatching {
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.view.View::class.java, "performClick", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val v = p.thisObject as? android.view.View ?: return@runCatching
+                        var c2: android.content.Context? = v.context
+                        var isM = false
+                        while (c2 is android.content.ContextWrapper) {
+                            if (c2 is android.app.Activity && c2.javaClass.name == "com.tencent.mm.ui.mvvm.MvvmContactListUI") { isM = true; break }
+                            c2 = c2.baseContext
+                        }
+                        if (!isM) return@runCatching
+                        val txt = if (v is android.widget.TextView) v.text?.toString().orEmpty() else ""
+                        if (txt.contains("发送") || txt.contains("确定") || txt.contains("完成") || txt.isBlank()) {
+                            diagFile("mvvm performClick txt=" + txt.take(12) + " view=" + v.javaClass.name + "\\n" + Thread.currentThread().stackTrace.take(22).joinToString("\\n") { "   " + it.className + "." + it.methodName + ":" + it.lineNumber })
+                        }
+                    }
+                }
+            })
+            diagFile("mvvm performClick hook armed")
+        }.onFailure { diagFile("mvvm performClick err: " + it) }
+
+        // 打开聊天页前改写：发送流程把目标 folder 作为 Chat_User 启动 ChattingUI(folder)。
+        // 在 startActivity 处若 mvvmSelectedWxid 有效(刚经 folder 成员选择器选定)则改写为成员，
+        // 微信随后在成员聊天页自动发出转发内容，不再闪 folder 假页/二次弹窗。
+        runCatching {
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "startActivity", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val intent = p.args.getOrNull(0) as? android.content.Intent ?: return@runCatching
+                        val u = intent.getStringExtra("Chat_User")
+                        val cmp = intent.component?.className ?: ""
+                        val actN = p.thisObject?.javaClass?.name ?: ""
+                        if (u == null && !cmp.contains("Chat") && !cmp.contains("chat") && !intent.hasExtra("SendMsgUsernames")) return@runCatching
+                        if (u == null && !actN.contains("Chatting") && !actN.contains("Launcher") && !actN.contains("Forward") && !actN.contains("mvvm") && !actN.contains("Mvvm") && !actN.contains("ContactSelect")) return@runCatching
+                        if (u != null && isFolderId(u)) {
+                            val m = mvvmPickedMember ?: mvvmSelectedWxid
+                            if (m != null) {
+                                intent.putExtra("Chat_User", m)
+                                diagFile("mvvm startActivity patch Chat_User folder->$m to=" + cmp)
+                                intent.extras?.let { ex ->
+                                    for (k in ex.keySet().toList()) {
+                                        val v = ex.get(k)
+                                        if (v is String && isFolderId(v)) { ex.putString(k, m); diagFile("mvvm startActivity extra patch $k folder->$m") }
+                                        else if (v is java.util.List<*>) {
+                                            for (i in 0 until v.size) {
+                                                val e = v[i]
+                                                if (e is String && isFolderId(e)) {
+                                                    try { (v as java.util.List<Any>).set(i, m); diagFile("mvvm startActivity list patch $k i=$i folder->$m") } catch (t: Throwable) { }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                mvvmPickedMember = null
+                                mvvmSelectedWxid = null
+                            } else {
+                                diagFile("mvvm startActivity folder-no-sel to=" + cmp + " u=" + u)
+                            }
+                        } else {
+                            diagFile("mvvm startActivity obs act=" + p.thisObject?.javaClass?.name + " to=" + cmp + " u=" + u + " hasSend=" + intent.hasExtra("SendMsgUsernames") + "\\n" + Thread.currentThread().stackTrace.take(14).joinToString("\\n") { "   " + it.className + "." + it.methodName + ":" + it.lineNumber })
+                        }
+                    }
+                }
+            })
+            diagFile("mvvm startActivity hook armed")
+        }.onFailure { diagFile("mvvm startActivity hook err: " + it) }
+
+        // 发送点改写：微信把消息发给某会话最终构造 NetSceneSendMsg(toUser,...) 入队。
+        // 观察并在构造层把 folder 目标就地替换为所选成员。
+        runCatching {
+            val nmCls = com.Johnny.wcx.features.api.core.WeMessageApi.classNetSceneSendMsg.clazz
+            for (ct in nmCls.constructors.filter { it.parameterTypes.any { p -> p == String::class.java } }) {
+                de.robv.android.xposed.XposedBridge.hookMethod(ct, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(p: MethodHookParam) {
+                        runCatching {
+                            val t = p.args.firstOrNull { it is String } as? String ?: return@runCatching
+                            val sel = mvvmPickedMember ?: mvvmSelectedWxid
+                            if (t.isNotBlank() && t.length <= 80) {
+                                if (isFolderId(t)) {
+                                    if (sel != null) {
+                                        if (System.currentTimeMillis() - mvvmSelectedTs > 8000) { mvvmSelectedWxid = null }
+                                        p.args[p.args.indexOfFirst { it is String }] = sel
+                                        mvvmSelectedWxid = null
+                                        diagFile("mvvm sendmsg patch folder->$sel")
+                                    } else {
+                                        diagFile("mvvm sendmsg folder-no-sel: " + t)
+                                    }
+                                } else {
+                                    diagFile("mvvm sendmsg target=" + t.take(30))
+                                }
+                            }
+                        }
+                    }
+                })
+            }
+            diagFile("mvvm sendmsg ctor hook armed " + nmCls.name)
+        }.onFailure { diagFile("mvvm sendmsg ctor err: " + it) }
+
+        // 出口改写：转发选择页(MvvmContactListUI Activity)选中行后会 setResult(folder) 并 finish，
+        // 宿主读取该 result 才真正发送。在出口把 folder 改成最近一次 folder picker 选定的成员(持久)。
+        runCatching {
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "setResult", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val act = p.thisObject as? android.app.Activity ?: return@runCatching
+                        val isMvvm = act.javaClass.name == "com.tencent.mm.ui.mvvm.MvvmContactListUI"
+                        if (!isMvvm) return@runCatching
+                        val code = p.args.getOrNull(0)
+                        val sel = mvvmPickedMember ?: mvvmSelectedWxid
+                        val intent = p.args.getOrNull(1) as? android.content.Intent
+                        if (intent == null) {
+                            diagFile("mvvm setResult(int) code=" + code + " sel=" + sel + "\\n" + Thread.currentThread().stackTrace.take(8).joinToString("\\n") { "   " + it.className + "." + it.methodName + ":" + it.lineNumber })
+                        } else {
+                            var patched = false
+                            if (sel != null) {
+                                intent.extras?.let { ex ->
+                                    for (k in ex.keySet().toList()) {
+                                        val v = ex.get(k)
+                                        if (v is String) {
+                                            if (isFolderId(v)) { ex.putString(k, sel); patched = true; diagFile("mvvm setResult patch $k folder->$sel") }
+                                        } else if (v is java.util.List<*>) {
+                                            for (i in 0 until v.size) {
+                                                val e = v[i]
+                                                if (e is String && isFolderId(e)) {
+                                                    try { (v as java.util.List<Any>).set(i, sel); patched = true; diagFile("mvvm setResult list patch $k i=$i folder->$sel") } catch (t: Throwable) { diagFile("mvvm setResult list err: " + t) }
+                                                }
+                                            }
+                                        } else if (v is java.util.Set<*>) {
+                                            val fv = v.firstOrNull { it is String && isFolderId(it) }
+                                            if (fv != null) {
+                                                runCatching { v.remove(fv); (v as java.util.Set<Any>).add(sel) }
+                                                patched = true
+                                                diagFile("mvvm setResult set patch $k folder->$sel")
+                                            }
+                                        } else if (v is Array<*>) {
+                                            for (i in v.indices) {
+                                                val e = v[i]
+                                                if (e is String && isFolderId(e)) {
+                                                    try { (v as Array<Any?>)[i] = sel; patched = true; diagFile("mvvm setResult array patch $k i=$i folder->$sel") } catch (t: Throwable) { }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                intent.data?.toString()?.let { d -> if (isFolderId(d)) diagFile("mvvm setResult data-uri folder: " + d.take(80)) }
+                            }
+                            if (!patched) diagFile("mvvm setResult(int,Intent) sel=" + sel + " keys=" + (intent.extras?.keySet()?.toString().orEmpty().take(160)))
+
+                            // 深度内存替换：宿主可能从 Mvvm UI 内部状态(非 result)直接读转发目标
+                            if (sel != null) {
+                                runCatching {
+                                    var repAll = 0
+                                    val queue2 = java.util.ArrayDeque<Pair<Any, Int>>()
+                                    val seen2 = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
+                                    queue2.add(Pair(act, 0))
+                                    var visited2 = 0
+                                    while (queue2.isNotEmpty() && visited2 < 30000) {
+                                        val (cur, dep) = queue2.poll()
+                                        if (cur == null || !seen2.add(cur)) continue
+                                        visited2++
+                                        if (dep > 7) continue
+                                        var cc2: Class<*>? = cur.javaClass
+                                        while (cc2 != null && cc2 != Any::class.java) {
+                                            for (f in cc2.declaredFields) {
+                                                runCatching {
+                                                    f.isAccessible = true
+                                                    val v = f.get(cur) ?: return@runCatching
+                                                    if (v is String) {
+                                                        if (isFolderId(v)) { f.set(cur, sel); repAll++; diagFile("mvvm deep field patch " + f.name + "@" + cc2!!.name) }
+                                                    } else if (v is java.util.List<*>) {
+                                                        for (i in 0 until v.size) {
+                                                            val e = v[i]
+                                                            if (e is String && isFolderId(e)) { runCatching { (v as java.util.List<Any>).set(i, sel); repAll++; diagFile("mvvm deep list patch " + f.name + " i=$i") } }
+                                                        }
+                                                        if (v.size < 100) for (e in v) if (e != null && e !== cur) queue2.add(Pair(e, dep + 1))
+                                                    } else if (v is java.util.Set<*>) {
+                                                        val fv = v.firstOrNull { it is String && isFolderId(it) }
+                                                        if (fv != null) { runCatching { v.remove(fv); (v as java.util.Set<Any>).add(sel) }; repAll++; diagFile("mvvm deep set patch " + f.name) }
+                                                    } else if (v is java.util.Map<*, *>) {
+                                                        val jm = v as java.util.Map<Any?, Any?>
+                                                        for (en in jm.entrySet()) {
+                                                            val kk = en.key
+                                                            val vv = en.value
+                                                            if (vv is String && isFolderId(vv)) { runCatching { jm.put(kk, sel) }; repAll++ }
+                                                        }
+                                                    } else if (v is Array<*>) {
+                                                        for (i in v.indices) {
+                                                            val e = v[i]
+                                                            if (e is String && isFolderId(e)) { runCatching { (v as Array<Any?>)[i] = sel; repAll++ } }
+                                                        }
+                                                    } else if (v.javaClass.name.startsWith("[")) {
+                                                    } else if (!(v is Number || v is Boolean || v is CharSequence || v is Class<*> || v.javaClass.name.startsWith("java.") || v.javaClass.name.startsWith("kotlin.") || v.javaClass.name.startsWith("android."))) {
+                                                        if (dep < 6) queue2.add(Pair(v, dep + 1))
+                                                    }
+                                                }
+                                            }
+                                            cc2 = cc2.superclass
+                                        }
+                                    }
+                                    diagFile("mvvm deep scan visited=" + visited2 + " replaced=" + repAll)
+                                }.onFailure { diagFile("mvvm deep scan err: " + it) }
+                            }
+                        }
+                    }
+                }
+            })
+            diagFile("mvvm setResult hook armed")
+        }.onFailure { diagFile("mvvm setResult hook err: " + it) }
+
+        // Mvvm 转发选择页每次新开(Activity 创建)清掉上一次 folder picker 所选成员，防止误用于后续普通转发。
+        runCatching {
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "onCreate", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val act = p.thisObject as? android.app.Activity ?: return@runCatching
+                    }
+                }
+            })
+        }.onFailure { }
+
+        runCatching {
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "finish", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val act = p.thisObject as? android.app.Activity ?: return@runCatching
+                        if (act.javaClass.name != "com.tencent.mm.ui.mvvm.MvvmContactListUI") return@runCatching
+                        diagFile("mvvm ui finish\\n" + Thread.currentThread().stackTrace.take(12).joinToString("\\n") { "   " + it.className + "." + it.methodName + ":" + it.lineNumber })
+                    }
+                }
+            })
+            diagFile("mvvm ui finish hook armed")
+        }.onFailure { diagFile("mvvm ui finish hook err: " + it) }
+
+        // [HOST] 抓 Mvvm finish 后宿主 onActivityResult(真正读取转发结果的入口)
+        runCatching {
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "onActivityResult", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val act = p.thisObject as? android.app.Activity ?: return@runCatching
+                        val ic = p.args.getOrNull(2) as? android.content.Intent
+                        val extraTxt = runCatching {
+                            ic?.extras?.let { ex -> ex.keySet().joinToString(",") { k -> k + "=" + (ex.get(k)?.toString()?.take(40)) } }.orEmpty()
+                        }.getOrElse { "err" }
+                        diagFile("mvvm host onAR act=" + act.javaClass.name + " req=" + p.args.getOrNull(0) + " res=" + p.args.getOrNull(1) + " extra=" + extraTxt.take(300) + "\\n" + Thread.currentThread().stackTrace.take(18).joinToString("\\n") { "   " + it.className + "." + it.methodName + ":" + it.lineNumber })
+                    }
+                }
+            })
+            diagFile("mvvm host onAR armed")
+        }.onFailure { diagFile("mvvm host onAR err: " + it) }
+
+        // [DIAG5] 8.0.78 MvvmContactListUI 实际行点击回调挖掘：从 view context 判定活跃 Activity 抓 setOnClickListener
+        // [DIAG10] 验证 Mvvm 转发提交点 wi5.c0(8.0.77 推测) 在普通行点击时是否被调用
+        runCatching {
+            val wi5 = Class.forName("wi5")
+            de.robv.android.xposed.XposedBridge.hookAllMethods(wi5, "c0", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val a0 = p.args.firstOrNull()
+                        diagFile("DIAG10 wi5.c0 hit self=" + p.thisObject?.javaClass?.name + " a0=" + a0?.javaClass?.name + " v=" + (a0?.toString()?.take(120)))
+                    }
+                }
+            })
+            diagFile("DIAG10 wi5 armed")
+        }.onFailure { diagFile("DIAG10 wi5 missing: " + it) }
+
+        runCatching {
+            val mvvmName5 = "com.tencent.mm.ui.mvvm.MvvmContactListUI"
+            fun ctxActivity(c: android.content.Context?): android.app.Activity? {
+                var cur: android.content.Context? = c
+                while (cur is android.content.ContextWrapper) {
+                    if (cur is android.app.Activity) return cur
+                    cur = cur.baseContext
+                }
+                return null
+            }
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.view.View::class.java, "setOnClickListener", object : XC_MethodHook() {
+                override fun afterHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val v = p.thisObject as? android.view.View ?: return@runCatching
+                        val act = ctxActivity(v.context) ?: return@runCatching
+                        if (act.javaClass.name != mvvmName5) return@runCatching
+                        val l = p.args[0] ?: return@runCatching
+                        diagFile("DIAG5 setOnClick listener=" + l.javaClass.name + " onView=" + v.javaClass.name)
+                    }
+                }
+            })
+            diagFile("DIAG5 armed")
+            for (cn5 in listOf("vv5.f1", "vv5.k0", "vv5", "com.tencent.mm.ui.contact.t8")) {
+                runCatching {
+                    val cl5 = Class.forName(cn5)
+                    diagFile("DIAG5 reflect $cn5 super=" + cl5.superclass?.name)
+                    cl5.declaredMethods.forEach { m5 -> diagFile("DIAG5   $cn5 m ${m5.returnType.name} ${m5.name}(${m5.parameterTypes.joinToString { it.name }})") }
+                    cl5.declaredFields.forEach { f5 -> diagFile("DIAG5   $cn5 f ${f5.type.name} ${f5.name}") }
+                }.onFailure { diagFile("DIAG5 reflect $cn5 err: $it") }
+            }
+        }.onFailure { diagFile("DIAG5 arm err: $it") }
         listOf(
             methodMvvmMainListItemClick,
             methodMvvmSearchItemClick
@@ -1749,6 +2845,191 @@ object ConversationAggregation : ClickableFeature(),
             if (method.isPlaceholder) return@forEach
             method.hookBefore { handleMvvmFolderTap(this) }
         }
+        // 8.0.78 MvvmContactListUI(内转发) 行点击真实入口 vv5.f1/vv5.k0.onClick。点击 folder 行时
+        // 取消微信原处理并弹成员选择器；选定成员后把 data 中 username 改写成该成员并重跑原 onClick，
+        // 让微信自己的转发流程以真实成员为目标完成。
+        runCatching {
+            fun normalizeFolderId(raw: String): String {
+                val rest = raw.removePrefix(FOLDER_PREFIX)
+                val digits = rest.takeWhile { it.isDigit() }
+                return if (digits.isNotEmpty()) FOLDER_PREFIX + digits else raw
+            }
+            fun memberPickedRedirect(l: Any, view: android.view.View, pos: Int, rawUser: String, orig: java.lang.reflect.Method, self: Any, args: Array<Any?>, adapter: Any) {
+                val folder = folderById(normalizeFolderId(rawUser)) ?: return
+                val fldsAll = java.util.ArrayList<Pair<java.lang.reflect.Field, Any>>()
+                fun scanFolderFields(o: Any, out: java.util.ArrayList<Pair<java.lang.reflect.Field, Any>>, depth: Int) {
+                    if (depth > 3) return
+                    var c: Class<*>? = o.javaClass
+                    while (c != null && c != Any::class.java) {
+                        for (f in c.declaredFields) {
+                            runCatching {
+                                f.isAccessible = true
+                                val v = f.get(o)
+                                if (v is String) {
+                                    if (isFolderId(v)) out.add(Pair(f, o))
+                                } else if (v != null && depth < 3) {
+                                    val vc = v.javaClass.name
+                                    val interesting = (v !is Number && v !is Boolean && v !is CharSequence && v !is java.util.Collection<*> && v !is java.util.Map<*,*> && !vc.startsWith("java.") && !vc.startsWith("android.") && !vc.startsWith("kotlin."))
+                                    if (interesting) scanFolderFields(v, out, depth + 1)
+                                }
+                            }
+                        }
+                        c = c.superclass
+                    }
+                }
+                runCatching {
+                    val list2 = runCatching { adapter.javaClass.methods.firstOrNull { it.name == "getData" && it.parameterCount == 0 } }
+                        .getOrNull()?.invoke(adapter) as? List<*>
+                    val target = list2?.getOrNull(pos)
+                    if (target != null) scanFolderFields(target, fldsAll, 0)
+                }
+                diagFile("mvvm redirect deep fields=" + fldsAll.size + " " + fldsAll.joinToString(",") { it.first.name + "@" + it.second.javaClass.simpleName })
+                showFolderMemberPicker(view.context, folder) { selectedWxId ->
+                    runCatching {
+                        val originals = fldsAll.map { runCatching { it.first.get(it.second) as? String }.getOrNull() }
+                        for (fp in fldsAll) fp.first.set(fp.second, selectedWxId)
+                        val back = runCatching { fldsAll.first().first.get(fldsAll.first().second) as? String }.getOrNull()
+                        diagFile("mvvm redirect fields=" + fldsAll.size + " set=" + selectedWxId + " readback=" + back)
+                        mvvmSelectedWxid = selectedWxId
+                        mvvmSelectedTs = System.currentTimeMillis()
+                        mvvmRedirecting = true
+                        try { orig.invoke(self, *args) } catch (t: Throwable) { diagFile("mvvm invoke err: " + t) } finally {
+                            mvvmRedirecting = false
+                            for (i in fldsAll.indices) { runCatching { fldsAll[i].first.set(fldsAll[i].second, originals[i]) } }
+                        }
+                        // 替换转发页「已选目标集合」里的 folder 元素为所选成员(点发送时微信读的就是这份)
+                        var rep = 0
+                        try {
+                            val folderNorm = normalizeFolderId(rawUser)
+                            var actv: android.app.Activity? = null
+                            var c2: android.content.Context? = view.context
+                            while (c2 is android.content.ContextWrapper) {
+                                if (c2 is android.app.Activity) { actv = c2; break }
+                                c2 = c2.baseContext
+                            }
+                            val root = actv ?: return@runCatching
+                            val queue = java.util.ArrayDeque<Pair<Any, Int>>()
+                            val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
+                            queue.add(Pair(root, 0))
+                            var visited = 0
+                            while (queue.isNotEmpty() && visited < 5000) {
+                                val (cur, dep) = queue.poll()
+                                if (cur == null || !seen.add(cur)) continue
+                                visited++
+                                if (dep > 5) continue
+                                var cc: Class<*>? = cur.javaClass
+                                while (cc != null && cc != Any::class.java) {
+                                    for (f in cc.declaredFields) {
+                                        runCatching {
+                                            f.isAccessible = true
+                                            val v = f.get(cur) ?: return@runCatching
+                                            if (v is java.util.List<*>) {
+                                                for (i in 0 until v.size) {
+                                                    val e = v[i]
+                                                    if (e is String && isFolderId(e) && normalizeFolderId(e) == folderNorm) {
+                                                        runCatching { (v as java.util.List<Any>).set(i, selectedWxId); rep++; diagFile("mvvm selcoll list patch " + f.name + "@" + cc!!.name + " i=" + i) }
+                                                    }
+                                                }
+                                                if (v.size < 30) for (e in v) if (e != null && e !== cur) queue.add(Pair(e, dep + 1))
+                                            } else if (v is java.util.Set<*>) {
+                                                val fv = v.firstOrNull { it is String && isFolderId(it) && normalizeFolderId(it) == folderNorm }
+                                                if (fv != null) { runCatching { v.remove(fv); rep++; diagFile("mvvm selcoll set patch " + f.name + "@" + cc!!.name) } }
+                                            } else if (v is String && isFolderId(v) && normalizeFolderId(v) == folderNorm) {
+                                                f.set(cur, selectedWxId); rep++; diagFile("mvvm selcoll field patch " + f.name + "@" + cc!!.name)
+                                            } else if (dep < 5 && !(v is Number || v is Boolean || v is CharSequence || v is Class<*> || v is java.util.Collection<*> || v is java.util.Map<*,*>) && (v.javaClass.name.startsWith("com.tencent.mm.") || v.javaClass.name.startsWith("wekit_") || v.javaClass.name.contains("uic") || v.javaClass.name.contains("mvvm") || v.javaClass.name.contains("ui."))) {
+                                                queue.add(Pair(v, dep + 1))
+                                            }
+                                        }
+                                    }
+                                    cc = cc.superclass
+                                }
+                            }
+                            diagFile("mvvm selcoll visited=" + visited + " replaced=" + rep)
+                        } catch (t: Throwable) { diagFile("mvvm selcoll err: " + t) }
+                    }.onFailure { e -> WeLogger.e(TAG, "mvvm folder redirect to member failed", e) }
+                }
+            }
+            for (cn6 in listOf("vv5.f1", "vv5.k0")) {
+                runCatching {
+                    val cl6 = Class.forName(cn6)
+                    de.robv.android.xposed.XposedBridge.hookAllMethods(cl6, "onClick", object : XC_MethodHook() {
+                        override fun beforeHookedMethod(p: MethodHookParam) {
+                            try {
+                                val l = p.thisObject ?: return
+                                val view = p.args[0] as? android.view.View ?: return
+                                val adapter = runCatching {
+                                    var c: Class<*>? = l.javaClass
+                                    var found: Any? = null
+                                    while (c != null && c != Any::class.java && found == null) {
+                                        for (f in c.declaredFields) {
+                                            if (f.type.name.contains("Adapter")) { f.isAccessible = true; found = f.get(l); break }
+                                        }
+                                        c = c.superclass
+                                    }
+                                    found
+                                }.getOrNull() ?: return
+                                var pos: Int? = null
+                                var c0: Class<*>? = l.javaClass
+                                while (c0 != null && c0 != Any::class.java && pos == null) {
+                                    for (f in c0.declaredFields) {
+                                        if (f.type == Int::class.java || f.type == Integer::class.java) { f.isAccessible = true; val v = f.get(l) as? Int; if (v != null && v >= 0) pos = v }
+                                    }
+                                    c0 = c0.superclass
+                                }
+                                val posI = pos ?: return
+                                val data = runCatching {
+                                    val getData = adapter.javaClass.methods.firstOrNull { it.name == "getData" && it.parameterCount == 0 }
+                                    if (getData != null) { getData.isAccessible = true; (getData.invoke(adapter) as? List<*>)?.getOrNull(posI) } else null
+                                }.getOrNull()
+                                val username = itemToUsername(data)
+                                if (data != null) {
+                                    var cD: Class<*>? = data.javaClass
+                                    val sbD = java.lang.StringBuilder("mvvm row " + data.javaClass.name + " u=" + username)
+                                    while (cD != null && cD != Any::class.java) {
+                                        for (fd in cD.declaredFields) {
+                                            runCatching {
+                                                fd.isAccessible = true
+                                                val fv = fd.get(data)
+                                                val fvs = when (fv) {
+                                                    is String -> fv.take(40)
+                                                    is Int, is Long, is Boolean -> fv.toString()
+                                                    null -> "null"
+                                                    else -> "<" + fv.javaClass.name + ">"
+                                                }
+                                                sbD.append(" | ").append(fd.name).append("=").append(fvs)
+                                            }
+                                        }
+                                        cD = cD.superclass
+                                    }
+                                    diagFile(sbD.toString().take(1500))
+                                }
+                                if (username == null || !isFolderId(username)) {
+                                    diagFile("mvvm normrow tap u=" + username + "\\n" + Thread.currentThread().stackTrace.take(30).joinToString("\\n") { "   " + it.className + "." + it.methodName + ":" + it.lineNumber })
+                                    return
+                                }
+                                diagFile("mvvm tap folder row pos=$posI username=$username adapter=" + adapter.javaClass.name)
+                                runCatching {
+                                    val hj = Class.forName("hr5\$j")
+                                    for (hm in hj.methods.filter { it.parameterCount == 0 }) {
+                                        de.robv.android.xposed.XposedBridge.hookMethod(hm, object : XC_MethodHook() {
+                                            override fun afterHookedMethod(p: MethodHookParam) {
+                                                runCatching {
+                                                    val r = p.result
+                                                    if (r is String) diagFile("mvvm g " + hm.name + " -> " + r.take(50))
+                                                }
+                                            }
+                                        })
+                                    }
+                                }
+                                p.result = null
+                                memberPickedRedirect(l, view, posI, username, p.method as java.lang.reflect.Method, p.thisObject, p.args.copyOf(), adapter)
+                            } catch (e: Throwable) { diagFile("mvvm folder tap err: " + e) }
+                        }
+                    })
+                    WeLogger.i(TAG, "MvvmContactListUI folder-row tap hooked ($cn6)")
+                }.onFailure { WeLogger.w(TAG, "hook $cn6 onClick failed", it) }
+            }
+        }.onFailure { WeLogger.e(TAG, "Mvvm folder tap hook failed", it) }
     }
 
     private fun handleMvvmFolderTap(param: XC_MethodHook.MethodHookParam) {
@@ -1861,22 +3142,83 @@ object ConversationAggregation : ClickableFeature(),
     // into MMPopupMenu.showMenu. Chain: createListener -> its OnItemLongClickListener -> the
     // container fragment -> its list adapter -> adapter.getItem(position) (an rconversation row) ->
     // its field_username (kept unobfuscated by WeChat's auto-DB ORM).
+    // 8.0.78: 容器长按行对象类型与字段名均有变动，逐层降级解析(多通道)以确保拿到被长按会话的 username。
     private fun extractFolderTalker(createListener: Any, position: Int): String? {
-        val longClickListener = createListener.reflekt()
-            .firstFieldOrNull { type { it isSubclassOf AdapterView.OnItemLongClickListener::class } }
-            ?.get() ?: return null
-
+        fun anyAdapter(owner: Any): android.widget.Adapter? {
+            var c: Class<*>? = owner.javaClass
+            while (c != null && c != Any::class.java) {
+                for (f in c.declaredFields) {
+                    runCatching {
+                        if (android.widget.Adapter::class.java.isAssignableFrom(f.type) || f.type.name.endsWith("Adapter")) {
+                            f.isAccessible = true
+                            (f.get(owner) as? android.widget.Adapter)?.let { return it }
+                        }
+                    }
+                }
+                c = c.superclass
+            }
+            return null
+        }
+        fun anyFragment(owner: Any): Any {
+            var c: Class<*>? = owner.javaClass
+            while (c != null && c != Any::class.java) {
+                for (f in c.declaredFields) {
+                    runCatching {
+                        f.isAccessible = true
+                        val v = f.get(owner) ?: continue
+                        val n = v.javaClass.name
+                        if (n.contains("ConvBox") || n.contains("ConversationFm") || n.contains("ConversationUI")) return v
+                    }
+                }
+                c = c.superclass
+            }
+            return owner
+        }
+        fun usernameOf(item: Any): String? {
+            runCatching {
+                for (m in item.javaClass.methods) {
+                    if (m.parameterCount == 0 && m.name in setOf("getUsername", "getUserName", "getTalker", "getTalkerName", "getWxId", "getWxid")) {
+                        val v = m.invoke(item)?.toString()
+                        if (!v.isNullOrEmpty()) return v
+                    }
+                }
+            }
+            var c: Class<*>? = item.javaClass
+            while (c != null && c != Any::class.java) {
+                for (f in c.declaredFields) {
+                    if (f.type == String::class.java) {
+                        runCatching {
+                            f.isAccessible = true
+                            val v = f.get(item) as? String
+                            if (v != null && v.isNotEmpty() && v != WeChatFolderPlaceholder.CONVERSATION_BOX && v != WeChatFolderPlaceholder.MESSAGE_FOLD && !v.startsWith(FOLDER_PREFIX)) return v
+                        }
+                    }
+                }
+                c = c.superclass
+            }
+            return null
+        }
+        val longClickListener = if (createListener is AdapterView.OnItemLongClickListener) createListener else {
+            createListener.reflekt()
+                .firstFieldOrNull { type { it isSubclassOf AdapterView.OnItemLongClickListener::class } }
+                ?.get() ?: createListener
+        }
         val fragment = longClickListener.reflekt()
-            .firstFieldOrNull { type { it.name.endsWith("ConvBoxServiceConversationFmUI") } }
-            ?.get() ?: return null
-
+            .firstFieldOrNull { type { it.name.endsWith("ConvBoxServiceConversationFmUI") || it.name.contains("ConvBox") } }
+            ?.get() ?: anyFragment(longClickListener)
         val adapter = fragment.reflekt()
             .firstFieldOrNull { type { it isSubclassOf android.widget.Adapter::class } }
-            ?.get() as? android.widget.Adapter ?: return null
-
-        if (position < 0 || position >= adapter.count) return null
+            ?.get() as? android.widget.Adapter ?: anyAdapter(fragment) ?: anyAdapter(longClickListener)
+        if (adapter == null) {
+            diagFile("menu extract no adapter listener=" + createListener.javaClass.name)
+            return null
+        }
+        if (position < 0 || position >= adapter.count) {
+            diagFile("menu extract pos out adapterCount=" + adapter.count + " pos=" + position)
+            return null
+        }
         val conversation = adapter.getItem(position) ?: return null
-
+        usernameOf(conversation)?.let { return it }
         return conversation.reflekt()
             .firstFieldOrNull { name = "field_username"; superclass() }
             ?.get() as? String
