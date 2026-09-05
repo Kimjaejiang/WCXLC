@@ -53,7 +53,7 @@ object DownloadMedia : SwitchFeature(),
             ) { _, mediaType, mediaList ->
                 if (mediaType == 2) {
                     val imageUrls = mediaList.map { json ->
-                        "url" + "url_token"
+                        json.getString("url") + json.getString("url_token")
                     }
 
                     copyToClipboard(imageUrls.joinToString("\n"))
@@ -78,13 +78,13 @@ object DownloadMedia : SwitchFeature(),
 
                     val cdnInfo = json.optJSONObject("media_cdn_info")
                     if (cdnInfo == null || !cdnInfo.has("pcdn_url")) {
-                        val url = "url"
-                        val urlToken = "url_token"
-                        val decodeKey = "decodeKey"
+                        val url = json.getString("url")
+                        val urlToken = json.getString("url_token")
+                        val decodeKey = json.getString("decodeKey")
                         clipItems += "密链" to url + urlToken
                         clipItems += "密钥" to decodeKey
                     } else {
-                        clipItems += "链接" to "pcdn_url"
+                        clipItems += "链接" to cdnInfo.getString("pcdn_url")
                     }
 
                     copyToClipboard(clipItems.joinToString("\n") { pair -> "${pair.first}: ${pair.second}" })
@@ -102,7 +102,7 @@ object DownloadMedia : SwitchFeature(),
             ) { _, mediaType, mediaList ->
                 if (mediaType == 2) {
                     val imageUrls = mediaList.map { json ->
-                        "url" + "url_token"
+                        json.getString("url") + json.getString("url_token")
                     }
 
                     CoroutineScope(Dispatchers.IO).launch {
@@ -118,15 +118,15 @@ object DownloadMedia : SwitchFeature(),
                     val cdnInfo = json.optJSONObject("media_cdn_info")
 
                     if (cdnInfo == null || !cdnInfo.has("pcdn_url")) {
-                        val url = "url"
-                        val urlToken = "url_token"
-                        val decodeKey = "decodeKey"
+                        val url = json.getString("url")
+                        val urlToken = json.getString("url_token")
+                        val decodeKey = json.getString("decodeKey")
 
                         CoroutineScope(Dispatchers.IO).launch {
                             downloadAndDecryptVideo(decodeKey, url, urlToken)
                         }
                     } else {
-                        val pcdnUrl = "pcdn_url"
+                        val pcdnUrl = cdnInfo.getString("pcdn_url")
 
                         CoroutineScope(Dispatchers.IO).launch {
                             downloadPcdnVideo(pcdnUrl)
@@ -151,9 +151,9 @@ object DownloadMedia : SwitchFeature(),
                 downloadFile(fullUrl, KnownPaths.downloads / fileName)
             }.onFailure {
                 WeLogger.e(TAG, "failed to download ${index + 1}th image", it)
-                showToastSuspend("第 ${index + 1} 张图片下载成功")
+                showToastSuspend("第 ${index + 1} 张图片下载失败")
             }.onSuccess {
-                showToastSuspend("已将图片下载到 /sdcard/Download/WCX/$fileName")
+                showToastSuspend("已将图片下载到 " + (KnownPaths.downloads / fileName).toString())
             }
         }
     }
@@ -184,7 +184,7 @@ object DownloadMedia : SwitchFeature(),
             WeLogger.e(TAG, "failed to download video", it)
             showToastSuspend("视频下载失败!")
         }.onSuccess {
-            showToastSuspend("已将视频下载到 /sdcard/Download/WCX/$fileName")
+            showToastSuspend("已将视频下载到 " + (KnownPaths.downloads / fileName).toString())
         }
     }
 
@@ -200,7 +200,7 @@ object DownloadMedia : SwitchFeature(),
             WeLogger.e(TAG, "failed to download video", it)
             showToastSuspend("视频下载失败")
         }.onSuccess {
-            showToastSuspend("已将视频下载到 /sdcard/Download/WCX/$fileName")
+            showToastSuspend("已将视频下载到 " + (KnownPaths.downloads / fileName).toString())
         }
     }
 

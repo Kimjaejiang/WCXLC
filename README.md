@@ -45,6 +45,12 @@
   - 修复：隐藏策略下 RecyclerView item 复用时被 GONE 的行重绑到未命中消息会残留隐藏——非拦截分支恢复 `VISIBLE`；
   - 探针：`WeChatMessageViewApi` hook 挂载结果（armed / NOT FOUND）与每条消息 View 的类型判定进模块日志，用于定位 8.0.78 HIDE 不生效断点（hook 未挂 / 消息解析失败 / 判定未命中）。
 
+- **📺 视频号 · 下载媒体恢复真实 URL 读取（v247 回归修复）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/shortvideos/DownloadMedia.kt`
+  - 背景：视频号视频/图片分享菜单「下载」与「复制链接」失效——下载必失败。
+  - 根因：v247 重构把 JSON 字段读取误替换为字面量占位（`url` 恒为字符串 `"urlurl_token"`），下载地址为假串。
+  - 修复：恢复真实字段读取（`json.getString("url") + json.getString("url_token")` + `decodeKey` 解密；或 `media_cdn_info.pcdn_url` 直链；图片逐张 `url+url_token`），并按实际保存目录修正提示文案（`/sdcard/Download/WCXLC/`，硬编码 WCX 残留），失败提示文案同步纠正。
+
 ### 2026-09-04
 
 - **🛠️ 聊天增强 · 群聊归拢（ConversationAggregation）WeChat 8.0.78 适配：摘要实时刷新 / 角标口径 / 返回恢复**
