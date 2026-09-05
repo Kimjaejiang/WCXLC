@@ -25,6 +25,10 @@ object WeLogger {
     private const val RESERVED_IMPORTANT_CAPACITY = 128
     private const val BATCH_SIZE = 64
     private const val FLUSH_TIMEOUT_MILLIS = 3000L
+    // Cap the daily run log so the in-module log viewer never reads/parses an unbounded file.
+    // Once the active day file exceeds MAX_LOG_BYTES it is trimmed back to its latest KEEP_LOG_BYTES.
+    private const val MAX_LOG_BYTES = 4L * 1024 * 1024
+    private const val KEEP_LOG_BYTES = 1024 * 1024L
 
     private val timestampFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
     private val dateFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd")
@@ -101,6 +105,43 @@ object WeLogger {
         }
     }
 
+    /**
+     * Keeps the active day log bounded: flushes, then trims the file to its latest
+     * [KEEP_LOG_BYTES] once it grows past [MAX_LOG_BYTES]. Called from the writer thread
+     * after each batch, so no other writer can be appending concurrently.
+     */
+    private var lastTrimCheckMillis = 0L
+    private fun trimActiveLogIfOversized() {
+        val logDate = currentLogDate ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastTrimCheckMillis < 500) return
+        lastTrimCheckMillis = now
+        val dir = logsDir ?: return
+        val file = (dir / "wcx-${dateFmt.format(logDate)}.log").toFile()
+        if (!file.exists()) return
+        val len = runCatching { file.length() }.getOrDefault(0L)
+        if (len < MAX_LOG_BYTES) return
+        runCatching {
+            writer?.runCatching { flush() }
+            writer?.runCatching { close() }
+            writer = null
+            currentLogDate = null
+            java.io.RandomAccessFile(file, "rw").use { raf ->
+                val total = raf.length()
+                val skip = (total - KEEP_LOG_BYTES).toInt().coerceAtLeast(0)
+                raf.seek(skip.toLong())
+                val buf = ByteArray((total - skip).toInt())
+                raf.readFully(buf)
+                var start = 0
+                while (start < buf.size && buf[start] != 10.toByte()) start++
+                raf.setLength(0)
+                raf.seek(0)
+                raf.write(buf, start, buf.size - start)
+            }
+            Log.i(TAG, "trimmed oversized log " + file.name + " to tail")
+        }
+    }
+
     private fun runWriter() {
         val batch = ArrayList<WriteTask>(BATCH_SIZE)
 
@@ -140,6 +181,7 @@ object WeLogger {
             }
 
             if (hasWrites) flushWriter()
+            trimActiveLogIfOversized()
             batch.clear()
         }
     }

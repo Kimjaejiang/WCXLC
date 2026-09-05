@@ -217,16 +217,17 @@ object MessageFilterShield : ClickableFeature(),
             val talker = msgInfo.talker
             val typeCode = msgInfo.typeCode
 
+            WeLogger.d(TAG, "viewcreate master=1 type=$typeCode talker=$talker isSend=${msgInfo.isSend}")
+
             val (intercepted, ruleScope) = shouldInterceptWithScope(talker, typeCode)
             if (intercepted) {
                 view.visibility = View.GONE
-                view.layoutParams?.let { lp ->
-                    lp.height = 0
-                    lp.width = 0
-                }
                 logShield(msgInfo, "隐藏", ruleScope, true)
                 WeLogger.d(TAG, "hidden message: talker=$talker, type=$typeCode, scope=$ruleScope")
             } else {
+                // Item views are recycled: always reset to visible so a previously hidden
+                // row never keeps its GONE state when it is rebound to a non-matching message.
+                if (view.visibility != View.VISIBLE) view.visibility = View.VISIBLE
                 logShield(msgInfo, "放过", ruleScope, false)
             }
         }.onFailure { e ->

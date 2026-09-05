@@ -544,7 +544,22 @@ private fun LogTabContent(
 
 /** Reads the full log file (modern devices handle multi-MB logs fine). */
 private fun readLog(file: Path): String =
-    runCatching { file.readText() }.getOrElse { "读取日志失败: ${it.message}" }
+    runCatching {
+        val size = java.nio.file.Files.size(file)
+        if (size <= LOG_READ_CAP_BYTES) return@runCatching file.readText()
+        // Large log: read only the newest bytes (starting at a line boundary) so parsing stays fast.
+        java.nio.file.Files.newInputStream(file).use { ins ->
+            ins.skip(size - LOG_READ_CAP_BYTES)
+            val buf = java.io.ByteArrayOutputStream()
+            val chunk = ByteArray(64 * 1024)
+            while (true) { val n = ins.read(chunk); if (n < 0) break; buf.write(chunk, 0, n) }
+            val text = buf.toString(Charsets.UTF_8.name())
+            val firstLf = text.indexOf("\n")
+            if (firstLf >= 0) text.substring(firstLf + 1) else text
+        }
+    }.getOrElse { "读取日志失败: ${it.message}" }
+
+private const val LOG_READ_CAP_BYTES = 2L * 1024 * 1024
 // ---------------------------------------------------------------------------
 //  File selector + cards + empty state
 // ---------------------------------------------------------------------------

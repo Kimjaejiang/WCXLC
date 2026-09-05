@@ -49,7 +49,13 @@ object WeChatMessageViewApi : ApiFeature(), IResolveDex {
     }
 
     override fun onEnable() {
-        methodChatItemOnBindView.hookAfter {
+        val m = runCatching { methodChatItemOnBindView.method }.getOrNull()
+        if (m == null) {
+            WeLogger.w(TAG, "probe: MvvmChattingItem onBindView method NOT FOUND - hide strategy will never fire")
+            return
+        }
+        WeLogger.i(TAG, "probe: armed onBindView method=" + m.declaringClass.name + " params=" + m.parameterCount)
+        m.hookAfter {
             val holder = args[0]
             val view = holder.reflekt()
                 .firstField {

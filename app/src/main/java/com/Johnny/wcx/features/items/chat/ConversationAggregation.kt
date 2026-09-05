@@ -361,6 +361,8 @@ object ConversationAggregation : ClickableFeature(),
     private const val SQLITE_BIND_CHUNK_SIZE = 900
     private var lastDoRefreshAt = 0L
     private const val MIN_REFRESH_GAP = 800L
+    private const val DIAG_MAX_BYTES = 6L * 1024 * 1024
+    private const val DIAG_KEEP_BYTES = 1024L * 1024
     private val pendingRefreshMembers = ConcurrentHashMap.newKeySet<String>()
     private val pendingRefreshLock = Any()
     private val refreshAllFolders = AtomicBoolean(false)
@@ -3874,10 +3876,28 @@ hookViewLongClickProbe()
         }
     }
 
+    private var diagWriteCount = 0L
     private fun diagFile(msg: String) {
         runCatching {
             val f = java.io.File("/sdcard/Android/data/com.tencent.mm/WCX/diag.log")
             f.parentFile?.mkdirs()
+            if ((++diagWriteCount and 0x3F) == 1L) { // every 64 writes, bound the file
+                val len = f.length()
+                if (len > DIAG_MAX_BYTES) {
+                    java.io.RandomAccessFile(f, "rw").use { raf ->
+                        val total = raf.length()
+                        val skip = (total - DIAG_KEEP_BYTES).toInt().coerceAtLeast(0)
+                        raf.seek(skip.toLong())
+                        val buf = ByteArray((total - skip).toInt())
+                        raf.readFully(buf)
+                        var start = 0
+                        while (start < buf.size && buf[start] != 10.toByte()) start++
+                        raf.setLength(0)
+                        raf.seek(0)
+                        raf.write(buf, start, buf.size - start)
+                    }
+                }
+            }
             f.appendText(System.currentTimeMillis().toString() + " " + msg + "\n")
         }
     }
