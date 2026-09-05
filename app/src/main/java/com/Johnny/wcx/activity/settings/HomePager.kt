@@ -178,7 +178,7 @@ private fun safeGetLspApiVersion(): String {
 /** 版本字符串格式化：git+4fcbb76 (73) */
 private fun formatLocalVersion(): String {
     val name = BuildConfig.VERSION_NAME.ifEmpty { "未知" }
-    return "$name (${BuildConfig.VERSION_CODE})"
+    return "$name (${"%06d".format(BuildConfig.VERSION_CODE)})"
 }
 
 /** 安全打开外部链接，处理无可用浏览器场景 */

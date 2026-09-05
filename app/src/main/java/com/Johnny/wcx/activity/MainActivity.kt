@@ -190,7 +190,7 @@ class MainActivity : ComponentActivity() {
                                 style = MaterialTheme.typography.titleLarge
                             )
                             Text(
-                                text = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                                text = "${BuildConfig.VERSION_NAME} (${"%06d".format(BuildConfig.VERSION_CODE)})",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
@@ -633,7 +633,7 @@ class MainActivity : ComponentActivity() {
                             Text("${BuildConfig.TAG} 是一款基于 Xposed 框架的开源免费微信模块")
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("版本: ${BuildConfig.VERSION_NAME}")
-                            Text("版本号: ${BuildConfig.VERSION_CODE}")
+                            Text("版本号: ${"%06d".format(BuildConfig.VERSION_CODE)}")
                             Text("作者：Kimjaejiang@github")
                         }
                     },

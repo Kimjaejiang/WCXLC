@@ -308,7 +308,7 @@ fun SettingsPager(onOpenLicense: () -> Unit, onOpenAcknowledgements: () -> Unit)
                     icon = MaterialSymbols.Outlined.Volunteer_activism,
                     onClick = onOpenAcknowledgements,
                 )
-                PrefArrow(title = "版本", summary = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", icon = MaterialSymbols.Outlined.Label)
+                PrefArrow(title = "版本", summary = "${BuildConfig.VERSION_NAME} (${"%06d".format(BuildConfig.VERSION_CODE)})", icon = MaterialSymbols.Outlined.Label)
                 PrefArrow(title = "构建提交时间", summary = formatEpoch(BuildConfig.BUILD_TIMESTAMP, true), icon = MaterialSymbols.Outlined.Build_circle)
                 PrefArrow(
                     title = "提示",
