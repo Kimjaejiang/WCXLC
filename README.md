@@ -22,6 +22,29 @@
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 > ⚠️ 标记「已随 v247」的条目：v247 重构合入后**采用上游实现，本地无独有代码保留**（上游已含同等能力），仅作功能存档。
 
+### 2026-09-05
+
+- **💬 聊天增强 · 归拢文件夹容器长按菜单：移出/移到文件夹（8.0.78 重构行解析）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
+  - 背景：8.0.78 归拢容器长按不再走首页 `MMPopupMenu.showMenu` 路径，旧 DSL hook 收不到事件；实测链路为 `r0.onItemLongClick → eu5.s0.g(view,pos,id,listener,selectCb,…) → MMListPopupWindow`。
+  - 修复：改用 XposedBridge 直钩 `eu5.s0.g`（parameterCount=7），`args[3]` 包装 listener 在菜单构建期注入「移出文件夹/移到文件夹」（itemId 777020/777021），`args[4]` select 回调代理拦截命中项并执行移动（无二次确认，一步到成员）；
+  - 行归属改为确定性解析：长按 listener → 持有 `r0` 字段 → `ConvBoxServiceConversationUI$ConvBoxServiceConversationFmUI` fragment → 递归 AdapterView/ListAdapter 取 pos 行，过滤 folder 头行 / 非 ASCII 标题 / folderId，talker 非成员直接不下发菜单——不再依赖易失效的残留状态（此前「偶现/忽有忽无」）。
+
+- **💬 聊天增强 · 归拢摘要刷新风暴卡死修复（消息高频不再卡）**
+  - 涉及文件：`ConversationAggregation.kt`
+  - 根因：每条新消息触发 DB 更新监听 → 主线程全量摘要刷新事务 + 首页列表全量 `notifyDataSetChanged/invalidate`，消息风暴必然卡死。
+  - 修复：`onUpdate` 非摘要/未读相关列（`touches` 无）不再触发刷新；刷新合并窗口 ≥800ms（`MIN_REFRESH_GAP`），批量消息在冷却后整批刷新一次。
+
+- **🛠️ 模块日志 · 日志无限膨胀修复 + 设置「日志」页卡顿优化**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/utils/WeLogger.kt`、`ConversationAggregation.kt`（diag）、`app/src/main/java/com/Johnny/wcx/activity/settings/LogsPager.kt`
+  - 背景：微信进程高频日志使按日 `wcx-*.log` 与 `diag.log` 无限膨胀（曾达数十万行），模块设置日志页整文件 `readText` + 全量解析导致持续卡顿/掉帧。
+  - 修复：按日日志超 4MB 自动收缩为尾部 1MB（写线程 batch 后裁剪）；`diag.log` 超 6MB 同收缩；日志页读超大文件时只取尾部 ≤2MB（行边界起），解析与渲染保持流畅。
+
+- **💬 聊天增强 · 消息类型过滤屏蔽（8.0.78 HIDE 隐藏策略探针 + 复用残留修复）【进行中，待验证】**
+  - 涉及文件：`MessageFilterShield.kt`、`WeChatMessageViewApi.kt`
+  - 修复：隐藏策略下 RecyclerView item 复用时被 GONE 的行重绑到未命中消息会残留隐藏——非拦截分支恢复 `VISIBLE`；
+  - 探针：`WeChatMessageViewApi` hook 挂载结果（armed / NOT FOUND）与每条消息 View 的类型判定进模块日志，用于定位 8.0.78 HIDE 不生效断点（hook 未挂 / 消息解析失败 / 判定未命中）。
+
 ### 2026-09-04
 
 - **🛠️ 聊天增强 · 群聊归拢（ConversationAggregation）WeChat 8.0.78 适配：摘要实时刷新 / 角标口径 / 返回恢复**
@@ -294,6 +317,8 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
+| 09-05 | **文件夹容器长按移出/移到菜单（8.0.78）** | 直钩 `eu5.s0.g` 注入菜单 + 确定性行解析（r0→ConvBoxServiceConversationFmUI→adapter），移出/移到一步完成 | `ConversationAggregation.kt` |
+| 09-05 | **归拢刷新节流 + 日志收缩** | 消息风暴刷新合并（≥800ms 窗口）；按日日志/diag 上限收缩、日志页尾部读取，修复日志页卡顿 | `ConversationAggregation.kt`、`WeLogger.kt`、`LogsPager.kt` |
 | 09-02 | **归拢 @所有人 显示 [@全体]** | `atCount` bit24（0x01000000）权威标志 + 文本关键词双重判定；聚合判断（任一未读成员命中即显示），不再误判 [有人@我] | `ConversationAggregation.kt` |
 | 09-02 | **免打扰未读计入文件夹角标** | 免打扰会话 `unReadMuteCount>0` 直接计入 `mutedUnread`（此前 unread==0 分支永不进入导致漏统计），角标正确显示小圆点 | `ConversationAggregation.kt` |
 | 08-31 | **归拢摘要颜色设置完善** | 新增独立配色设置项（弹窗内实时配色，改动即生效）；文件夹标题染色独立开关；设置搜索/分类过滤颜色项 | `ConversationAggregationColors.kt`、`ConversationAggregation.kt`、`FeaturesPager.kt` |
