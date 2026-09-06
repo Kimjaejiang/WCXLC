@@ -269,7 +269,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: ${{ success() && github.ref == 'refs/heads/master' }}
+    if: ${{ success() && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')) }}
     permissions:
       contents: write
 
