@@ -117,12 +117,16 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                     if (replyContent.isNullOrEmpty())
                         return
 
-                    WeLogger.i(TAG, "quick replying '$replyContent' to $targetWxId")
-                    WeMessageApi.sendText(targetWxId, replyContent)
-                    WeConversationApi.markAsRead(targetWxId)
+                    WeLogger.i(TAG, "quick replying " + replyContent + " to " + targetWxId)
+                    val sendOk = runCatching { WeMessageApi.sendText(targetWxId, replyContent) }.getOrElse { false }
+                    val readOk = runCatching { WeConversationApi.markAsRead(targetWxId) }.isSuccess
+                    runCatching {
+                        val f = java.io.File("/sdcard/Android/data/com.tencent.mm/WCX/diag.log")
+                        f.parentFile?.mkdirs()
+                        java.io.FileWriter(f, true).use { it.append(System.currentTimeMillis().toString() + " quickreply to=" + targetWxId + " len=" + replyContent.length + " send=" + sendOk + " read=" + readOk + "\n") }
+                    }
                     notificationManager.cancel(targetWxId.hashCode())
                 }
-
                 ACTION_MARK_READ -> {
                     WeLogger.i(TAG, "marking chat as read for $targetWxId")
                     WeConversationApi.markAsRead(targetWxId)

@@ -2597,8 +2597,6 @@ hookViewLongClickProbe()
                                         }
                                     }
                                 }
-                                mvvmPickedMember = null
-                                mvvmSelectedWxid = null
                             } else {
                                 diagFile("mvvm startActivity folder-no-sel to=" + cmp + " u=" + u)
                             }
@@ -2626,7 +2624,6 @@ hookViewLongClickProbe()
                                     if (sel != null) {
                                         if (System.currentTimeMillis() - mvvmSelectedTs > 8000) { mvvmSelectedWxid = null }
                                         p.args[p.args.indexOfFirst { it is String }] = sel
-                                        mvvmSelectedWxid = null
                                         diagFile("mvvm sendmsg patch folder->$sel")
                                     } else {
                                         diagFile("mvvm sendmsg folder-no-sel: " + t)
@@ -2700,11 +2697,11 @@ hookViewLongClickProbe()
                                     val seen2 = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
                                     queue2.add(Pair(act, 0))
                                     var visited2 = 0
-                                    while (queue2.isNotEmpty() && visited2 < 30000) {
+                                    while (queue2.isNotEmpty() && visited2 < 1500) {
                                         val (cur, dep) = queue2.poll()
                                         if (cur == null || !seen2.add(cur)) continue
                                         visited2++
-                                        if (dep > 7) continue
+                                        if (dep > 5) continue
                                         var cc2: Class<*>? = cur.javaClass
                                         while (cc2 != null && cc2 != Any::class.java) {
                                             for (f in cc2.declaredFields) {
@@ -2753,16 +2750,6 @@ hookViewLongClickProbe()
             diagFile("mvvm setResult hook armed")
         }.onFailure { diagFile("mvvm setResult hook err: " + it) }
 
-        // Mvvm 转发选择页每次新开(Activity 创建)清掉上一次 folder picker 所选成员，防止误用于后续普通转发。
-        runCatching {
-            de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "onCreate", object : XC_MethodHook() {
-                override fun beforeHookedMethod(p: MethodHookParam) {
-                    runCatching {
-                        val act = p.thisObject as? android.app.Activity ?: return@runCatching
-                    }
-                }
-            })
-        }.onFailure { }
 
         runCatching {
             de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "finish", object : XC_MethodHook() {
@@ -2777,32 +2764,116 @@ hookViewLongClickProbe()
             diagFile("mvvm ui finish hook armed")
         }.onFailure { diagFile("mvvm ui finish hook err: " + it) }
 
-        // [HOST] 抓 Mvvm finish 后宿主 onActivityResult(真正读取转发结果的入口)
+        // [HOST] 抓 Mvvm finish 后宿主 onActivityResult(真正读取转发结果的入口)：宿主在此读 folder result，
+        // 5 秒内若刚经 folder picker 选定成员，则把 result 里的 folder 目标就地改写为成员。
         runCatching {
             de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "onActivityResult", object : XC_MethodHook() {
                 override fun beforeHookedMethod(p: MethodHookParam) {
                     runCatching {
                         val act = p.thisObject as? android.app.Activity ?: return@runCatching
                         val ic = p.args.getOrNull(2) as? android.content.Intent
-                        val extraTxt = runCatching {
+                        val selNow = mvvmPickedMember ?: mvvmSelectedWxid
+                        val ageMs = System.currentTimeMillis() - mvvmSelectedTs
+                        if (ic != null && selNow != null && System.currentTimeMillis() - mvvmSelectedTs < 15000) {
+                            var repHost = 0
+                            ic.extras?.let { ex ->
+                                for (k in ex.keySet().toList()) {
+                                    val v = ex.get(k)
+                                    if (v is String) { if (isFolderId(v)) { ex.putString(k, selNow); repHost++ } }
+                                    else if (v is java.util.List<*>) { for (i in 0 until v.size) { val e = v[i]; if (e is String && isFolderId(e)) { runCatching { (v as java.util.List<Any>).set(i, selNow); repHost++ } } } }
+                                    else if (v is java.util.Set<*>) { val fv = v.firstOrNull { it is String && isFolderId(it) }; if (fv != null) { runCatching { v.remove(fv); (v as java.util.Set<Any>).add(selNow) }; repHost++ } }
+                                }
+                            }
+                            if (repHost > 0) {
+                                diagFile("mvvm hostAR patch folder->" + selNow + " to=" + act.javaClass.name + " rep=" + repHost)
+                            }
+                        }
+                        val extraTxt2 = runCatching {
                             ic?.extras?.let { ex -> ex.keySet().joinToString(",") { k -> k + "=" + (ex.get(k)?.toString()?.take(40)) } }.orEmpty()
                         }.getOrElse { "err" }
-                        diagFile("mvvm host onAR act=" + act.javaClass.name + " req=" + p.args.getOrNull(0) + " res=" + p.args.getOrNull(1) + " extra=" + extraTxt.take(300) + "\\n" + Thread.currentThread().stackTrace.take(18).joinToString("\\n") { "   " + it.className + "." + it.methodName + ":" + it.lineNumber })
+                        diagFile("mvvm host onAR act=" + act.javaClass.name + " req=" + p.args.getOrNull(0) + " res=" + p.args.getOrNull(1) + " sel=" + (selNow ?: "null") + " age=" + ageMs + " ic=" + (ic?.javaClass?.name ?: "null") + " extra=" + extraTxt2.take(300))
                     }
                 }
             })
             diagFile("mvvm host onAR armed")
         }.onFailure { diagFile("mvvm host onAR err: " + it) }
+        // [HOST2] AndroidX ActivityResultRegistry：宿主若是 LauncherUI 下 Fragment(ComponentActivity 注册表分发)，
+        // Activity.onAR 收不到，改挂注册表 dispatchResult，读取前同样改写 folder 目标。
+        runCatching {
+            val clsReg = Class.forName("androidx.activity.result.ActivityResultRegistry")
+            de.robv.android.xposed.XposedBridge.hookAllMethods(clsReg, "dispatchResult", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val ric = p.args.getOrNull(2) as? android.content.Intent
+                        if (ric == null) return@runCatching
+                        val sel2 = mvvmPickedMember ?: mvvmSelectedWxid
+                        if (sel2 == null || System.currentTimeMillis() - mvvmSelectedTs >= 15000) return@runCatching
+                        var rep2 = 0
+                        ric.extras?.let { ex ->
+                            for (k in ex.keySet().toList()) {
+                                val v = ex.get(k)
+                                if (v is String) { if (isFolderId(v)) { ex.putString(k, sel2); rep2++ } }
+                                else if (v is java.util.List<*>) { for (i in 0 until v.size) { val e = v[i]; if (e is String && isFolderId(e)) { runCatching { (v as java.util.List<Any>).set(i, sel2); rep2++ } } } }
+                                else if (v is java.util.Set<*>) { val fv = v.firstOrNull { it is String && isFolderId(it) }; if (fv != null) { runCatching { v.remove(fv); (v as java.util.Set<Any>).add(sel2) }; rep2++ } }
+                            }
+                        }
+                        if (rep2 > 0) {
+                            diagFile("mvvm reg patch folder->" + sel2 + " rep=" + rep2)
+                        }
+                    }
+                }
+            })
+            diagFile("mvvm reg dispatch hook armed")
+        }
+        // [HOST3] FragmentResult API：Fragment 间经 setFragmentResult 回传目标，转发链未走 Activity.onAR/registry。
+        runCatching {
+            val clsFm = Class.forName("androidx.fragment.app.FragmentManager")
+            de.robv.android.xposed.XposedBridge.hookAllMethods(clsFm, "setFragmentResult", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val rb = p.args.getOrNull(1) as? android.os.Bundle ?: return@runCatching
+                        val s3 = mvvmPickedMember ?: mvvmSelectedWxid
+                        if (s3 == null || System.currentTimeMillis() - mvvmSelectedTs >= 15000) return@runCatching
+                        var rep3 = 0
+                        for (k in rb.keySet().toList()) {
+                            val v = rb.get(k)
+                            if (v is String) { if (isFolderId(v)) { rb.putString(k, s3); rep3++ } }
+                            else if (v is java.util.ArrayList<*>) { for (i in 0 until v.size) { val e = v[i]; if (e is String && isFolderId(e)) { runCatching { (v as java.util.ArrayList<Any?>).set(i, s3); rep3++ } } } }
+                        }
+                        if (rep3 > 0) { diagFile("mvvm fragresult patch key=" + p.args.getOrNull(0) + " rep=" + rep3) }
+                    }
+                }
+            })
+            diagFile("mvvm fragresult hook armed")
+        }.onFailure { diagFile("mvvm fragresult err: " + it) }
 
         // [DIAG5] 8.0.78 MvvmContactListUI 实际行点击回调挖掘：从 view context 判定活跃 Activity 抓 setOnClickListener
-        // [DIAG10] 验证 Mvvm 转发提交点 wi5.c0(8.0.77 推测) 在普通行点击时是否被调用
+        // 点击行提交点 wi5.c0(listOf(username))：普通行点击把目标发给 state center（生成 result/已选集）。
+        // 8.0.78 v2 下转发目标最终由此进入；folder 行点选成员后，若此处仍收到 folder 则就地替换为成员。
         runCatching {
             val wi5 = Class.forName("wi5")
             de.robv.android.xposed.XposedBridge.hookAllMethods(wi5, "c0", object : XC_MethodHook() {
                 override fun beforeHookedMethod(p: MethodHookParam) {
                     runCatching {
                         val a0 = p.args.firstOrNull()
-                        diagFile("DIAG10 wi5.c0 hit self=" + p.thisObject?.javaClass?.name + " a0=" + a0?.javaClass?.name + " v=" + (a0?.toString()?.take(120)))
+                        if (a0 is List<*>) {
+                            var hasFolder = false
+                            for (e in a0) if (e is String && isFolderId(e)) { hasFolder = true; break }
+                            if (hasFolder) {
+                                val selw = mvvmPickedMember ?: mvvmSelectedWxid
+                                if (selw != null && System.currentTimeMillis() - mvvmSelectedTs < 15000) {
+                                    var repw = 0
+                                    for (i in 0 until a0.size) { val e = a0[i]; if (e is String && isFolderId(e)) { runCatching { (a0 as java.util.List<Any>).set(i, selw); repw++ } } }
+                                    diagFile("mvvm wi5 patch folder->" + selw + " rep=" + repw + " orig=" + a0.toString().take(80))
+                                } else {
+                                    diagFile("mvvm wi5 folder-no-sel: " + a0.toString().take(80))
+                                }
+                            } else {
+                                diagFile("mvvm wi5 hit a0=" + a0.javaClass.name + " v=" + a0.toString().take(120))
+                            }
+                        } else {
+                            diagFile("mvvm wi5 hit other a0=" + (a0?.javaClass?.name ?: "null") + " v=" + (a0?.toString()?.take(100) ?: ""))
+                        }
                     }
                 }
             })
@@ -2892,6 +2963,30 @@ hookViewLongClickProbe()
                         for (fp in fldsAll) fp.first.set(fp.second, selectedWxId)
                         val back = runCatching { fldsAll.first().first.get(fldsAll.first().second) as? String }.getOrNull()
                         diagFile("mvvm redirect fields=" + fldsAll.size + " set=" + selectedWxId + " readback=" + back)
+                        runCatching {
+                            val listP = runCatching { adapter.javaClass.methods.firstOrNull { it.name == "getData" && it.parameterCount == 0 } }.getOrNull()?.invoke(adapter) as? List<*>
+                            val sb = StringBuilder("mvvm probe rows=").append(listP?.size ?: -1)
+                            if (listP != null) {
+                                var cnt = 0
+                                for (rr in listP) {
+                                    if (rr == null) continue
+                                    if (cnt++ >= 30) break
+                                    sb.append("\\n[#").append(cnt).append("] ").append(rr.javaClass.simpleName).append(" {")
+                                    var c2: Class<*>? = rr.javaClass
+                                    var first = true
+                                    while (c2 != null && c2 != Any::class.java) {
+                                        for (f in c2.declaredFields) {
+                                            runCatching { f.isAccessible = true
+                                                val v = f.get(rr)
+                                                if (v is String && v.length < 80) { if (!first) sb.append(", "); first = false; sb.append(f.name).append("=").append(v) } }
+                                        }
+                                        c2 = c2.superclass
+                                    }
+                                    sb.append("}")
+                                }
+                            }
+                            diagFile(sb.toString().take(2500))
+                        }.onFailure { diagFile("mvvm probe err: " + it) }
                         mvvmSelectedWxid = selectedWxId
                         mvvmSelectedTs = System.currentTimeMillis()
                         mvvmRedirecting = true

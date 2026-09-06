@@ -1162,17 +1162,53 @@ object WeMessageApi : ApiFeature(), IResolveDex {
 
     /** 发送文本消息 */
     fun sendText(toUser: String, text: String): Boolean {
+        val diag = { msg: String ->
+            runCatching {
+                val f = java.io.File("/sdcard/Android/data/com.tencent.mm/WCX/diag.log")
+                f.parentFile?.mkdirs()
+                java.io.FileWriter(f, true).use { it.append(System.currentTimeMillis().toString() + " " + msg + "\n") }
+            }
+        }
+        diag("sendtext enter to=" + toUser + " len=" + text.length)
         return try {
-            WeLogger.i(TAG, "sending text message: $text")
-            val sendMsgObject = methodGetSendMsgObject.method.invoke(null) ?: return false
-            val msgObj = classNetSceneSendMsg.clazz.createInstance(toUser, text, 1, 0, null)
-            methodPostToQueue.method.invoke(sendMsgObject, msgObj) as? Boolean ?: false
-        } catch (e: Exception) {
+            WeLogger.i(TAG, "sending text message: " + text)
+            val tgt = classNetSceneSendMsg.clazz ?: runCatching { Class.forName("com.tencent.mm.modelbase.NetSceneSendMsg") }.getOrNull()
+            if (tgt == null) { diag("sendtext no-class"); return false }
+            diag("sendtext target=" + tgt.name)
+            var netScene: Any? = null
+            // 8.0.78 二版：5 参构造移除，真实类 v51.r0 提供两个 6 参形态，逐个尝试。
+            netScene = runCatching {
+                tgt.getConstructor(String::class.java, String::class.java, Integer.TYPE, Integer.TYPE, Any::class.java, String::class.java)
+                    .newInstance(toUser, text, 1, 0, null, "")
+            }.getOrNull()
+            if (netScene == null) {
+                diag("sendtext ctor-obj6 failed, try long6")
+                netScene = runCatching {
+                    tgt.getConstructor(String::class.java, String::class.java, Integer.TYPE, Integer.TYPE, Long.TYPE, String::class.java)
+                        .newInstance(toUser, text, 1, 0, 0L, "")
+                }.getOrNull()
+                if (netScene != null) diag("sendtext ctor-long6 ok")
+            } else {
+                diag("sendtext ctor-obj6 ok")
+            }
+            if (netScene == null) { diag("sendtext all-ctor-failed"); return false }
+            WeNetSceneApi.sendNetScene(netScene)
+            diag("sendtext queued netScene=" + netScene.javaClass.name)
+            true
+        } catch (e: Throwable) {
             WeLogger.e(TAG, "failed to send text message", e)
+            diag("sendtext err=" + e)
+            runCatching {
+                val tgt = classNetSceneSendMsg.clazz ?: runCatching { Class.forName("com.tencent.mm.modelbase.NetSceneSendMsg") }.getOrNull()
+                if (tgt != null) {
+                    val sb = java.lang.StringBuilder("sendtext ctors of ").append(tgt.name)
+                    for (c in tgt.constructors) { sb.append("\n  ").append(c.toGenericString().take(180)) }
+                    diag(sb.toString())
+                }
+            }
             false
         }
     }
-
     /** 发送文件消息 */
     fun sendFile(talker: String, filePath: String, title: String, appId: String? = null): Boolean {
         return try {
