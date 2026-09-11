@@ -123,7 +123,8 @@ object ConversationAggregation : ClickableFeature(),
     @Volatile private var mvvmRedirecting = false
     @Volatile private var mvvmSelectedWxid: String? = null
     @Volatile private var mvvmSelectedTs = 0L
-    @Volatile private var mvvmPickedMember: String? = null  // 最近一次 folder picker 所选成员(持久,无过期)
+    @Volatile private var mvvmPickedMember: String? = null
+    @Volatile private var mvvmPendingFolderId: String? = null  // 最近一次 folder picker 所选成员(持久,无过期)
     // 拦截首页长按菜单「标为已读」：对归拢文件夹行改为标记其全部成员会话（见 markFolderAsRead）。
     private val folderMarkReadInterceptor = WeConversationContextMenuApi.INativeMenuInterceptor { context, menuItem ->
         val title = menuItem.title?.toString().orEmpty()
@@ -2621,12 +2622,17 @@ hookViewLongClickProbe()
                             val sel = mvvmPickedMember ?: mvvmSelectedWxid
                             if (t.isNotBlank() && t.length <= 80) {
                                 if (isFolderId(t)) {
-                                    if (sel != null) {
-                                        if (System.currentTimeMillis() - mvvmSelectedTs > 8000) { mvvmSelectedWxid = null }
+                                    // 仅当本次发送目标正是「刚选过成员的那个 folder」且选择仍在有效期内才改写，
+                                    // 避免影响用户对其它 folder / 普通会话的转发。原 8 秒窗口过短：从成员选择器
+                                    // 走到转发确认页再点发送常常超时，状态被清空后消息就原样发给了 folder。
+                                    val tn = t.removePrefix(FOLDER_PREFIX).takeWhile { it.isDigit() }
+                                    val pn = mvvmPendingFolderId?.removePrefix(FOLDER_PREFIX)?.takeWhile { it.isDigit() }
+                                    val fresh = System.currentTimeMillis() - mvvmSelectedTs < 120_000
+                                    if (sel != null && fresh && pn != null && tn == pn) {
                                         p.args[p.args.indexOfFirst { it is String }] = sel
                                         diagFile("mvvm sendmsg patch folder->$sel")
                                     } else {
-                                        diagFile("mvvm sendmsg folder-no-sel: " + t)
+                                        diagFile("mvvm sendmsg folder-no-sel: " + t + " sel=" + sel + " fresh=" + fresh + " pending=" + mvvmPendingFolderId)
                                     }
                                 } else {
                                     diagFile("mvvm sendmsg target=" + t.take(30))
@@ -2774,7 +2780,7 @@ hookViewLongClickProbe()
                         val ic = p.args.getOrNull(2) as? android.content.Intent
                         val selNow = mvvmPickedMember ?: mvvmSelectedWxid
                         val ageMs = System.currentTimeMillis() - mvvmSelectedTs
-                        if (ic != null && selNow != null && System.currentTimeMillis() - mvvmSelectedTs < 15000) {
+                        if (ic != null && selNow != null && System.currentTimeMillis() - mvvmSelectedTs < 120_000) {
                             var repHost = 0
                             ic.extras?.let { ex ->
                                 for (k in ex.keySet().toList()) {
@@ -2807,7 +2813,7 @@ hookViewLongClickProbe()
                         val ric = p.args.getOrNull(2) as? android.content.Intent
                         if (ric == null) return@runCatching
                         val sel2 = mvvmPickedMember ?: mvvmSelectedWxid
-                        if (sel2 == null || System.currentTimeMillis() - mvvmSelectedTs >= 15000) return@runCatching
+                        if (sel2 == null || System.currentTimeMillis() - mvvmSelectedTs >= 120_000) return@runCatching
                         var rep2 = 0
                         ric.extras?.let { ex ->
                             for (k in ex.keySet().toList()) {
@@ -2833,7 +2839,7 @@ hookViewLongClickProbe()
                     runCatching {
                         val rb = p.args.getOrNull(1) as? android.os.Bundle ?: return@runCatching
                         val s3 = mvvmPickedMember ?: mvvmSelectedWxid
-                        if (s3 == null || System.currentTimeMillis() - mvvmSelectedTs >= 15000) return@runCatching
+                        if (s3 == null || System.currentTimeMillis() - mvvmSelectedTs >= 120_000) return@runCatching
                         var rep3 = 0
                         for (k in rb.keySet().toList()) {
                             val v = rb.get(k)
@@ -2861,7 +2867,7 @@ hookViewLongClickProbe()
                             for (e in a0) if (e is String && isFolderId(e)) { hasFolder = true; break }
                             if (hasFolder) {
                                 val selw = mvvmPickedMember ?: mvvmSelectedWxid
-                                if (selw != null && System.currentTimeMillis() - mvvmSelectedTs < 15000) {
+                                if (selw != null && System.currentTimeMillis() - mvvmSelectedTs < 120_000) {
                                     var repw = 0
                                     for (i in 0 until a0.size) { val e = a0[i]; if (e is String && isFolderId(e)) { runCatching { (a0 as java.util.List<Any>).set(i, selw); repw++ } } }
                                     diagFile("mvvm wi5 patch folder->" + selw + " rep=" + repw + " orig=" + a0.toString().take(80))
@@ -2988,6 +2994,8 @@ hookViewLongClickProbe()
                             diagFile(sb.toString().take(2500))
                         }.onFailure { diagFile("mvvm probe err: " + it) }
                         mvvmSelectedWxid = selectedWxId
+                        mvvmPickedMember = selectedWxId
+                        mvvmPendingFolderId = normalizeFolderId(rawUser)
                         mvvmSelectedTs = System.currentTimeMillis()
                         mvvmRedirecting = true
                         try { orig.invoke(self, *args) } catch (t: Throwable) { diagFile("mvvm invoke err: " + t) } finally {

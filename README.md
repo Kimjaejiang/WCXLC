@@ -45,6 +45,13 @@
   - 旧版硬编码的 `ok0.l1`（打开链）与 `wi5`（MVVM 选人提交 `c0`）在正式版**已不存在**；其余 hook 目标（`b41.h9`、`eu5.s0`、`hr5.j`、`com.tencent.mm.ui.conversation.r0`、`com.tencent.mm.ui.pf`、`vv5.f1`、`ChattingUI`、`SendAppMessageWrapperUI` 等）均在。
   - 对话归拢 folder → 成员转发在正式版实测通过（diag：`mvvm tap folder row` → `mvvm redirect fields=2 set=<member> readback=<member>` → `MsgRetransmitUI sel=<member>`），无需重做该链路。
 
+- **💬 聊天增强 · 归拢文件夹内转发目标改写修复（选成员后仍发给文件夹）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
+  - 背景：在「转发 → 选择聊天」里点归拢文件夹行会弹出成员选择器，选完成员进入转发确认页后点发送，**消息仍发给文件夹容器**（`wekit_folder_*`）而不是所选成员。
+  - 根因：① 发送点（`NetSceneSendMsg` 构造）改写依赖的 `mvvmPickedMember` 注释写着「持久,无过期」，但全代码从未赋值，实际只走带时间戳的 `mvvmSelectedWxid`；② 该路径时间窗仅 8 秒（其余回传路径 15 秒），且命中 folder 目标时是「超时即清空」——从成员选择器走到转发确认页再点发送普遍超过 8 秒，状态被清空后 folder 目标原样放行。8.0.78 正式版 `NetSceneSendMsg` 混淆名与构造器均与二版一致（`v51.r0`），改写点本身有效，问题只在状态过期。
+  - 修复：成员选择回调补写 `mvvmPickedMember`；新增 `mvvmPendingFolderId` 记录所选成员所属 folder，发送时**仅当目标 folder 与该 id 一致**才改写（避免误伤其它 folder / 普通会话的转发）；有效窗口统一放宽为 120 秒（含发送点与 result / FragmentResult 回传路径共 5 处）。
+  - 验证：8.0.78 正式版实测——长按消息 → 转发 → 选聊天 → 点归拢文件夹行 → 选成员 → 发送，消息正确送达所选成员。
+
 ### 2026-09-05
 
 - **💬 聊天增强 · 归拢文件夹容器长按菜单：移出/移到文件夹（8.0.78 重构行解析）**
