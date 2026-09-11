@@ -125,6 +125,7 @@ object ConversationAggregation : ClickableFeature(),
     @Volatile private var mvvmSelectedTs = 0L
     @Volatile private var mvvmPickedMember: String? = null
     @Volatile private var mvvmPendingFolderId: String? = null  // 最近一次 folder picker 所选成员(持久,无过期)
+    @Volatile private var mvvmForwardSentTs = 0L  // 最近一次转发消息真正改写并发出(改写生效)的时间
     // 拦截首页长按菜单「标为已读」：对归拢文件夹行改为标记其全部成员会话（见 markFolderAsRead）。
     private val folderMarkReadInterceptor = WeConversationContextMenuApi.INativeMenuInterceptor { context, menuItem ->
         val title = menuItem.title?.toString().orEmpty()
@@ -633,9 +634,16 @@ hookViewLongClickProbe()
 
     // Called by WeDatabaseListenerApi when WeChat inserts a conversation row
     override fun onInsert(table: String, values: ContentValues) {
+        // 诊断:近期做过文件夹成员选择时,记录消息落库的 talker,用于判断转发目标到底是成员还是 folder。
+        if (table == "message" && System.currentTimeMillis() - mvvmSelectedTs < 600_000) {
+            val tk = values.getAsString("talker")
+        }
         if (table != ConversationTable.NAME) return
         val username = values.getAsString(ConversationTable.USERNAME) ?: return
-        if (isFolderId(username)) return  // skip our own folder row writes
+        if (isFolderId(username)) {
+            // 诊断:folder 容器会话自身被插入(说明消息/会话被路由到了文件夹)。
+            return
+        }
         WeLogger.i(TAG, "dbListener onInsert row username=$username")
         diagDb("ins", username, "db onInsert u=" + username)
         scheduleRefresh(username)
@@ -893,6 +901,26 @@ hookViewLongClickProbe()
                         val username = runCatching { tab.javaClass.getField("h").get(tab) as? String }.getOrNull() ?: return@beforeHookedMethod
                         WeLogger.i(TAG, "pf.a(startChattingRunnable): Chat_User=" + username)
                         if (isFolderId(username)) {
+                            // 转发到归拢文件夹后，微信会按 folder 打开“目标会话”。
+                            // 若刚在成员选择器里选定过成员，就直接打开该成员的会话。
+                            val selF = mvvmPickedMember ?: mvvmSelectedWxid
+                            val pendF = mvvmPendingFolderId
+                            if (selF != null && mvvmForwardSentTs > 0L && System.currentTimeMillis() - mvvmForwardSentTs < 90_000 && (pendF == null || pendF == username)) {
+                                param.result = null
+                                mvvmForwardSentTs = 0L
+                                mvvmSelectedTs = 0L
+                                val actF = runCatching { tab.javaClass.getField("a").get(tab) as? Activity }.getOrNull()
+                                WeLogger.i(TAG, "pf.a folder->picked member: " + username + " -> " + selF)
+                                if (actF != null) {
+                                    runCatching {
+                                        val itM = android.content.Intent()
+                                        itM.setClassName("com.tencent.mm", "com.tencent.mm.ui.chatting.ChattingUI")
+                                        itM.putExtra("Chat_User", selF)
+                                        actF.startActivity(itM)
+                                    }.onFailure { e -> WeLogger.e(TAG, "pf.a member redirect failed", e) }
+                                }
+                                return@beforeHookedMethod
+                            }
                             param.result = null
                             activeFolderId = username
                             val act = runCatching { tab.javaClass.getField("a").get(tab) as? Activity }.getOrNull()
@@ -920,9 +948,12 @@ hookViewLongClickProbe()
                             val act = param.thisObject as? android.app.Activity ?: return
                             val intent = act.intent ?: return
                             val username = intent.getStringExtra("Chat_User") ?: return
+                            val now = System.currentTimeMillis()
+                            if (now - lastChattingFolderPickTs > 2000) {
+                                val ex0 = runCatching { intent.extras?.keySet()?.joinToString(",") { k -> k + "=" + (intent.extras?.get(k)?.toString()?.take(40)) } }.getOrNull().orEmpty()
+                            }
                             if (!isFolderId(username)) return
                             val folder = folderById(username) ?: return
-                            val now = System.currentTimeMillis()
                             if (now - lastChattingFolderPickTs < 1500) return
                             lastChattingFolderPickTs = now
                             WeLogger.i(TAG, "ChattingUI folder open intercepted: " + username)
@@ -945,6 +976,105 @@ hookViewLongClickProbe()
             )
             WeLogger.i(TAG, "ChattingUI folder-open redirect hooked (8.0.78 fallback)")
         }.onFailure { WeLogger.w(TAG, "hook ChattingUI folder redirect failed", it) }
+    }
+
+    // 转发选择器刚选定 folder 成员时：把 intent 里携带的 folder 目标就地改写成该成员。
+    // 覆盖 vv5.f1/vv5.k0 内转发列表等不经 SelectConversationUI 的路径。
+    // 返回改写的条目数，0 表示这次 intent 不含归拢 folder 目标（或不在有效窗口内）。
+    private fun rewriteFolderTargetsInIntent(intent: android.content.Intent, from: String): Int {
+        val sel = mvvmPickedMember ?: mvvmSelectedWxid ?: return 0
+        if (System.currentTimeMillis() - mvvmSelectedTs >= 600_000) return 0
+        var rep = 0
+        val u0 = intent.getStringExtra("Chat_User")
+        if (u0 != null && isFolderId(u0)) { intent.putExtra("Chat_User", sel); rep++ }
+        intent.extras?.let { ex ->
+            for (k in ex.keySet().toList()) {
+                val v = ex.get(k)
+                if (v is String && isFolderId(v)) { ex.putString(k, sel); rep++ }
+                else if (v is java.util.List<*>) {
+                    for (i in 0 until v.size) {
+                        val e = v[i]
+                        if (e is String && isFolderId(e)) { try { (v as java.util.List<Any>).set(i, sel); rep++ } catch (t: Throwable) { } }
+                    }
+                } else if (v is java.util.Set<*>) {
+                    val fv = v.firstOrNull { it is String && isFolderId(it) }
+                    if (fv != null) { try { v.remove(fv); (v as java.util.Set<Any>).add(sel) } catch (t: Throwable) { }; rep++ }
+                } else if (v is android.os.Bundle) {
+                    rep += rewriteBundleFolderTargets(v, sel)
+                }
+            }
+        }
+        if (rep > 0) diagFile("mvvm intent patch from=$from rep=$rep folder->$sel")
+        return rep
+    }
+
+    // 转发预览半屏的 Intent 把目标放在 Bundle 里（INTENT_KEY_HALFSCREEN_BUNDLE），
+    // 顶层 extras 的替换覆盖不到，这里递归改写任意层级 Bundle / List / Array 中的 folder 目标。
+    private fun rewriteBundleFolderTargets(b: android.os.Bundle, sel: String): Int {
+        var rep = 0
+        for (k in b.keySet().toList()) {
+            val v = runCatching { b.get(k) }.getOrNull()
+            if (v is String && isFolderId(v)) { b.putString(k, sel); rep++ }
+            else if (v is android.os.Bundle) rep += rewriteBundleFolderTargets(v, sel)
+            else if (v is java.util.List<*>) {
+                for (i in 0 until v.size) {
+                    val e = v[i]
+                    if (e is String && isFolderId(e)) { try { (v as java.util.List<Any>).set(i, sel); rep++ } catch (t: Throwable) { } }
+                    else if (e is android.os.Bundle) rep += rewriteBundleFolderTargets(e, sel)
+                }
+            } else if (v is Array<*>) {
+                for (i in v.indices) {
+                    val e = v[i]
+                    if (e is String && isFolderId(e)) { try { (v as Array<Any?>)[i] = sel; rep++ } catch (t: Throwable) { } }
+                    else if (e is android.os.Bundle) rep += rewriteBundleFolderTargets(e, sel)
+                }
+            }
+        }
+        return rep
+    }
+
+    private var mrFolderArgHooked = false
+
+    // MsgRetransmitUI（转发发送页）拿到选择结果后立即发送，改 result 不生效。
+    // 这里对它的全部方法装探针：把参数里携带的 folder id 就地写成成员，
+    // 并打印方法名，便于确认发送目标的真实流经位置。
+    private fun hookMsgRetransmitFolderArgs() {
+        if (mrFolderArgHooked) return
+        mrFolderArgHooked = true
+        runCatching {
+            val cls = Class.forName("com.tencent.mm.ui.transmit.MsgRetransmitUI", false, javaClass.classLoader)
+            var n = 0
+            for (m in cls.declaredMethods) {
+                runCatching {
+                    de.robv.android.xposed.XposedBridge.hookMethod(m, object : XC_MethodHook() {
+                        override fun beforeHookedMethod(p: MethodHookParam) {
+                            runCatching {
+                                val sel = mvvmPickedMember ?: mvvmSelectedWxid ?: return@runCatching
+                                if (System.currentTimeMillis() - mvvmSelectedTs >= 600_000) return@runCatching
+                                val args = p.args ?: return@runCatching
+                                var rep = 0
+                                for (i in args.indices) {
+                                    val v = args[i]
+                                    if (v is String && isFolderId(v)) { args[i] = sel; rep++ }
+                                    else if (v is java.util.List<*>) {
+                                        for (j in 0 until v.size) {
+                                            val e = v[j]
+                                            if (e is String && isFolderId(e)) { try { (v as java.util.List<Any>).set(j, sel); rep++ } catch (t: Throwable) { } }
+                                        }
+                                    }
+                                }
+                                if (rep > 0) {
+                                    mvvmForwardSentTs = System.currentTimeMillis()
+                                    diagFile("mvvm MR arg patch m=" + p.method.name + " rep=$rep folder->$sel")
+                                }
+                            }
+                        }
+                    })
+                    n++
+                }
+            }
+            diagFile("mvvm MR arg hook armed n=$n")
+        }.onFailure { diagFile("mvvm MR arg hook err: " + it) }
     }
 
     // Find the first field whose declared type matches targetTypeName (e.g. the NewChattingTabUI
@@ -2453,7 +2583,6 @@ hookViewLongClickProbe()
                         val l = p.args[0] ?: return@runCatching
                         val ln = l.javaClass.name
                         if (known.any { ln == it || ln.startsWith(it) }) return@runCatching
-                        diagFile("mvvm sendbtn listener=" + ln + " view=" + v.javaClass.name)
                         runCatching {
                             for (m in l.javaClass.methods.filter { it.name == "onClick" }) {
                                 de.robv.android.xposed.XposedBridge.hookMethod(m, object : XC_MethodHook() {
@@ -2558,7 +2687,6 @@ hookViewLongClickProbe()
                         if (!isM) return@runCatching
                         val txt = if (v is android.widget.TextView) v.text?.toString().orEmpty() else ""
                         if (txt.contains("发送") || txt.contains("确定") || txt.contains("完成") || txt.isBlank()) {
-                            diagFile("mvvm performClick txt=" + txt.take(12) + " view=" + v.javaClass.name + "\\n" + Thread.currentThread().stackTrace.take(22).joinToString("\\n") { "   " + it.className + "." + it.methodName + ":" + it.lineNumber })
                         }
                     }
                 }
@@ -2577,37 +2705,21 @@ hookViewLongClickProbe()
                         val u = intent.getStringExtra("Chat_User")
                         val cmp = intent.component?.className ?: ""
                         val actN = p.thisObject?.javaClass?.name ?: ""
-                        if (u == null && !cmp.contains("Chat") && !cmp.contains("chat") && !intent.hasExtra("SendMsgUsernames")) return@runCatching
-                        if (u == null && !actN.contains("Chatting") && !actN.contains("Launcher") && !actN.contains("Forward") && !actN.contains("mvvm") && !actN.contains("Mvvm") && !actN.contains("ContactSelect")) return@runCatching
-                        if (u != null && isFolderId(u)) {
-                            val m = mvvmPickedMember ?: mvvmSelectedWxid
-                            if (m != null) {
-                                intent.putExtra("Chat_User", m)
-                                diagFile("mvvm startActivity patch Chat_User folder->$m to=" + cmp)
-                                intent.extras?.let { ex ->
-                                    for (k in ex.keySet().toList()) {
-                                        val v = ex.get(k)
-                                        if (v is String && isFolderId(v)) { ex.putString(k, m); diagFile("mvvm startActivity extra patch $k folder->$m") }
-                                        else if (v is java.util.List<*>) {
-                                            for (i in 0 until v.size) {
-                                                val e = v[i]
-                                                if (e is String && isFolderId(e)) {
-                                                    try { (v as java.util.List<Any>).set(i, m); diagFile("mvvm startActivity list patch $k i=$i folder->$m") } catch (t: Throwable) { }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                diagFile("mvvm startActivity folder-no-sel to=" + cmp + " u=" + u)
-                            }
-                        } else {
-                            diagFile("mvvm startActivity obs act=" + p.thisObject?.javaClass?.name + " to=" + cmp + " u=" + u + " hasSend=" + intent.hasExtra("SendMsgUsernames") + "\\n" + Thread.currentThread().stackTrace.take(14).joinToString("\\n") { "   " + it.className + "." + it.methodName + ":" + it.lineNumber })
+                        val rep0 = rewriteFolderTargetsInIntent(intent, actN + "#" + p.method.name)
+                        if (rep0 == 0 && (u != null || cmp.contains("Chat") || intent.hasExtra("SendMsgUsernames"))) {
                         }
                     }
                 }
             })
-            diagFile("mvvm startActivity hook armed")
+            de.robv.android.xposed.XposedBridge.hookAllMethods(android.app.Activity::class.java, "startActivityForResult", object : XC_MethodHook() {
+                override fun beforeHookedMethod(p: MethodHookParam) {
+                    runCatching {
+                        val intent = p.args.getOrNull(0) as? android.content.Intent ?: return@runCatching
+                        rewriteFolderTargetsInIntent(intent, (p.thisObject?.javaClass?.name ?: "?") + "#startActivityForResult")
+                    }
+                }
+            })
+            diagFile("mvvm startActivity hook armed (v2 + SAR)")
         }.onFailure { diagFile("mvvm startActivity hook err: " + it) }
 
         // 发送点改写：微信把消息发给某会话最终构造 NetSceneSendMsg(toUser,...) 入队。
@@ -2627,7 +2739,7 @@ hookViewLongClickProbe()
                                     // 走到转发确认页再点发送常常超时，状态被清空后消息就原样发给了 folder。
                                     val tn = t.removePrefix(FOLDER_PREFIX).takeWhile { it.isDigit() }
                                     val pn = mvvmPendingFolderId?.removePrefix(FOLDER_PREFIX)?.takeWhile { it.isDigit() }
-                                    val fresh = System.currentTimeMillis() - mvvmSelectedTs < 120_000
+                                    val fresh = System.currentTimeMillis() - mvvmSelectedTs < 600_000
                                     if (sel != null && fresh && pn != null && tn == pn) {
                                         p.args[p.args.indexOfFirst { it is String }] = sel
                                         diagFile("mvvm sendmsg patch folder->$sel")
@@ -2780,7 +2892,7 @@ hookViewLongClickProbe()
                         val ic = p.args.getOrNull(2) as? android.content.Intent
                         val selNow = mvvmPickedMember ?: mvvmSelectedWxid
                         val ageMs = System.currentTimeMillis() - mvvmSelectedTs
-                        if (ic != null && selNow != null && System.currentTimeMillis() - mvvmSelectedTs < 120_000) {
+                        if (ic != null && selNow != null && System.currentTimeMillis() - mvvmSelectedTs < 600_000) {
                             var repHost = 0
                             ic.extras?.let { ex ->
                                 for (k in ex.keySet().toList()) {
@@ -2788,16 +2900,17 @@ hookViewLongClickProbe()
                                     if (v is String) { if (isFolderId(v)) { ex.putString(k, selNow); repHost++ } }
                                     else if (v is java.util.List<*>) { for (i in 0 until v.size) { val e = v[i]; if (e is String && isFolderId(e)) { runCatching { (v as java.util.List<Any>).set(i, selNow); repHost++ } } } }
                                     else if (v is java.util.Set<*>) { val fv = v.firstOrNull { it is String && isFolderId(it) }; if (fv != null) { runCatching { v.remove(fv); (v as java.util.Set<Any>).add(selNow) }; repHost++ } }
+                                    else if (v is android.os.Bundle) { repHost += rewriteBundleFolderTargets(v, selNow) }
                                 }
                             }
                             if (repHost > 0) {
                                 diagFile("mvvm hostAR patch folder->" + selNow + " to=" + act.javaClass.name + " rep=" + repHost)
+                                if (act.javaClass.name.contains("MsgRetransmitUI")) hookMsgRetransmitFolderArgs()
                             }
                         }
                         val extraTxt2 = runCatching {
                             ic?.extras?.let { ex -> ex.keySet().joinToString(",") { k -> k + "=" + (ex.get(k)?.toString()?.take(40)) } }.orEmpty()
                         }.getOrElse { "err" }
-                        diagFile("mvvm host onAR act=" + act.javaClass.name + " req=" + p.args.getOrNull(0) + " res=" + p.args.getOrNull(1) + " sel=" + (selNow ?: "null") + " age=" + ageMs + " ic=" + (ic?.javaClass?.name ?: "null") + " extra=" + extraTxt2.take(300))
                     }
                 }
             })
@@ -2813,7 +2926,7 @@ hookViewLongClickProbe()
                         val ric = p.args.getOrNull(2) as? android.content.Intent
                         if (ric == null) return@runCatching
                         val sel2 = mvvmPickedMember ?: mvvmSelectedWxid
-                        if (sel2 == null || System.currentTimeMillis() - mvvmSelectedTs >= 120_000) return@runCatching
+                        if (sel2 == null || System.currentTimeMillis() - mvvmSelectedTs >= 600_000) return@runCatching
                         var rep2 = 0
                         ric.extras?.let { ex ->
                             for (k in ex.keySet().toList()) {
@@ -2839,7 +2952,7 @@ hookViewLongClickProbe()
                     runCatching {
                         val rb = p.args.getOrNull(1) as? android.os.Bundle ?: return@runCatching
                         val s3 = mvvmPickedMember ?: mvvmSelectedWxid
-                        if (s3 == null || System.currentTimeMillis() - mvvmSelectedTs >= 120_000) return@runCatching
+                        if (s3 == null || System.currentTimeMillis() - mvvmSelectedTs >= 600_000) return@runCatching
                         var rep3 = 0
                         for (k in rb.keySet().toList()) {
                             val v = rb.get(k)
@@ -2867,7 +2980,7 @@ hookViewLongClickProbe()
                             for (e in a0) if (e is String && isFolderId(e)) { hasFolder = true; break }
                             if (hasFolder) {
                                 val selw = mvvmPickedMember ?: mvvmSelectedWxid
-                                if (selw != null && System.currentTimeMillis() - mvvmSelectedTs < 120_000) {
+                                if (selw != null && System.currentTimeMillis() - mvvmSelectedTs < 600_000) {
                                     var repw = 0
                                     for (i in 0 until a0.size) { val e = a0[i]; if (e is String && isFolderId(e)) { runCatching { (a0 as java.util.List<Any>).set(i, selw); repw++ } } }
                                     diagFile("mvvm wi5 patch folder->" + selw + " rep=" + repw + " orig=" + a0.toString().take(80))
@@ -2903,7 +3016,6 @@ hookViewLongClickProbe()
                         val act = ctxActivity(v.context) ?: return@runCatching
                         if (act.javaClass.name != mvvmName5) return@runCatching
                         val l = p.args[0] ?: return@runCatching
-                        diagFile("DIAG5 setOnClick listener=" + l.javaClass.name + " onView=" + v.javaClass.name)
                     }
                 }
             })
@@ -3049,7 +3161,6 @@ hookViewLongClickProbe()
                                     cc = cc.superclass
                                 }
                             }
-                            diagFile("mvvm selcoll visited=" + visited + " replaced=" + rep)
                         } catch (t: Throwable) { diagFile("mvvm selcoll err: " + t) }
                     }.onFailure { e -> WeLogger.e(TAG, "mvvm folder redirect to member failed", e) }
                 }
@@ -3106,10 +3217,8 @@ hookViewLongClickProbe()
                                         }
                                         cD = cD.superclass
                                     }
-                                    diagFile(sbD.toString().take(1500))
                                 }
                                 if (username == null || !isFolderId(username)) {
-                                    diagFile("mvvm normrow tap u=" + username + "\\n" + Thread.currentThread().stackTrace.take(30).joinToString("\\n") { "   " + it.className + "." + it.methodName + ":" + it.lineNumber })
                                     return
                                 }
                                 diagFile("mvvm tap folder row pos=$posI username=$username adapter=" + adapter.javaClass.name)
