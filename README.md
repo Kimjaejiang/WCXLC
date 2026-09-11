@@ -52,6 +52,15 @@
   - 修复：成员选择回调补写 `mvvmPickedMember`；新增 `mvvmPendingFolderId` 记录所选成员所属 folder，发送时**仅当目标 folder 与该 id 一致**才改写（避免误伤其它 folder / 普通会话的转发）；有效窗口统一放宽为 120 秒（含发送点与 result / FragmentResult 回传路径共 5 处）。
   - 验证：8.0.78 正式版实测——长按消息 → 转发 → 选聊天 → 点归拢文件夹行 → 选成员 → 发送，消息正确送达所选成员。
 
+- **💬 聊天增强 · 归拢文件夹转发：转发预览半屏目标改写（半屏 Bundle 根因）**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/chat/ConversationAggregation.kt`
+  - 背景：上一个修复让消息能送达所选成员，但点发送时的**转发预览半屏**（`HalfScreenTransparentActivity`）显示的目标仍是「群聊归拢」，且发送后仍进入文件夹容器会话。
+  - 根因：半屏的目标不在 Intent 顶层 extras，而是塞在 `INTENT_KEY_HALFSCREEN_BUNDLE` 的 Bundle 内部（日志 `keys=__transfer__,INTENT_KEY_HALFSCREEN_BUNDLE`，且全程无任何 patch 记录）；既有改写只覆盖顶层 String / List / Set，Bundle 里的 folder 值从未被替换。
+  - 修复：新增 `rewriteBundleFolderTargets`，递归改写任意层级 Bundle / List / Array 内的 folder 目标；`rewriteFolderTargetsInIntent`（startActivity / startActivityForResult）与 `onActivityResult` 的 host 改写均接入该递归。
+  - 附带修复：改写判定窗口由 120 秒放宽到 600 秒（原窗口下用户操作稍慢即全部失效，日志 `age=135794`）；新增 `mvvmForwardSentTs`，以消息真正被改写发出的时刻为基准（90 秒）在 `pf.a(startChattingRunnable)` 打开所选成员会话。
+  - 验证：8.0.78 正式版实测——转发预览半屏显示的目标为所选成员，消息发送与会话跳转同时正确。
+  - 清理：移除临时诊断输出（sendbtn listener / DIAG5 / probe rows / row dump / normrow 堆栈等），保留关键链路的低频日志。
+
 ### 2026-09-05
 
 - **💬 聊天增强 · 归拢文件夹容器长按菜单：移出/移到文件夹（8.0.78 重构行解析）**
