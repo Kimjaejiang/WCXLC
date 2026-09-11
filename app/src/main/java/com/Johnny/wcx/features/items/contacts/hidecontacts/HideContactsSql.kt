@@ -175,9 +175,9 @@ private fun HideContacts.installWrapperHook() {
 }
 
 /** Returns the rewritten SQL, or null to leave the query untouched. */
-private fun rewriteWrapperSql(sql: String): String? {
+internal fun rewriteWrapperSql(sql: String, hidden: Set<String> = HideContacts.hiddenContacts): String? {
     if (HideContacts.isTemporarilyShown) return null
-    val hidden = HideContacts.hiddenContacts
+
     if (hidden.isEmpty()) return null
 
     val lower = sql.lowercase()
@@ -327,7 +327,7 @@ private fun HideContacts.installFtsHook() {
 }
 
 /** Returns the rewritten FTS query, or null to leave it untouched. */
-private fun rewriteFtsSql(sql: String, hidden: Set<String>): String? {
+internal fun rewriteFtsSql(sql: String, hidden: Set<String>): String? {
     // Checked first: its SQL also carries `aux_index = 'notifymessage'`, which the pinned-aux_index
     // bail below would otherwise (wrongly) treat as a chat-scoped search.
     if (sql.startsWith(SQL_SELECT_SERVICE_NOTIFY)) return wrapWithNotIn(sql, "talker", hidden)
@@ -387,9 +387,8 @@ private const val FEED_MARKER_ENHANCED = "(1=1)"
 
 /** Called from `HideContacts.onQuery`; returns null to leave the query untouched. */
 internal fun rewriteMomentsFeedSql(sql: String): String? {
-    if (HideContacts.isTemporarilyShown) return null
-
     val hidden = HideContacts.hiddenContacts
+
     if (hidden.isEmpty()) return null
 
     // 只处理主信息流查询: 排除个人主页 (userName=) 与已注入的查询

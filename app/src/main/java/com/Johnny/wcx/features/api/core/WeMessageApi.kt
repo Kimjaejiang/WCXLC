@@ -1184,7 +1184,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
             if (netScene == null) {
                 diag("sendtext ctor-obj6 failed, try long6")
                 netScene = runCatching {
-                    tgt.getConstructor(String::class.java, String::class.java, Integer.TYPE, Integer.TYPE, Long.TYPE, String::class.java)
+                    tgt.getConstructor(String::class.java, String::class.java, Integer.TYPE, Integer.TYPE, java.lang.Long.TYPE, String::class.java)
                         .newInstance(toUser, text, 1, 0, 0L, "")
                 }.getOrNull()
                 if (netScene != null) diag("sendtext ctor-long6 ok")

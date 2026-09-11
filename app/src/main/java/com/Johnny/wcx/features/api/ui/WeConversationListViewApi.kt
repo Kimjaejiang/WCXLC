@@ -116,8 +116,11 @@ object WeConversationListViewApi : ApiFeature(), IResolveDex {
     private fun hookBinding(method: DexMethodDelegate) {
         if (method.isPlaceholder) return
         method.hookAfter {
-            val row = result as View
-            val adapter = thisObject as BaseAdapter
+            // 8.0.78: the same matcher can hit a method whose receiver is not the
+            // adapter (observed on LauncherUI); skip those calls instead of throwing
+            // ClassCastException, which used to abort the whole binding hook action.
+            val row = result as? View ?: return@hookAfter
+            val adapter = thisObject as? BaseAdapter ?: return@hookAfter
             val position = args[0] as Int
             val conversation = adapter.getItem(position)!!
             val bindContext = BindContext(

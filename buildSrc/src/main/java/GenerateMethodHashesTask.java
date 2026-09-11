@@ -59,7 +59,7 @@ public abstract class GenerateMethodHashesTask extends DefaultTask {
                             declarations.add(new String[]{classMatcher.group(1), String.valueOf(classMatcher.start())});
                         }
 
-                        String className = null;
+                        List<String> resolveDexClasses = new ArrayList<>();
                         for (int i = 0; i < declarations.size(); i++) {
                             String[] decl = declarations.get(i);
                             int matchStart = Integer.parseInt(decl[1]);
@@ -74,14 +74,13 @@ public abstract class GenerateMethodHashesTask extends DefaultTask {
 
                             String signature = cleanContent.substring(matchStart, braceIndex);
                             if (signature.contains(":") && Pattern.compile("\\bIResolveDex\\b").matcher(signature).find()) {
-                                className = decl[0];
-                                break;
+                                resolveDexClasses.add(decl[0]);
                             }
                         }
 
-                        if (className == null) return;
+                        if (resolveDexClasses.isEmpty()) return;
 
-                        String fullClassName = packageName != null ? packageName + "." + className : className;
+                        String fullClassName = packageName != null ? packageName + "." + resolveDexClasses.get(0) : resolveDexClasses.get(0);
                         List<String> blocks = new ArrayList<>();
 
                         Matcher resolveDexMatch = Pattern.compile("override\\s+fun\\s+resolveDex\\s*\\(").matcher(cleanContent);
@@ -133,7 +132,9 @@ public abstract class GenerateMethodHashesTask extends DefaultTask {
                         for (byte b : digest) {
                             hex.append(String.format("%02x", b));
                         }
-                        hashMap.put(fullClassName, hex.toString());
+                        for (String cn : resolveDexClasses) {
+                            hashMap.put(packageName != null ? packageName + "." + cn : cn, hex.toString());
+                        }
                     } catch (IOException | NoSuchAlgorithmException e) {
                         throw new RuntimeException(e);
                     }

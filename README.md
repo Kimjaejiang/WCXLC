@@ -22,6 +22,29 @@
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 > ⚠️ 标记「已随 v247」的条目：v247 重构合入后**采用上游实现，本地无独有代码保留**（上游已含同等能力），仅作功能存档。
 
+### 2026-09-11
+
+- **🛠️ 构建 · 修复 Dex 方法哈希「每文件只登记首个类」缺陷（密友功能 9 个永久「待更新」根因）**
+  - 涉及文件：`buildSrc/src/main/java/GenerateMethodHashesTask.java`
+  - 背景：合并 v259 密友功能源码后，模块每次启动都提示「检测到 9 个功能需要 DEX 缓存更新」；点「开始适配」后 UI 报 0 失败，但缓存始终不落地，下次启动依旧提示。
+  - 根因：该任务逐文件扫描时，命中首个实现 `IResolveDex` 的类即 `break`。密友功能把多个 feature 放在同一文件（`SecretFriendCoreHiding.kt` 5 个、`SecretFriendSocial.kt` 4 个、`SecretFriendMoments.kt` 3 个…），于是每个文件只有首个类生成哈希；其余 feature 在适配时 `DexCacheManager.calculateMethodHash` 直接 `error("failed to retrieve method hash for item ...")`，`saveItemCache` 内部 catch 吞掉异常 → 缓存永不写入 → 每次启动重新计入待更新（本机实测 9 个 = 已启用的密友 feature）。
+  - 修复：改为收集文件内全部 `IResolveDex` 类并共享同一份文件级哈希（哈希内容与取值不变，已有缓存不会失效）。哈希表中 `secret_friend` 类由 6 → 15，与源码侧实际实现 `IResolveDex` 的类数一致。
+  - 验证：重启后 `FeaturesLoader: launching background coroutine to repair N items` 消失（归零），`WCXLC/dex_cache` 新增 15 个密友功能缓存文件。
+
+- **💬 聊天增强 · 密友功能（作者 v259 源码）接入**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/items/secret_friend/`（14 个 .kt、33 个 `@Feature`）
+  - 说明：经 `@Feature` 自动扫描注册，无需手工接线。为与本地 master（v247 基线）接口对齐，补齐/调整了 3 处依赖：`HideContactsSql.rewriteWrapperSql` 增加 `hidden` 参数（保留默认值，兼容既有调用）、`rewriteFtsSql` 由 private 放开为 internal、`WeDatabaseListenerApi` 新增 `lastInsertDb`（insert hook 内记录 WCDB 实例，供恢复会话行时复用）、`WeMessageApi` 的 `Long.TYPE` 改为 `java.lang.Long.TYPE`（Kotlin 下 `Long` 解析为 kotlin.Long，无 TYPE 字段）。
+
+- **🛠️ 聊天增强 · 会话列表 View 绑定监听服务 8.0.78 兼容**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/features/api/ui/WeConversationListViewApi.kt`
+  - 背景：8.0.78 上报 `java.lang.ClassCastException: com.tencent.mm.ui.LauncherUI cannot be cast to android.view.View`，随后 `executeHookAction: failed to execute hook of 会话列表 View 绑定监听服务`，该 API 的绑定监听整体失效。
+  - 修复：`result as View` / `thisObject as BaseAdapter` 改为安全转换，命中宿主不是 adapter 的方法（实测为 LauncherUI）时直接跳过该次回调，不再让整条 hook 动作抛异常。
+
+- **📋 适配记录 · WeChat 8.0.78 正式版（versionCode 3180）结构核对**
+  - `com.tencent.mm.modelbase.NetSceneSendMsg` 混淆名仍为 `v51.r0`，构造器与 8.0.78 二版完全一致：`()V`、`(J I String)V`、`(String,String,int,int,long,String)V`、`(String,String,int,int,Object,String)V`——此前针对二版的发送构造方案在正式版同样适用。
+  - 旧版硬编码的 `ok0.l1`（打开链）与 `wi5`（MVVM 选人提交 `c0`）在正式版**已不存在**；其余 hook 目标（`b41.h9`、`eu5.s0`、`hr5.j`、`com.tencent.mm.ui.conversation.r0`、`com.tencent.mm.ui.pf`、`vv5.f1`、`ChattingUI`、`SendAppMessageWrapperUI` 等）均在。
+  - 对话归拢 folder → 成员转发在正式版实测通过（diag：`mvvm tap folder row` → `mvvm redirect fields=2 set=<member> readback=<member>` → `MsgRetransmitUI sel=<member>`），无需重做该链路。
+
 ### 2026-09-05
 
 - **💬 聊天增强 · 归拢文件夹容器长按菜单：移出/移到文件夹（8.0.78 重构行解析）**

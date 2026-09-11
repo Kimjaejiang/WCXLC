@@ -32,6 +32,11 @@ object WeDatabaseListenerApi : ApiFeature() {
     private const val TAG = "WeDatabaseListenerApi"
 
     private val insertListeners = CopyOnWriteArrayList<IInsertListener>()
+
+    /** 鏈€杩戜竴娆″彂鐢?insert 鐨勬暟鎹簱瀹炰緥锛圵CDB / framework锛夛紝渚涢渶瑕佸啓搴撶殑璋冪敤鏂瑰鐢ㄣ€?*/
+    @Volatile
+    var lastInsertDb: SQLiteDatabase? = null
+        private set
     private val updateListeners = CopyOnWriteArrayList<IUpdateListener>()
     private val queryListeners = CopyOnWriteArrayList<IQueryListener>()
 
@@ -112,6 +117,7 @@ object WeDatabaseListenerApi : ApiFeature() {
                     name = "insertWithOnConflict"
                     parameters(String::class, String::class, ContentValues::class, Int::class)
                 }.hookAfter {
+                    (this.thisObject as? SQLiteDatabase)?.let { lastInsertDb = it }
                     try {
                         if (insertListeners.isEmpty()) return@hookAfter
 
