@@ -22,6 +22,7 @@ import com.Johnny.wcx.dexkit.abc.IResolveDex
 import com.Johnny.wcx.dexkit.dsl.dexMethod
 import com.Johnny.wcx.features.core.ClickableFeature
 import com.Johnny.wcx.features.core.Feature
+import com.Johnny.wcx.preferences.WePrefs
 import com.Johnny.wcx.preferences.WePrefs.Companion.prefOption
 import com.Johnny.wcx.ui.content.AlertDialogContent
 import com.Johnny.wcx.ui.content.Button
@@ -51,15 +52,23 @@ object ModifySportsStepCount : ClickableFeature(), IResolveDex {
     override fun onEnable() {
         methodGetSteps.hookAfter {
             try {
-                val value = passiveValue
-                if (value < 0) return@hookAfter
                 // 仅当原方法返回 Long 时才设置 result，避免对非 Long 方法（如 getInstance）造成 ClassCastException
                 if (method is java.lang.reflect.Method) {
                     val returnType = (method as java.lang.reflect.Method).returnType
                     if (returnType == Long::class.javaPrimitiveType || returnType == java.lang.Long::class.java) {
+                        val original = result as Long
                         result = when (passiveMode) {
-                            PassiveMode.FIXED -> value
-                            PassiveMode.MULTIPLIER -> (result as Long) * value
+                            PassiveMode.FIXED -> {
+                                val fixed = passiveValue
+                                if (fixed < 0L) return@hookAfter
+                                fixed
+                            }
+                            // 倍率支持小数（如 1.5 倍）：小数倍率乘完取整，结果仍是合法步数
+                            PassiveMode.MULTIPLIER -> {
+                                val multiplier = effectiveMultiplier
+                                if (multiplier < 0f) return@hookAfter
+                                (original * multiplier).toLong()
+                            }
                         }
                     }
                 }
@@ -76,14 +85,16 @@ object ModifySportsStepCount : ClickableFeature(), IResolveDex {
             passiveModeStr = v.name
         }
 
+    /** 固定模式步数（整数） */
     private var passiveValue by prefOption("step_passive_value", -1L)
+
+    /** 倍率模式倍率（支持小数，如 1.5）；负数表示未设置 */
+    private var passiveMultiplier by prefOption(KEY_MULTIPLIER, -1f)
 
     override fun onClick(context: ComponentActivity) {
         showComposeDialog(context) {
             var modeState by remember { mutableStateOf(passiveMode) }
-            var passiveInput by remember {
-                mutableStateOf(if (passiveValue >= 0) passiveValue.toString() else "")
-            }
+            var passiveInput by remember { mutableStateOf(initialPassiveInput(passiveMode)) }
             var activeInput by remember { mutableStateOf("") }
             val activeIsEmpty = activeInput.isEmpty()
 
@@ -101,7 +112,11 @@ object ModifySportsStepCount : ClickableFeature(), IResolveDex {
                                 PassiveMode.entries.forEachIndexed { index, mode ->
                                     SegmentedButton(
                                         selected = modeState == mode,
-                                        onClick = { modeState = mode },
+                                        // 两个模式各自存一份值：切模式时载入该模式已保存的值（固定=整数，倍率=小数）
+                                        onClick = {
+                                            modeState = mode
+                                            passiveInput = initialPassiveInput(mode)
+                                        },
                                         shape = SegmentedButtonDefaults.itemShape(
                                             index, PassiveMode.entries.size
                                         )
@@ -117,9 +132,19 @@ object ModifySportsStepCount : ClickableFeature(), IResolveDex {
                             modifier = Modifier.fillMaxWidth(),
                             value = passiveInput,
                             onValueChange = {
-                                passiveInput = it.filter { c -> c.isDigit() }.trim()
+                                // 倍率模式允许小数；固定模式是步数，只接受整数
+                                passiveInput = if (modeState == PassiveMode.MULTIPLIER) {
+                                    sanitizeDecimal(it)
+                                } else {
+                                    it.filter { c -> c.isDigit() }.trim()
+                                }
                             },
-                            label = { Text("被动上传值 (固定值或倍率)") }
+                            label = {
+                                Text(
+                                    if (modeState == PassiveMode.MULTIPLIER) "被动上传倍率 (支持小数, 如 1.5)"
+                                    else "被动上传固定步数 (整数)"
+                                )
+                            }
                         )
 
                         // 主动值 + 立即上传
@@ -158,7 +183,11 @@ object ModifySportsStepCount : ClickableFeature(), IResolveDex {
                 confirmButton = {
                     Button(onClick = {
                         passiveMode = modeState
-                        passiveValue = passiveInput.toLongOrNull() ?: -1L
+                        when (modeState) {
+                            PassiveMode.FIXED -> passiveValue = passiveInput.toLongOrNull() ?: -1L
+                            // 倍率支持小数；格式不合法按未设置处理
+                            PassiveMode.MULTIPLIER -> passiveMultiplier = passiveInput.toFloatOrNull() ?: -1f
+                        }
                         onDismiss()
                     }) {
                         Text("保存")
@@ -170,6 +199,47 @@ object ModifySportsStepCount : ClickableFeature(), IResolveDex {
                     }
                 }
             )
+        }
+    }
+
+    private const val KEY_MULTIPLIER = "step_passive_multiplier"
+
+    /**
+     * 生效倍率：优先取新版小数倍率；旧版把倍率存在整数 pref 里，
+     * 仅当新版 key 从未写入过、且当前保存的模式确实是倍率时才回退读取，
+     * 避免把固定步数（如 20000）误当成倍率。
+     */
+    private val effectiveMultiplier: Float
+        get() {
+            if (passiveMultiplier >= 0f || WePrefs.containsKey(KEY_MULTIPLIER)) return passiveMultiplier
+            return if (passiveMode == PassiveMode.MULTIPLIER && passiveValue >= 0L) passiveValue.toFloat() else -1f
+        }
+
+    /** 只保留数字与至多一个小数点（输入 ".5" 补成 "0.5"），供倍率输入使用。 */
+    private fun sanitizeDecimal(raw: String): String {
+        val sb = StringBuilder()
+        var dotUsed = false
+        for (c in raw) {
+            if (c.isDigit()) sb.append(c)
+            else if (c == '.' && !dotUsed) {
+                if (sb.isEmpty()) sb.append('0')
+                dotUsed = true
+                sb.append('.')
+            }
+        }
+        return sb.toString()
+    }
+
+    /** 输入框初值：按模式读取各自保存的值（固定=整数，倍率=小数）。 */
+    private fun initialPassiveInput(mode: PassiveMode): String = when (mode) {
+        PassiveMode.FIXED -> if (passiveValue >= 0L) passiveValue.toString() else ""
+        PassiveMode.MULTIPLIER -> {
+            val m = effectiveMultiplier
+            when {
+                m < 0f -> ""
+                m == m.toLong().toFloat() -> m.toLong().toString()
+                else -> m.toString()
+            }
         }
     }
 

@@ -93,6 +93,7 @@ import com.Johnny.wcx.utils.android.showToast
 import com.Johnny.wcx.utils.captureOriginalMethod
 import com.Johnny.wcx.utils.fs.KnownPaths
 import com.Johnny.wcx.utils.reflection.BString
+import com.Johnny.wcx.utils.strings.replaceEmojis
 import com.Johnny.wcx.utils.serialization.DefaultJson
 import kotlinx.serialization.Serializable
 import java.lang.reflect.Proxy
@@ -3704,9 +3705,10 @@ hookViewLongClickProbe()
             val sv = findSummaryViewCompat(row, title)
             if (sv != null) {
                 val digest = folderDigestCached(uname)
-                // 摘要文本在微信每次 bind/重绘时会被重置为纯文本(灰色)——必须在每次 dispatchDraw 重设彩色 span
-                // (幂等,内容相同无闪)；节流会留下「忽有忽无」灰色窗口。开关在 tintAggSummary 内实时读取。
-                if (digest.isNotEmpty() && isAggSummary(digest)) {
+                // 只在「染色标记已不在这个 View 上」时重涂：
+                // 微信每次 bind 会把摘要重置为纯文本（表现为掉色）→ 这里补涂；
+                // 标记仍在说明颜色没丢 → 不碰 TextView，避免每帧 setText 造成重排重绘抖动（闪烁）。
+                if (digest.isNotEmpty() && isAggSummary(digest) && !hasAggTint(sv)) {
                     setViewText(sv, tintAggSummary(digest, row.context))
                 }
             }
@@ -3939,6 +3941,21 @@ hookViewLongClickProbe()
     private val summarySpanTs = HashMap<String, Long>()
     private val lastRetitleLog = HashMap<String, Long>()
 
+    /**
+     * 归拢摘要染色标记 span：继承 [ForegroundColorSpan]，只是给我们注入的颜色打个可识别的记号。
+     * 摘要文本每次被微信 bind 重置为纯文本后这个 span 就没了 —— 据此决定要不要重涂：
+     * 记号不在 → 重涂（修复「上色后掉色」）；记号还在 → 一次 setText 都不做（避免每帧
+     * setText 触发重排/重绘的抖动，即「摘要闪烁」）。两个问题由同一个判断同时解决。
+     */
+    private class AggTintSpan(color: Int) : ForegroundColorSpan(color)
+
+    /** 摘要 View 当前文本上是否仍挂着我们注入的染色标记。 */
+    private fun hasAggTint(v: View): Boolean {
+        val t = (v as? TextView)?.text ?: return false
+        if (t !is android.text.Spanned) return false
+        return runCatching { t.getSpans(0, t.length, AggTintSpan::class.java).isNotEmpty() }.getOrDefault(false)
+    }
+
     private fun setViewColor(v: View, c: Int) {
         if (v is TextView) v.setTextColor(c)
         else runCatching { v.javaClass.getMethod("setTextColor", Int::class.javaPrimitiveType).invoke(v, c) }.onFailure { WeLogger.w(TAG, "setViewColor fail " + v.javaClass.name + ": " + it) }
@@ -3995,15 +4012,17 @@ hookViewLongClickProbe()
     private fun tintAggSummary(text: String, ctx: Context?): CharSequence {
         val sp = SpannableString(text)
         val atIdx = text.indexOf("[有人@我]")
-        if (atIdx >= 0) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_RED)), atIdx, atIdx + "[有人@我]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        // 用 AggTintSpan 而非 ForegroundColorSpan：颜色之外还给文本留一个「我们涂过了」的记号，
+        // hasAggTint() 靠它判断掉色与避免重复上色。
+        if (atIdx >= 0) sp.setSpan(AggTintSpan(adaptNight(ctx, MENTION_RED)), atIdx, atIdx + "[有人@我]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val allIdx = text.indexOf("[@全体]").let { if (it >= 0) it else text.indexOf("[全体]") }
-        if (allIdx >= 0) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_RED)), allIdx, text.indexOf(']', allIdx) + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (allIdx >= 0) sp.setSpan(AggTintSpan(adaptNight(ctx, MENTION_RED)), allIdx, text.indexOf(']', allIdx) + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val selfIdx = text.indexOf("[自己]")
-        if (selfIdx >= 0 && mentionSelfEnabled) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_GREEN)), selfIdx, selfIdx + "[自己]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (selfIdx >= 0 && mentionSelfEnabled) sp.setSpan(AggTintSpan(adaptNight(ctx, MENTION_GREEN)), selfIdx, selfIdx + "[自己]".length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val m = CHAT_COUNT_REGEX.find(text)
-        if (m != null) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_YELLOW)), m.range.first, m.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (m != null) sp.setSpan(AggTintSpan(adaptNight(ctx, MENTION_YELLOW)), m.range.first, m.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         val member = MEMBER_PAREN_REGEX.find(text)
-        if (member != null && mentionMemberEnabled) sp.setSpan(ForegroundColorSpan(adaptNight(ctx, MENTION_MEMBER)), member.range.first, member.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (member != null && mentionMemberEnabled) sp.setSpan(AggTintSpan(adaptNight(ctx, MENTION_MEMBER)), member.range.first, member.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         return sp
     }
 
@@ -4245,38 +4264,15 @@ hookViewLongClickProbe()
     }
 
     private fun tintMention(text: String, ctx: Context?): CharSequence? {
-        // 「对话归拢摘要颜色」开关控制所有摘要染色：关闭时不注入彩色 span，恢复微信默认灰色。
+        // 「对话归拢摘要颜色」总开关：关闭时不注入彩色 span，恢复微信默认灰色。
         if (!WePrefs.getBoolOrFalse(ConversationAggregationColors.ENABLED_PREF_KEY)) return null
-        val atIdx = text.indexOf("[\u6709\u4eba@\u6211]")
-        val selfIdx = text.indexOf("[自己]")
-        val chatMatch = CHAT_COUNT_REGEX.find(text)
-        if (atIdx < 0 && chatMatch == null && selfIdx < 0) return null
-        val spannable = SpannableString(text)
-        if (atIdx >= 0) {
-            spannable.setSpan(
-                ForegroundColorSpan(MENTION_RED),
-                atIdx,
-                (atIdx + 6).coerceAtMost(text.length),
-                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-        if (selfIdx >= 0 && mentionSelfEnabled) {
-            spannable.setSpan(
-                ForegroundColorSpan(MENTION_GREEN),
-                selfIdx,
-                selfIdx + "[自己]".length,
-                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-        if (chatMatch != null) {
-            spannable.setSpan(
-                ForegroundColorSpan(MENTION_YELLOW),
-                chatMatch.range.first,
-                chatMatch.range.last + 1,
-                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-        return spannable
+        // 必须与 dispatchDraw 的补涂用同一套着色（AggTintSpan + adaptNight）。
+        // 之前本函数用裸 ForegroundColorSpan、且不认 [@全体]/[全体]/[成员名]，于是全局 setText hook
+        // 会把 dispatchDraw 刚涂好的带记号文本覆盖成「少几个 span、且用未适配暗色的原色」的另一份；
+        // 下一帧 dispatchDraw 发现记号没了又补一次 —— 每帧互相覆盖，表现为摘要颜色闪烁 / 掉色。
+        // 统一后两条路径输出完全一致：记号不会被抹掉，颜色也不会在帧间跳变。
+        if (!isAggSummary(text)) return null
+        return tintAggSummary(text, ctx)
     }
 
     private fun tintMentionLabels(root: ViewGroup, tag: String) {
@@ -4961,7 +4957,9 @@ hookViewLongClickProbe()
                             "[${state.unreadChatCount}个聊天]" else ""
                     ) + (
                         if (latest.isSend == 1) "[自己]" else ""
-                    ) + latest.digest,
+                    // 成员消息里的微信表情码（如 [社会社会]）在普通 TextView 上只会显示字面文本，
+                    // 直接换成对应的 unicode 表情，归拢摘要处就能看到表情本身。
+                    ) + latest.digest.replaceEmojis(),
                     digestUser = latest.digestUser,
                     isSend = latest.isSend,
                     status = latest.status,

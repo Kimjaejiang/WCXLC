@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -23,6 +24,7 @@ import com.composables.icons.materialsymbols.MaterialSymbols
 import com.composables.icons.materialsymbols.outlined.Edit
 import com.composables.icons.materialsymbols.outlined.Visibility
 import com.composables.icons.materialsymbols.outlined.Visibility_off
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * A setting widget that displays the current string value on a standard clickable row and
@@ -34,6 +36,9 @@ import com.composables.icons.materialsymbols.outlined.Visibility_off
  * @param dialogTitle Title of the edit dialog.
  * @param confirmLabel Label of the dialog's confirm action.
  * @param dismissLabel Label of the dialog's dismiss action.
+ * @param containerColor Row background; defaults to the miuix page container so the row keeps the
+ * surrounding card look (Material 3's `surfaceBright` is a lighter tone in dark mode, which shows up
+ * as a pale block on the module's near-black settings pages).
  * @param enabled Whether the row opens the dialog.
  * @param keyboardType Keyboard type for the dialog field.
  * @param filter Input filter applied while typing (e.g. digits only).
@@ -50,6 +55,7 @@ fun TextFieldDialogWidget(
     confirmLabel: String,
     dismissLabel: String,
     modifier: Modifier = Modifier,
+    containerColor: Color? = null,
     enabled: Boolean = true,
     keyboardType: KeyboardType = KeyboardType.Text,
     filter: (String) -> String = { it },
@@ -63,6 +69,10 @@ fun TextFieldDialogWidget(
 
     BaseWidget(
         modifier = modifier,
+        // 本控件只出现在 miuix 设置页里：底色默认跟随 miuix 卡片(surfaceContainer)。
+        // 用 Material 3 的 surfaceBright 的话，暗色下它是 #41363A、而页面是 #1A1215，
+        // 这一行会显出「没做反色」的浅灰色块。
+        containerColor = containerColor ?: MiuixTheme.colorScheme.surfaceContainer,
         iconPlaceholder = false,
         title = title,
         description = when {

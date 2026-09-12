@@ -236,7 +236,11 @@ private fun MainPagerScreen(
                     0 -> HomePager(onOpenFeatures = { scope.launch { pagerState.animateScrollToPage(1) } })
                     1 -> FeaturesPager(onOpenCategory = onOpenCategory)
                     2 -> LogsPager()
-                    else -> SettingsPager(onOpenLicense = onOpenLicense, onOpenAcknowledgements = onOpenAcknowledgements)
+                    else -> SettingsPager(
+                        onOpenCategory = onOpenCategory,
+                        onOpenLicense = onOpenLicense,
+                        onOpenAcknowledgements = onOpenAcknowledgements,
+                    )
                 }
             }
         }

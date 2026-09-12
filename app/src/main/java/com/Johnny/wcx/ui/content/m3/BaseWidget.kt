@@ -57,6 +57,7 @@ val LocalSegmentedItemShape = compositionLocalOf<Shape> { RoundedCornerShape(Cor
  * @param icon The [ImageVector] to be displayed at the start of the widget.
  * @param iconColor The color applied to the [icon].
  * @param iconPlaceholder If true, maintains a consistent leading space even when [icon] is null.
+ * @param containerColor Optional row background override; defaults to the Material 3 selected/`surfaceBright` pair.
  * @param title The primary headline text of the widget.
  * @param titleStyle The [TextStyle] applied to the [title].
  * @param description Optional supporting text displayed below the title.
@@ -81,6 +82,7 @@ fun BaseWidget(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     iconColor: Color? = null,
+    containerColor: Color? = null,
     iconPlaceholder: Boolean = false,
     title: String,
     titleStyle: TextStyle = MaterialTheme.typography.titleMedium,
@@ -118,7 +120,7 @@ fun BaseWidget(
 
     val baseShape = LocalSegmentedItemShape.current
 
-    val backgroundColor = if (selected) {
+    val backgroundColor = containerColor ?: if (selected) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
         MaterialTheme.colorScheme.surfaceBright
