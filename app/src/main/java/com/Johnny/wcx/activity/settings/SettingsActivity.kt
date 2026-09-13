@@ -82,8 +82,6 @@ import com.composables.icons.materialsymbols.outlinedfilled.Home
 import com.composables.icons.materialsymbols.outlinedfilled.Settings
 import com.composables.icons.materialsymbols.outlinedfilled.Tune
 import com.Johnny.wcx.constants.Preferences
-import com.Johnny.wcx.features.items.system.HotUpdateFeature
-import com.Johnny.wcx.hot.HotUpdateManager
 import com.Johnny.wcx.features.core.BaseFeature
 import com.Johnny.wcx.features.core.ClickableFeature
 import com.Johnny.wcx.features.core.SwitchFeature
@@ -120,14 +118,6 @@ import androidx.compose.material3.Icon as M3Icon
 import androidx.compose.material3.Text as M3Text
 
 val LocalComponentActivity = staticCompositionLocalOf<ComponentActivity> { error("not provided") }
-
-/**
- * 后台静默检查到的可用插件版本，无新版时为空串。
- *
- * 由 [SettingsRoot] 提供：用 CompositionLocal 而不是函数读取，是为了让检查
- * 完成后列表能自动重组显示出角标。
- */
-val LocalHotUpdateAvailableVersion = staticCompositionLocalOf { "" }
 
 @Keep
 class SettingsActivity : ComponentActivity() {
@@ -195,38 +185,26 @@ private sealed interface SettingsNavTarget {
 private fun SettingsRoot(onFinish: () -> Unit) {
     val stack = remember { mutableStateListOf<SettingsNavTarget>(SettingsNavTarget.Main) }
 
-    // 后台静默检查一次插件更新，结果既写偏好也留在内存状态里：
-    // 前者供其他入口读取，后者驱动列表重组（否则检查完成后角标不会出现）。
-    // 只在进入设置页时触发，不在微信启动时触发：用户不看设置就没必要发请求。
-    var availableVersion by remember { mutableStateOf(Preferences.hotUpdateAvailableVersion()) }
-    LaunchedEffect(Unit) {
-        runCatching { HotUpdateManager.checkRemoteSilently() }
-            .onFailure { WeLogger.w("SettingsActivity", "silent hot-update check failed", it) }
-        availableVersion = Preferences.hotUpdateAvailableVersion()
-    }
+    MiuixStackNavigator(stack = stack, onExitRoot = onFinish) { screen, push, pop ->
+        when (screen) {
+            SettingsNavTarget.Main -> MainPagerScreen(
+                onOpenCategory = { push(SettingsNavTarget.Category(it)) },
+                onOpenLicense = { push(SettingsNavTarget.License) },
+                onOpenAcknowledgements = { push(SettingsNavTarget.Acknowledgements) },
+            )
 
-    CompositionLocalProvider(LocalHotUpdateAvailableVersion provides availableVersion) {
-        MiuixStackNavigator(stack = stack, onExitRoot = onFinish) { screen, push, pop ->
-            when (screen) {
-                SettingsNavTarget.Main -> MainPagerScreen(
-                    onOpenCategory = { push(SettingsNavTarget.Category(it)) },
-                    onOpenLicense = { push(SettingsNavTarget.License) },
-                    onOpenAcknowledgements = { push(SettingsNavTarget.Acknowledgements) },
-                )
-    
-                is SettingsNavTarget.Category -> CategoryDetailScreen(
-                    categoryName = screen.name,
-                    onBack = pop,
-                )
-    
-                SettingsNavTarget.License -> LicenseScreen(
-                    onBack = pop,
-                )
-    
-                SettingsNavTarget.Acknowledgements -> AcknowledgementsScreen(
-                    onBack = pop,
-                )
-            }
+            is SettingsNavTarget.Category -> CategoryDetailScreen(
+                categoryName = screen.name,
+                onBack = pop,
+            )
+
+            SettingsNavTarget.License -> LicenseScreen(
+                onBack = pop,
+            )
+
+            SettingsNavTarget.Acknowledgements -> AcknowledgementsScreen(
+                onBack = pop,
+            )
         }
     }
 }
@@ -490,20 +468,8 @@ fun FeatureRow(
                     fontWeight = FontWeight.Medium,
                     color = BasicComponentDefaults.titleColor().color,
                 )
-                // 热更新项有可用新版时挂一个角标。版本号来自后台静默检查写入的偏好，
-                // 用户点进对话框会重新检查，这里只是入口提示。
-                if (item is HotUpdateFeature) {
-                    val pending = LocalHotUpdateAvailableVersion.current
-                    if (pending.isNotBlank()) {
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "可更新 $pending",
-                            fontSize = MiuixTheme.textStyles.body2.fontSize,
-                            color = MiuixTheme.colorScheme.primary,
-                        )
-                    }
-                }
                 Spacer(Modifier.width(4.dp))
+
                 Icon(
                     imageVector = MaterialSymbols.Outlined.Settings,
                     contentDescription = "Configurable",
@@ -528,11 +494,4 @@ fun FeatureRow(
         )
     }
 }
-
-
-
-
-
-
-
 

@@ -29,9 +29,6 @@ object Preferences {
     const val FRAMEWORK_GATE_REASON = "framework_gate_reason"
     const val FRAMEWORK_DETECTED = "framework_detected"
 
-    // 后台静默检查到的可用插件版本（功能列表读它显示角标）。空串表示无已知新版。
-    const val HOT_UPDATE_AVAILABLE_VERSION = "hot_update_available_version"
-
     var verboseLog by prefOption(VERBOSE_LOG, false)
     var noDexResolve by prefOption(NO_DEX_RESOLVE, false)
     var showStartupToast by prefOption(SHOW_STARTUP_TOAST, false)
@@ -62,15 +59,4 @@ object Preferences {
     fun frameworkDetected(): String =
         runCatching { WePrefs.getStringOrDef(FRAMEWORK_DETECTED, "") }.getOrDefault("")
 
-    /**
-     * 后台静默检查发现的可用插件版本，无新版（或尚未检查）时为空串。
-     *
-     * 只用于功能列表的角标提示；对话框打开时会重新检查，不依赖这个值。
-     */
-    fun hotUpdateAvailableVersion(): String =
-        runCatching { WePrefs.getStringOrDef(HOT_UPDATE_AVAILABLE_VERSION, "") }.getOrDefault("")
-
-    fun setHotUpdateAvailableVersion(version: String) {
-        runCatching { WePrefs.putString(HOT_UPDATE_AVAILABLE_VERSION, version) }
-    }
 }
