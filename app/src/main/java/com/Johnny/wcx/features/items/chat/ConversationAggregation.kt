@@ -4340,21 +4340,32 @@ hookViewLongClickProbe()
     /** Global fallback: tint injected mention/chat-count text wherever a TextView renders it. */
     private fun hookTextViewSetText() {
         if (methodTextViewSetText.isPlaceholder) return
-        methodTextViewSetText.hookBefore {
-            val a = args ?: return@hookBefore
-            val text = a.getOrNull(0) as? CharSequence ?: return@hookBefore
-            val s0 = text.toString()
-            if (folderTitleNames().contains(s0)) {
-                // 文件夹标题染色：受「文件夹标题染色」独立开关控制（与摘要总开关互不影响）。
-                if (folderTitleEnabled) {
-                a[0] = android.text.SpannableString(s0).apply { setSpan(android.text.style.ForegroundColorSpan(MENTION_TITLE_BLUE), 0, s0.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+        // DexKit 在 8.0.78 第二版会先匹配到 dex 内的抽象声明（bk1.h.setText）：Xposed 拒绝 hook 抽象方法，
+        // 抛出的 IllegalArgumentException 会冲出 onEnable，让 BaseFeature 对整个「聊天/对话归拢」执行
+        // unhookAll 回滚（文件夹行消失、点击退化为打开会话）。这里只接受具体方法，抽象/取不到则跳过，
+        // 交给下面的 TextView 基类兜底。
+        val setTextMethod = runCatching { methodTextViewSetText.method }.getOrNull()
+        if (setTextMethod == null || java.lang.reflect.Modifier.isAbstract(setTextMethod.modifiers)) {
+            WeLogger.w(TAG, "skip setText hook: abstract=${setTextMethod != null} cls=" + (setTextMethod?.declaringClass?.name ?: "-"))
+        } else {
+            runCatching {
+                methodTextViewSetText.hookBefore {
+                    val a = args ?: return@hookBefore
+                    val text = a.getOrNull(0) as? CharSequence ?: return@hookBefore
+                    val s0 = text.toString()
+                    if (folderTitleNames().contains(s0)) {
+                        // 文件夹标题染色：受「文件夹标题染色」独立开关控制（与摘要总开关互不影响）。
+                        if (folderTitleEnabled) {
+                            a[0] = android.text.SpannableString(s0).apply { setSpan(android.text.style.ForegroundColorSpan(MENTION_TITLE_BLUE), 0, s0.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+                        }
+                        return@hookBefore
+                    }
+                    val tinted = tintMention(s0, (thisObject as? View)?.context)
+                    if (tinted != null) {
+                        a[0] = tinted
+                    }
                 }
-                return@hookBefore
-            }
-            val tinted = tintMention(s0, (thisObject as? View)?.context)
-            if (tinted != null) {
-                a[0] = tinted
-            }
+            }.onFailure { WeLogger.w(TAG, "hook TextView.setText failed", it) }
         }
 
         // 兜底：hook 基类 TextView.setText，覆盖不 override 的 TextView 子类
