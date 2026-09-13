@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import com.topjohnwu.superuser.Shell
 import com.Johnny.wcx.constants.PackageNames
+import com.Johnny.wcx.constants.Preferences
 import com.Johnny.wcx.loader.utils.HybridClassLoader
 import com.Johnny.wcx.utils.reflection.ClassLoaders
 import com.Johnny.wcx.utils.HostInfo
@@ -644,6 +645,22 @@ object HotUpdateManager {
             "x86" -> "x86"
             else -> abi
         }
+    }
+
+    /**
+     * 后台静默检查一次，把「有无可用新版」记进偏好供 UI 读角标。
+     *
+     * 与 [checkRemote] 的区别：不弹界面、不下载、失败静默。
+     * 只处理 [CheckResult.UpdateAvailable]：其余情况（已是最新、微信版本
+     * 过低、网络失败）都清空标记，避免残留一个已经不适用的旧版本号。
+     */
+    suspend fun checkRemoteSilently(manifestUrl: String = REMOTE_MANIFEST_URL) {
+        val available = when (val r = checkRemote(manifestUrl)) {
+            is CheckResult.UpdateAvailable -> r.manifest.version
+            else -> ""
+        }
+        Preferences.setHotUpdateAvailableVersion(available)
+        WeLogger.i(TAG, "silent check: available='$available'")
     }
 
     private fun makeHost(): HotHost = object : HotHost {
