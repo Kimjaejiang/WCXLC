@@ -395,7 +395,7 @@ object ConversationAggregation : ClickableFeature(),
         hookChattingUiFolderRedirect()
         WeLogger.i(TAG, "onEnable: after hookOpenFolder")
         diagFile("onEnable: after hookOpenFolder")
-        // 尽早 hook 微信打开链（ok0.l1），捕获其实例；微信启动早期会自动调用一次（如 voip 页），
+        // 尽早 hook 微信打开链（8.0.78 二版为 ml0.l1，旧版 ok0.l1），捕获其实例；微信启动早期会自动调用一次（如 voip 页），
         // 之后文件夹点击即可重走微信打开链，无需用户先开首页聚合页预热。
         hookOpenChainNow()
         WeLogger.i(TAG, "onEnable: after hookOpenChainNow")
@@ -845,7 +845,7 @@ hookViewLongClickProbe()
     }
 
     private fun hookOpenFolder() {
-        // 捕获首页 LauncherUI 实例：文件夹点击重走微信打开链（ok0.l1.c）时用它作上下文。
+        // 捕获首页 LauncherUI 实例：文件夹点击重走微信打开链（打开链 c 方法）时用它作上下文。
         runCatching {
             val onCreate = LauncherUI::class.java.declaredMethods.firstOrNull {
                 it.name == "onCreate" && it.parameterCount == 1
@@ -1199,16 +1199,15 @@ hookViewLongClickProbe()
         }.onFailure { WeLogger.w(TAG, "hook BaseConversationUI onResume/onDestroy failed", it) }
         // Diagnose the method that opens the official-account flutter page from the home tab.
         runCatching {
-            val mmLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
-            val clz = Class.forName("ok0\u0024l1", false, mmLoader)
+            val clz = resolveOpenChainClass() ?: throw ClassNotFoundException("openChain class not found")
             val ws = clz.declaredMethods.filter { it.name == "w" }
-            WeLogger.i(TAG, "ok0.l1 methods w=" + ws.size + " loader=" + clz.classLoader?.javaClass?.name)
+            WeLogger.i(TAG, "openChain.w methods=" + ws.size + " class=" + clz.name + " loader=" + clz.classLoader?.javaClass?.name)
             ws.forEach { m ->
                 m.hookBefore {
-                    WeLogger.i(TAG, "ok0.l1.w args=" + (args.map { a: Any? -> (a?.javaClass?.name ?: "null") + ":" + a }.joinToString(" | ")) + " this=" + thisObject?.javaClass?.name)
+                    WeLogger.i(TAG, "openChain.w args=" + (args.map { a: Any? -> (a?.javaClass?.name ?: "null") + ":" + a }.joinToString(" | ")) + " this=" + thisObject?.javaClass?.name)
                 }
             }
-        }.onFailure { WeLogger.w(TAG, "hook ok0.l1.w failed", it) }
+        }.onFailure { WeLogger.w(TAG, "hook openChain.w failed", it) }
         // Capture the current process's FlutterPageInfo session id (fields d/e) whenever WeChat
         // constructs one, so folder taps can refresh cached page_infos with live values.
         runCatching {
@@ -1253,7 +1252,7 @@ hookViewLongClickProbe()
                             WeLogger.i(TAG, "FlutterPageInfo stack f=" + f + " " + frames)
                             // Dump ctor args: one of them may carry the brandservice plugin
                             // ClassLoader, which is the only way to load the open-chain class
-                            // (ok0$l1) that lives in the plugin dex, not the host loader.
+                            // (ml0.l1 / 旧版 ok0.l1) that lives in the plugin dex, not the host loader.
                             args?.forEachIndexed { idx, a ->
                                 if (a != null) {
                                     val ld = runCatching { a.javaClass.classLoader?.toString()?.take(120) }.getOrNull()
@@ -1264,7 +1263,7 @@ hookViewLongClickProbe()
                                     }
                                 }
                             }
-                            // Find the open-chain frame (ok0.l1.w) and lazily hook it to capture
+                            // Find the open-chain frame (ml0.l1.w / ok0.l1.w) and lazily hook it to capture
                             // the real invocation prototype (params + thisObject).
                             val openFrame = st.take(40).firstOrNull { it.methodName == "w" }
                             if (openFrame != null) {
@@ -1521,7 +1520,7 @@ hookViewLongClickProbe()
     // WeChat's page_info.e is a String (e.g. "88463146"). Fresh value per tap.
     private fun freshPageInfoE(): String = (System.currentTimeMillis() % 100000000L).toString()
 
-    // Lazily hook the flutter open-chain method (ok0$l1.w) once the brandservice plugin is
+    // Lazily hook the flutter open-chain method (ml0.l1.w / ok0.l1.w) once the brandservice plugin is
     // loaded. The class lives in the plugin dex; resolve it via a stack-frame class name plus
     // the plugin ClassLoader found on a ctor arg.
     @Volatile
@@ -1530,7 +1529,7 @@ hookViewLongClickProbe()
         if (openChainHooked) return
         openChainHooked = true
         runCatching {
-            val frameCls = frame.className // e.g. ok0$l1
+            val frameCls = frame.className // e.g. ml0.l1（旧版 ok0$l1）
             // Prefer the plugin loader; fall back to the host loader (the class may actually
             // live in the host dex and only fail early during module init before WeChat loads).
             val loader = ctorArgPluginLoader ?: Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
@@ -1603,7 +1602,8 @@ hookViewLongClickProbe()
     @Volatile
     private var ctorArgPluginLoader: ClassLoader? = null
 
-    // The ok0.l1 open-chain instance WeChat used for the most recent homepage open; needed to
+    // The open-chain instance (ml0.l1 in 8.0.78 v2, ok0.l1 before) WeChat used for the most recent
+    // homepage open; needed to
     // re-invoke the open-chain entry from a folder tap (its methods are instance methods).
     @Volatile
     private var cachedOpenChainInstance: Any? = null
@@ -1616,39 +1616,29 @@ hookViewLongClickProbe()
     @Volatile
     private var cachedOpenChainIntent: Intent? = null
 
-    // Folder taps on the virtual-session rows re-invoke WeChat's own open chain: it constructs
-    // the page_info, registers it with the live flutter engine, then starts the target
-    // Activity. This mirrors the homepage tap exactly, so the page opens with correct content
-    // even after the engine was recycled or the process restarted (a fresh ok0.l1 instance is
-    // constructed when no cached one exists).
-    private fun tryOpenChain(talker: String): Boolean {        return runCatching {
-            val hostLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
-            val openClz = Class.forName("ok0.l1", false, hostLoader)
-            val l1Inst = cachedOpenChainInstance ?: openClz.getDeclaredConstructor().let { c ->
-                c.isAccessible = true
-                c.newInstance()
+    // 打开链类名随微信版本变化：8.0.78 二版把 ok0.l1 改名为 ml0.l1，类结构不变（入口
+    // c(Context,Class,Intent,ml0.t)Z、b(Object)V、w(...) 与 flutter engine 字段都在）。按候选名
+    // 解析，新版在前、旧版兜底。
+    private val openChainClassNames = listOf("ml0.l1", "ok0.l1", "ok0\u0024l1")
+
+    @Volatile
+    private var openChainClass: Class<*>? = null
+
+    // 解析成功即缓存；失败不缓存，插件 loader 稍后就绪时还能重试。
+    private fun resolveOpenChainClass(loader: ClassLoader? = null): Class<*>? {
+        openChainClass?.let { return it }
+        val hostLoader = runCatching { Class.forName("com.tencent.mm.ui.LauncherUI").classLoader }.getOrNull()
+            ?: return null
+        for (l in listOfNotNull(loader ?: ctorArgPluginLoader, hostLoader).distinct()) {
+            for (n in openChainClassNames) {
+                val c = runCatching { Class.forName(n, false, l) }.getOrNull() ?: continue
+                openChainClass = c
+                WeLogger.i(TAG, "openChain class=" + n + " loader=" + l.javaClass.name)
+                return c
             }
-            val activityClsName = if (talker == "service_officialaccounts") BRAND_SERVICE_UI else BRAND_FLUTTER_UI
-            val activityCls = Class.forName(activityClsName, false, hostLoader)
-            val activityInst = activityCls.getDeclaredConstructor().let { c ->
-                c.isAccessible = true
-                c.newInstance()
-            }
-            val b = openClz.declaredMethods.firstOrNull { m ->
-                m.name == "b" && m.parameterCount == 1 && m.parameterTypes[0].isAssignableFrom(activityCls)
-            }
-            if (b == null) {
-                WeLogger.i(TAG, "openChain no b method for " + talker)
-                return false
-            }
-            b.isAccessible = true
-            b.invoke(l1Inst, activityInst)
-            WeLogger.i(TAG, "openChain b invoked for " + talker + " inst=" + l1Inst.javaClass.name)
-            true
-        }.getOrElse {
-            WeLogger.w(TAG, "openChain invoke failed for " + talker, it)
-            false
         }
+        WeLogger.i(TAG, "openChain class not found: " + openChainClassNames.joinToString(","))
+        return null
     }
 
     // Re-run WeChat's own open-chain entry c(LauncherUI, Class, Intent, null) captured from the
@@ -1663,15 +1653,19 @@ hookViewLongClickProbe()
         }
         return runCatching {
             val hostLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
-            val openClz = runCatching {
-                Class.forName("ok0.l1", false, hostLoader)
-            }.getOrElse { Class.forName("ok0\u0024l1", false, hostLoader) }
-            // 优先用微信最近一次打开链实例；否则 new 一个（微信 c 方法内部会完成 page_info 构造）。
-            val l1 = cachedOpenChainInstance ?: openClz.getDeclaredConstructor().run {
-                isAccessible = true
-                newInstance()
+            val openClz = resolveOpenChainClass() ?: return false.also {
+                WeLogger.i(TAG, "openViaChain no openChain class")
             }
-            val m = openClz.declaredMethods.firstOrNull { it.name == "c" && it.parameterCount == 4 }
+            // 只能用微信自己创建的实例：新版打开链类没有无参构造，自建不可行。实例由
+            // hookOpenChain 在构造/方法调用时捕获，正常使用中必定已经拿到。
+            val l1 = cachedOpenChainInstance ?: return false.also {
+                WeLogger.i(TAG, "openViaChain no cached openChain instance")
+            }
+            // 入口按签名找（4 参且第 2/3 参为 Class/Intent），不依赖混淆后的方法名。
+            val m = openClz.declaredMethods.firstOrNull { m ->
+                m.parameterCount == 4 && m.parameterTypes[1] == Class::class.java &&
+                    m.parameterTypes[2] == Intent::class.java
+            }
             if (m == null) {
                 WeLogger.i(TAG, "openChain no c(4) method")
                 return false
@@ -1691,7 +1685,7 @@ hookViewLongClickProbe()
     }
 
     // The flutter/brand Activities declare plugin-domain objects as fields; their loaders are
-    // the plugin ClassLoader that can load the open-chain class (ok0$l1).
+    // the plugin ClassLoader that can load the open-chain class (ml0.l1 / 旧版 ok0.l1).
     private fun pluginLoaderFromActivity(mmLoader: ClassLoader) {
         runCatching {
             listOf("com.tencent.mm.plugin.flutter.ui.MMFlutterViewActivity", BRAND_FLUTTER_UI).forEach { n ->
@@ -1722,7 +1716,7 @@ hookViewLongClickProbe()
         }
     }
 
-    // Once the plugin loader is known, hook every ok0$l1 method to capture the real open-chain
+    // Once the plugin loader is known, hook every open-chain method to capture the real open-chain
     // invocation prototype (which method takes the session talker, instance vs static, params).
     @Volatile
     private var openChainFieldsDumped = false
@@ -1730,18 +1724,15 @@ hookViewLongClickProbe()
         val hostLoader = Class.forName("com.tencent.mm.ui.LauncherUI").classLoader
         val loader = ctorArgPluginLoader ?: hostLoader
         runCatching {
-            val clz = try {
-                loader.loadClass("ok0.l1")
-            } catch (e: Throwable) {
-                if (loader !== hostLoader) hostLoader.loadClass("ok0.l1") else throw e
-            }
+            val clz = resolveOpenChainClass(loader)
+                ?: throw ClassNotFoundException("openChain class not found: " + openChainClassNames.joinToString(","))
             clz.declaredMethods.forEach { m ->
                 m.hookBefore {
                     runCatching {
                         val a = args?.map {
                             it?.javaClass?.simpleName + ":" + runCatching { it?.toString()?.take(50) }.getOrNull()
                         }?.joinToString(",")
-                        WeLogger.i(TAG, "ok0l1." + m.name + " this=" + thisObject?.javaClass?.simpleName +
+                        WeLogger.i(TAG, "openChainEarly." + m.name + " this=" + thisObject?.javaClass?.simpleName +
                             " static=" + java.lang.reflect.Modifier.isStatic(m.modifiers) + " args=" + a)
                         val inst = thisObject
                         if (inst != null) {
@@ -1754,8 +1745,8 @@ hookViewLongClickProbe()
                     }
                 }
             }
-            WeLogger.i(TAG, "ok0l1 hooked methods=" + clz.declaredMethods.size)
-        }.onFailure { WeLogger.w(TAG, "hook ok0l1 failed", it) }
+            WeLogger.i(TAG, "openChainEarly hooked class=" + clz.name + " methods=" + clz.declaredMethods.size)
+        }.onFailure { WeLogger.w(TAG, "hook openChainEarly failed", it) }
     }
 
     // 找微信 Flutter 引擎会话 UUID（page_info.d 的来源）：dump 打开链实例字段，关注 UUID 字符串
