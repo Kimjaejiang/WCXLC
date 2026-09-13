@@ -71,7 +71,10 @@ private fun com.Johnny.wcx.ui.utils.ShowComposeDialogScope.HotUpdateDialog() {
                 is HotUpdateManager.CheckResult.UpToDate -> HotState.UpToDate
                 is HotUpdateManager.CheckResult.UpdateAvailable -> HotState.Available(r.manifest)
                 is HotUpdateManager.CheckResult.ShellTooOld ->
-                    HotState.Failed("插件要求壳 versionCode ≥ ${r.required}，当前 ${r.current}，请先整包更新")
+                    HotState.Failed(
+                        "插件要求微信 ≥ ${r.requiredName.ifBlank { "versionCode ${r.required}" }}" +
+                            "，当前 ${r.currentName.ifBlank { "versionCode ${r.current}" }}，请先升级微信"
+                    )
                 is HotUpdateManager.CheckResult.Error -> HotState.Failed(r.message)
             }
         }

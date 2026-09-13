@@ -18,13 +18,28 @@ object HotApi {
 /**
  * 远端 `hot-update.json` 的映射，同时也用于 `manifest-installed.json` 的持久化。
  *
- * 字段与文档一致：hotApi, version, minShellVersionCode, fileName, url, sha256, entryClass, changelog。
+ * 字段与文档一致：hotApi, version, minShellVersionCode, minShellVersionName,
+ * fileName, url, sha256, entryClass, changelog。
  */
 @Serializable
 data class HotManifest(
     @SerialName("hotApi") val hotApi: Int,
     @SerialName("version") val version: String,
-    @SerialName("minShellVersionCode") val minShellVersionCode: Long,
+    /**
+     * 要求的最低宿主 versionCode。
+     *
+     * 注意：微信的 versionCode 并不随小版本递增（实测 8.0.76 / 8.0.78 均为 3180），
+     * 所以它只能卡大版本，区分不了 8.0.77 与 8.0.78。要卡小版本请用
+     * [minShellVersionName]。
+     */
+    @SerialName("minShellVersionCode") val minShellVersionCode: Long = 0,
+    /**
+     * 要求的最低宿主版本名，如 "8.0.77"。
+     *
+     * 这是卡小版本的正确手段：[minShellVersionCode] 做不到，因为微信多次灰度
+     * 复用同一个 versionCode。空字符串表示不限制。
+     */
+    @SerialName("minShellVersionName") val minShellVersionName: String = "",
     @SerialName("fileName") val fileName: String,
     @SerialName("url") val url: String,
     @SerialName("sha256") val sha256: String,

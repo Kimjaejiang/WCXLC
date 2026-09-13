@@ -118,7 +118,14 @@ object HotUpdateManager {
         data class UpdateAvailable(val manifest: HotManifest) : CheckResult
 
         /** 插件要求的壳版本高于当前壳，只能走整包更新。 */
-        data class ShellTooOld(val required: Long, val current: Long) : CheckResult
+        data class ShellTooOld(
+            val required: Long,
+            val current: Long,
+            /** 要求的最低版本名（如 "8.0.77"），空表示 manifest 未声明。 */
+            val requiredName: String = "",
+            /** 当前宿主版本名（如 "8.0.78"）。 */
+            val currentName: String = "",
+        ) : CheckResult
 
         /** 网络/解析失败。 */
         data class Error(val message: String) : CheckResult
@@ -178,6 +185,16 @@ object HotUpdateManager {
             WeLogger.w(
                 TAG,
                 "skip plugin v${manifest.version}: hotApi ${manifest.hotApi} > shell ${HotApi.VERSION}"
+            )
+            return
+        }
+
+        // 门禁：宿主版本不满足插件下限就跳过。已装的插件在壳降级/换低版微信后
+        // 可能不再适配，这里主动拦住，而不是加载进去再在 hook 里炸。
+        if (!shellMeetsRequirement(manifest)) {
+            WeLogger.w(
+                TAG,
+                "skip plugin v${manifest.version}: ${describeVersionGap(manifest)}"
             )
             return
         }
@@ -292,8 +309,13 @@ object HotUpdateManager {
                 )
             }
 
-            if (HostInfo.versionCode < remote.minShellVersionCode) {
-                return@withContext CheckResult.ShellTooOld(remote.minShellVersionCode, HostInfo.versionCode)
+            if (!shellMeetsRequirement(remote)) {
+                return@withContext CheckResult.ShellTooOld(
+                    required = remote.minShellVersionCode,
+                    current = HostInfo.versionCode,
+                    requiredName = remote.minShellVersionName,
+                    currentName = HostInfo.versionName,
+                )
             }
 
             val installed = installedManifest()
@@ -549,6 +571,46 @@ object HotUpdateManager {
 
     private fun describe(t: Throwable): String =
         t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
+
+    /**
+     * 比较两个点分版本名，返回 current 相对 required 的方向。
+     *
+     * 微信版本名形如 "8.0.77"，纯数字，点分三段。逐段数值比较，
+     * 不足的段视为 0（"8.0" 与 "8.0.0" 等价），非数字段直接当 0
+     * 处理——这种情况下宁可不拦，也不要因为解析异常把正常用户挡在外面。
+     */
+    private fun compareVersionName(current: String, required: String): Int {
+        val a = current.split('.')
+        val b = required.split('.')
+        for (i in 0 until maxOf(a.size, b.size)) {
+            val x = a.getOrNull(i)?.trim()?.toIntOrNull() ?: 0
+            val y = b.getOrNull(i)?.trim()?.toIntOrNull() ?: 0
+            if (x != y) return x.compareTo(y)
+        }
+        return 0
+    }
+
+    /**
+     * 宿主是否满足 manifest 声明的版本下限。
+     *
+     * 两个条件都要满足：
+     * - [HotManifest.minShellVersionName]：卡小版本，如 "8.0.77"。
+     * - [HotManifest.minShellVersionCode]：卡大版本，兜底用。
+     *
+     * 为什么不只用 versionCode：微信不随小版本递增 versionCode
+     * （实测 8.0.76 与 8.0.78 均为 3180），单靠它区分不了 8.0.77 与 8.0.78。
+     */
+    private fun shellMeetsRequirement(manifest: HotManifest): Boolean {
+        val name = manifest.minShellVersionName
+        if (name.isNotBlank() && compareVersionName(HostInfo.versionName, name) < 0) return false
+        if (HostInfo.versionCode < manifest.minShellVersionCode) return false
+        return true
+    }
+
+    /** 描述不满足的原因，用于日志与 UI 提示。 */
+    private fun describeVersionGap(manifest: HotManifest): String =
+        "requires shell >= ${manifest.minShellVersionName.ifBlank { "code ${manifest.minShellVersionCode}" }}, " +
+            "current v${HostInfo.versionName} (code ${HostInfo.versionCode})"
 
     /**
      * ART 在 `<dex-dir>/oat/<name>/` 下存放 vdex 与 profile，<name> 取自运行时 ABI。

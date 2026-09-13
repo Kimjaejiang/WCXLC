@@ -62,6 +62,7 @@ import com.composables.icons.materialsymbols.outlinedfilled.Warning
 import com.topjohnwu.superuser.Shell
 import com.Johnny.wcx.BuildConfig
 import com.Johnny.wcx.constants.PackageNames
+import com.Johnny.wcx.constants.Preferences
 import com.Johnny.wcx.constants.WeChatVersions
 import com.Johnny.wcx.ui.content.Button
 import com.Johnny.wcx.ui.content.DefaultColumn
@@ -165,8 +166,22 @@ class MainActivity : ComponentActivity() {
             val isHookEnabled = remember(xposedService) {
                 xposedService?.scope?.contains(PackageNames.WECHAT) == true
             }
+            // 框架门禁结果由注入侧写入，主进程读到即说明上次注入被判为免 root 框架。
+            val gatePassed by remember { mutableStateOf(Preferences.frameworkGatePassed()) }
+            val gateReason by remember { mutableStateOf(Preferences.frameworkGateReason()) }
 
-            return remember(isHookEnabled, xposedService) {
+            return remember(isHookEnabled, xposedService, gatePassed) {
+                // 门禁未过时优先展示拒绝原因：此时功能确实没加载，
+                // 显示"已激活"会让用户以为在正常工作。
+                if (!gatePassed) {
+                    return@remember ActivationState(
+                        isActivated = false,
+                        title = "不支持的环境",
+                        desc = gateReason.ifBlank { "本模块仅支持 LSPosed，免 root 框架无法正常运行。" },
+                        color = Color(0xFFF44336)
+                    )
+                }
+
                 ActivationState(
                     isActivated = isHookEnabled,
                     title = if (isHookEnabled) "已激活" else "未激活",
@@ -690,12 +705,12 @@ class MainActivity : ComponentActivity() {
                     { it.split(".").getOrNull(2)?.toIntOrNull() ?: 0 }
                 ))
             if (versions.isNotEmpty()) {
-                "完整支持 8.0.76 ~ 8.0.77 · 维护 8.0.69~8.0.75 · 低版本部分功能可能失效"
+                "完整支持 8.0.77 及以上版本 · 8.0.77 以下不适配，请先升级微信"
             } else {
-                "推荐 8.0.76 ~ 8.0.77，8.0.75 以下部分功能可能失效"
+                "推荐 8.0.77 及以上版本，8.0.77 以下不适配，请先升级微信"
             }
         } catch (e: Exception) {
-            "推荐 8.0.76 ~ 8.0.77，8.0.75 以下部分功能可能失效"
+            "推荐 8.0.77 及以上版本，8.0.77 以下不适配，请先升级微信"
         }
     }
 

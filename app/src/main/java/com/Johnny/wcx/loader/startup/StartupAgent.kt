@@ -45,6 +45,16 @@ object StartupAgent {
         NativeLoader.init(application)
         // FIXME: some people have hiding on, which causes false positives in signature verifier
 //        SignatureVerifier.verify(application)
+
+        // 框架门禁：只放行真正的 LSPosed。
+        // 免 root 方案（LSPatch / VirtualXposed 等）与本模块的类加载拓扑不兼容，
+        // 在这个位置直接拦下，不加载任何 hook，微信照常启动。
+        // UI 从 WePrefs 读判定结果提示用户。
+        if (!FrameworkGate.check(hookBridge)) {
+            WeLogger.w(TAG, "framework gate not passed, skip all feature loading")
+            return
+        }
+
         WeLauncher.init(application)
 
         runCatching {

@@ -1,5 +1,6 @@
 ﻿package com.Johnny.wcx.constants
 
+import com.Johnny.wcx.preferences.WePrefs
 import com.Johnny.wcx.preferences.WePrefs.Companion.prefOption
 
 object Preferences {
@@ -23,6 +24,11 @@ object Preferences {
     const val CACHED_LSP_ENVIRONMENT = "cached_lsp_environment"
     const val CACHED_LSP_API_VERSION = "cached_lsp_api_version"
 
+    // 框架门禁结果（由注入侧写入，微信进程内 UI 读取）
+    const val FRAMEWORK_GATE_PASSED = "framework_gate_passed"
+    const val FRAMEWORK_GATE_REASON = "framework_gate_reason"
+    const val FRAMEWORK_DETECTED = "framework_detected"
+
     var verboseLog by prefOption(VERBOSE_LOG, false)
     var noDexResolve by prefOption(NO_DEX_RESOLVE, false)
     var showStartupToast by prefOption(SHOW_STARTUP_TOAST, false)
@@ -35,4 +41,21 @@ object Preferences {
 //    var useActivityInsteadOfDialog: Boolean
 //        get() = false
 //        set(value) { WePrefs.putBool(USE_ACTIVITY_INSTEAD_OF_DIALOG, value) }
+
+    /**
+     * 上次注入是否通过了框架门禁（只放行 LSPosed）。
+     *
+     * 默认返回 true：主进程首次启动、还没被注入过时，不该因为读不到标记
+     * 就声称"环境不支持"。只有注入侧明确写过 false 才算拒绝。
+     */
+    fun frameworkGatePassed(): Boolean =
+        runCatching { WePrefs.getBoolOrDef(FRAMEWORK_GATE_PASSED, true) }.getOrDefault(true)
+
+    /** 门禁拒绝原因，未拒绝时为空串。 */
+    fun frameworkGateReason(): String =
+        runCatching { WePrefs.getStringOrDef(FRAMEWORK_GATE_REASON, "") }.getOrDefault("")
+
+    /** 检测到的框架描述，用于排查。 */
+    fun frameworkDetected(): String =
+        runCatching { WePrefs.getStringOrDef(FRAMEWORK_DETECTED, "") }.getOrDefault("")
 }
