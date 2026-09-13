@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.Johnny.wcx.constants.Preferences
 import com.Johnny.wcx.features.core.ClickableFeature
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.hot.HotUpdateManager
@@ -67,7 +68,13 @@ private fun com.Johnny.wcx.ui.utils.ShowComposeDialogScope.HotUpdateDialog() {
     fun check() {
         state = HotState.Checking
         scope.launch {
-            state = when (val r = HotUpdateManager.checkRemote()) {
+            val r = HotUpdateManager.checkRemote()
+            // 同步功能列表的角标：用户在对话框里看到「已是最新」后，
+            // 入口那行的「可更新 x.y.z」必须立刻消失，否则界面自相矛盾。
+            Preferences.setHotUpdateAvailableVersion(
+                (r as? HotUpdateManager.CheckResult.UpdateAvailable)?.manifest?.version ?: ""
+            )
+            state = when (r) {
                 is HotUpdateManager.CheckResult.UpToDate -> HotState.UpToDate
                 is HotUpdateManager.CheckResult.UpdateAvailable -> HotState.Available(r.manifest)
                 is HotUpdateManager.CheckResult.ShellTooOld ->
@@ -90,6 +97,8 @@ private fun com.Johnny.wcx.ui.utils.ShowComposeDialogScope.HotUpdateDialog() {
                 onSuccess = { file ->
                     // 清掉除本次以外残留的旧插件包，避免 hot/ 目录无限膨胀
                     withContext(Dispatchers.IO) { HotUpdateManager.cleanupOldApks(file.name) }
+                    // 包已就绪，入口的「可更新」角标该撤了
+                    Preferences.setHotUpdateAvailableVersion("")
                     HotState.Ready(manifest.version, file.name)
                 },
                 onFailure = { HotState.Failed(it.message ?: it.javaClass.simpleName) }
