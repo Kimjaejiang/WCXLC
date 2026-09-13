@@ -27,14 +27,49 @@ publish-plugin.bat 1.0.3 "修复了 xxx"
 
 产出在 `release/`：
 
-| 文件 | 用途 |
-|---|---|
-| `plugin-<version>.apk` | 上传到 GitHub Release |
-| `hot-update.json` | 上传到 GitHub Release |
+| 文件 | 传到哪里 | tag |
+|---|---|---|
+| `plugin-<version>.apk` | 新建的 Release | `v<version>` |
+| `hot-update.json` | 固定 Release（覆盖资产） | `hot-latest` |
 
-两个文件都要传，且**必须是 latest release** —— 壳读取的是
-`releases/latest/download/hot-update.json`，这个地址永久固定，
-所以发新版不需要改壳里的代码。
+**分两处发布**，原因如下。
+
+壳里写死的 manifest 地址是：
+
+```
+releases/download/hot-latest/hot-update.json
+```
+
+用的是**固定 tag** `hot-latest`，不是 `releases/latest` 别名。因为本仓的
+Release 里还有模块整包（时间戳 tag），而 `latest` 指向「最近发布的那个」——
+发一次模块整包就会把 `latest` 抢走，热更新地址随之 404。固定 tag 永远
+指向插件，两者互不干扰。
+
+APK 则放在**版本 tag**（`v1.0.3`）下：如果 APK 也塞进 `hot-latest`，
+每次发布都会覆盖上一版的二进制，旧版本再也下不到，出问题无法回滚。
+
+所以每次发插件：
+
+1. 新建 Release，tag 填 `v<版本号>`，上传 `plugin-<version>.apk`
+2. 在 `hot-latest` 这个 Release 里**替换** `hot-update.json` 资产
+   （首次需新建，tag 填 `hot-latest`）
+
+两步都不需要改壳里的代码。
+
+### 发布时务必取消 "Set as the latest release"
+
+这是最容易踩的坑。GitHub 新建 Release 时**默认勾选** "Set as the latest
+release"，必须手动取消。
+
+原因：模块自身的整包更新（`AppUpdater.checkForUpdate`）读的是
+`api.github.com/.../releases/latest`。一旦插件 Release 被标成 latest：
+
+- 该接口返回插件包，而不是模块整包
+- tag `hot-latest` / `v1.0.3` 解析不出 12 位时间戳版本号，得 0
+- 「检查更新」从此永远认为已是最新，模块再也收不到整包更新
+
+注意 ``hot-latest`` 作为 tag **名字**并不会自动获得 latest 标记，只取决于
+发布时那个勾选框。
 
 ## 依赖
 

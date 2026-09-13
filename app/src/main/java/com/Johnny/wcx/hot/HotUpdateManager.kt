@@ -48,14 +48,26 @@ object HotUpdateManager {
     /**
      * 远端 manifest 地址。
      *
-     * 指向 GitHub Releases 的 `latest` 别名，这样发布新版本时只需上传
-     * 新的 release 资产（hot-update.json + plugin-x.y.z.apk），
-     * 不必改动壳里的这行常量。
+     * 用**固定 tag**（`hot-latest`）而不是 `releases/latest` 别名：
+     * 仓库里的 Release 还有模块整包（时间戳 tag），而 `latest` 指向
+     * “最近发布的那个”。发一次模块整包就会把 `latest` 抢走，热更新
+     * 地址随之 404。固定 tag 则永远指向插件发布，互不干扰。
+     *
+     * 发布插件时：新建 tag 为 `v<版本号>` 的 Release 放 APK，
+     * 再把 hot-update.json 覆盖到本 tag（`hot-latest`）的 Release 里。
+     * APK 不用本 tag 是为了保留历史版本：若每次发布都覆盖同一个
+     * Release，旧二进制就再也下不到，出问题无法回滚。
+     *
+     * 发布时必须取消 GitHub 默认勾选的 "Set as the latest release"：
+     * 模块自身的整包更新（AppUpdater.checkForUpdate）读的是
+     * `releases/latest`，一旦插件 Release 被标成 latest，那个接口就
+     * 返回插件包，解析不出 12 位时间戳版本号，模块会永远以为已是最新、
+     * 再也收不到整包更新。
      *
      * 仓库：https://github.com/Kimjaejiang/WCXLC
      */
     const val REMOTE_MANIFEST_URL =
-        "https://github.com/Kimjaejiang/WCXLC/releases/latest/download/hot-update.json"
+        "https://github.com/Kimjaejiang/WCXLC/releases/download/hot-latest/hot-update.json"
 
     /** 加载协议版本，与 [HotApi.VERSION] 同源，此处只做读取别名。 */
     val hotApiVersion: Int get() = HotApi.VERSION

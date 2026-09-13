@@ -164,6 +164,10 @@ for /f "skip=1 tokens=* delims=" %%H in ('certutil -hashfile "%OUT%\%APK_NAME%" 
 set SHA256=%SHA256: =%
 echo   sha256 = %SHA256%
 
+rem The manifest is published under the FIXED tag "hot-latest" (the shell
+rem hardcodes that URL). The APK keeps a versioned tag so old builds stay
+rem downloadable: if every release reused "hot-latest", each one would
+rem overwrite the previous binary and leave no way to roll back.
 set TAG=v%VERSION%
 set URL=https://github.com/Kimjaejiang/WCXLC/releases/download/%TAG%/%APK_NAME%
 
@@ -186,11 +190,22 @@ echo ============ DONE ============
 echo output dir: %OUT%
 type "%OUT%\hot-update.json"
 echo.
-echo next: create a GitHub Release tagged %TAG% and upload:
-echo   %APK_NAME%
-echo   hot-update.json
+echo next - publish in TWO places:
 echo.
-echo it must be the LATEST release, because the shell reads
-echo   releases/latest/download/hot-update.json
+echo   1^) new Release, tag = %TAG%, upload:
+echo        %APK_NAME%
+echo      ^(versioned tag so this build stays downloadable^)
+echo.
+echo   2^) Release tagged hot-latest, REPLACE its asset:
+echo        hot-update.json
+echo      ^(the shell hardcodes this tag; if it does not exist yet,
+echo       create it. Reusing one tag keeps the URL fixed, and keeps
+echo       it immune to module-wide releases stealing releases/latest.^)
+echo.
+echo WARNING - UNCHECK "Set as the latest release" when publishing.
+echo   GitHub checks it by default. If a plugin release becomes latest, the
+echo   module updater (api.github.com/.../releases/latest) reads a plugin
+echo   tag, fails to parse a 12-digit version code, and then believes the
+echo   app is up to date forever - module-wide updates stop arriving.
 echo.
 endlocal
