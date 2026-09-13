@@ -112,31 +112,16 @@ import com.Johnny.wcx.utils.HostInfo
 import com.Johnny.wcx.utils.ReleaseItem
 import com.Johnny.wcx.utils.UpdateResult
 import com.Johnny.wcx.utils.WeLogger
+import com.Johnny.wcx.utils.backup.BackupManager
+import com.Johnny.wcx.utils.fs.KnownPaths
 import com.Johnny.wcx.utils.android.showToastSuspend
 import com.Johnny.wcx.utils.formatEpoch
 import com.Johnny.wcx.utils.openInSystem
-import com.Johnny.wcx.utils.serialization.DefaultJson
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.float
-import kotlinx.serialization.json.floatOrNull
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
-import kotlinx.serialization.json.longOrNull
-import kotlinx.serialization.json.put
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -265,14 +250,14 @@ fun SettingsPager(
             MiuixSmallTitle(text = "配置", modifier = Modifier.padding(top = 12.dp))
             Card(modifier = Modifier.fillMaxWidth()) {
                 PrefArrow(
-                    title = "导出配置",
-                    summary = "将模块配置导出为 JSON",
+                    title = "全局备份",
+                    summary = "导出全部模块配置与用户数据（归拢规则、自定义头像、真实姓名、脚本）为 zip",
                     icon = MaterialSymbols.Outlined.Upload,
                     onClick = { exportConfig(context) },
                 )
                 PrefArrow(
-                    title = "导入配置",
-                    summary = "从 JSON 导入模块配置; JSON 中的配置将会与现有配置合并, 覆盖所有已存在的配置",
+                    title = "全局恢复",
+                    summary = "从 zip 恢复配置与用户数据；同名项会被覆盖，包里没有的保持不变",
                     icon = MaterialSymbols.Outlined.Download,
                     onClick = { importConfig(context) },
                 )
@@ -666,47 +651,48 @@ private fun PrefIcon(icon: ImageVector) {
 private fun exportConfig(context: Context) {
     TransparentActivity.launch(context) {
         val exportLauncher = registerForActivityResult(
-            ActivityResultContracts.CreateDocument("application/json")
+            ActivityResultContracts.CreateDocument("application/zip")
         ) { uri ->
             if (uri == null) {
                 finish()
                 return@registerForActivityResult
             }
             lifecycleScope.launch(Dispatchers.IO) {
-                val exportJson = run {
-                    val map = WePrefs.default.getAll()
-                    val jsonObject = buildJsonObject {
-                        for ((key, value) in map) {
-                            when (value) {
-                                is Boolean -> put(key, value)
-                                is Int -> put(key, value)
-                                is Long -> put(key, value)
-                                is Float -> put(key, value)
-                                is Double -> put(key, value)
-                                is String -> put(key, value)
-                                is Set<*> -> put(key, buildJsonArray {
-                                    @Suppress("UNCHECKED_CAST")
-                                    (value as Set<String>).forEach { add(it) }
-                                })
+                // 先落到模块自己的临时文件再拷进 SAF，而不是直接往 uri 写：
+                // 打包中途失败（比如某个数据文件读不动）时，用户拿到的会是一个
+                // 残缺的 zip，而残缺备份比没有备份更危险 —— 恢复时才发现少了东西。
+                // 落盘成功才拷贝，失败就什么都不留下。
+                val tmp = File(KnownPaths.moduleCache.toFile(), "backup-export.zip")
+                val built = runCatching { BackupManager.exportTo(tmp) }
 
-                                null -> put(key, JsonNull)
+                // 拷贝成功时用 built 里的文件数报数，而不是拷贝结果 ——
+                // use{} 返回 Unit，拿不到备份元信息。
+                val message = built.fold(
+                    onSuccess = { backup ->
+                        runCatching {
+                            context.contentResolver.openOutputStream(uri, "w")!!.use { out ->
+                                tmp.inputStream().buffered().use { it.copyTo(out) }
                             }
-                        }
-                    }
-                    DefaultJson.encodeToString(jsonObject)
-                }
-                runCatching {
-                    HostInfo.application.contentResolver.openOutputStream(uri, "w")!!.use { fos ->
-                        fos.writer().use { it.write(exportJson) }
-                    }
-                }.onFailure {
-                    showToastSuspend("导出失败!")
-                    WeLogger.e("WePrefs", "failed to export", it)
-                }.onSuccess { showToastSuspend("导出成功") }
+                        }.fold(
+                            onSuccess = { "备份完成（${backup.fileCount} 个数据文件）" },
+                            onFailure = {
+                                WeLogger.e("SettingsPager", "failed to write backup", it)
+                                "导出失败!"
+                            },
+                        )
+                    },
+                    onFailure = {
+                        WeLogger.e("SettingsPager", "failed to build backup", it)
+                        "导出失败：${it.message ?: "打包出错"}"
+                    },
+                )
+
+                tmp.delete()
+                showToastSuspend(message)
                 withContext(Dispatchers.Main) { finish() }
             }
         }
-        exportLauncher.launch("wcx_prefs_backup.json")
+        exportLauncher.launch("WCXLC-backup.zip")
     }
 }
 
@@ -720,42 +706,37 @@ private fun importConfig(context: Context) {
                 return@registerForActivityResult
             }
             lifecycleScope.launch(Dispatchers.IO) {
-                runCatching {
-                    val jsonString = LauncherUI.getInstance()!!.contentResolver.openInputStream(uri)?.use { fis ->
-                        fis.reader().readText()
-                    } ?: return@launch
-                    val jsonObject = DefaultJson.parseToJsonElement(jsonString).jsonObject
-                    for ((key, element) in jsonObject) {
-                        when (element) {
-                            is JsonNull -> WePrefs.default.remove(key)
-                            is JsonPrimitive -> when {
-                                element.isString -> WePrefs.default.putString(key, element.content)
-                                element.booleanOrNull != null && (element.content == "true" || element.content == "false") ->
-                                    WePrefs.putBool(key, element.boolean)
+                // SAF 的 uri 只能顺序读一次，而恢复要分两趟（先读清单再解内容），
+                // 所以先拷进本地临时文件。数据目录就在同一存储上，代价可接受。
+                val tmp = File(KnownPaths.moduleCache.toFile(), "backup-import.zip")
+                val copied = runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        tmp.outputStream().buffered().use { input.copyTo(it) }
+                    } != null
+                }.getOrDefault(false)
 
-                                element.longOrNull != null && element.intOrNull == null ->
-                                    WePrefs.putLong(key, element.long)
+                val message = if (!copied) {
+                    "读取备份文件失败"
+                } else {
+                    runCatching { BackupManager.restoreFrom(tmp) }.fold(
+                        onSuccess = {
+                            // 恢复后必须重启微信：偏好和归拢规则都是进程启动时读进内存的，
+                            // 不重启的话用户看到的是旧状态，会以为恢复没生效。
+                            "已恢复 ${it.prefCount} 项配置、${it.fileCount} 个数据文件，重启微信后生效"
+                        },
+                        onFailure = {
+                            WeLogger.e("SettingsPager", "failed to restore backup", it)
+                            "恢复失败：${it.message ?: "文件损坏"}"
+                        },
+                    )
+                }
 
-                                element.intOrNull != null -> WePrefs.putInt(key, element.int)
-                                element.floatOrNull != null -> WePrefs.putFloat(key, element.float)
-                            }
-
-                            is JsonArray -> WePrefs.default.putStringSet(
-                                key,
-                                element.mapTo(HashSet()) { it.jsonPrimitive.content }
-                            )
-
-                            else -> Unit
-                        }
-                    }
-                }.onFailure {
-                    showToastSuspend("导入失败!")
-                    WeLogger.e("WePrefs", "failed to import", it)
-                }.onSuccess { showToastSuspend("导入成功") }
+                tmp.delete()
+                showToastSuspend(message)
                 withContext(Dispatchers.Main) { finish() }
             }
         }
-        importLauncher.launch(arrayOf("application/json"))
+        importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
     }
 }
 
