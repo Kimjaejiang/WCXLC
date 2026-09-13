@@ -10,6 +10,19 @@
 -keep class com.Johnny.wcx.features.** { *; }
 -keep,allowobfuscation class com.Johnny.wcx.hooks.** { *; }
 -keep,allowobfuscation class com.Johnny.wcx.datas.** { *; }
+# ─── 热更新 SPI ──────────────────────────────────────────────────
+# SPI 接口与数据类由**外部插件 APK** 按原名引用，绝不能被混淆/裁剪，
+# 否则插件实现 HotPlugin 时 ART 解析接口失败，会一路委托到微信的
+# BaseDexClassLoader 子类并触发其 findClass→loadClass 回退递归（死循环）。
+# 必须彻底 -keep（不能用 allowobfuscation）：allowobfuscation 仍会改名，
+# 插件按原名引用就找不到接口了。
+-keep class com.Johnny.wcx.hot.HotApi { *; }
+-keep class com.Johnny.wcx.hot.HotManifest { *; }
+-keep interface com.Johnny.wcx.hot.HotPlugin { *; }
+-keep interface com.Johnny.wcx.hot.HotHost { *; }
+-keep interface com.Johnny.wcx.hot.HotHandle { *; }
+-keep interface com.Johnny.wcx.hot.HotPrefs { *; }
+
 
 # Keep annotation-annotated members (used by compile-time processors)
 -keepclassmembers,allowobfuscation class * {
