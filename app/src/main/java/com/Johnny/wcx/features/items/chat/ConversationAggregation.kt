@@ -407,8 +407,6 @@ hookRowMenuInjectG()
 hookConversationLongMenuProbe()
 hookViewLongClickProbe()
         hookPopupHostProbe()
-        hookConversationClick()
-        hookFolderFragmentMethods()
         hookFolderItemClick()
         WeLogger.i(TAG, "onEnable: after hookFolderContextMenu")
         diagFile("onEnable: after hookFolderContextMenu")
@@ -1313,45 +1311,6 @@ hookViewLongClickProbe()
     // menu through the shared MMPopupMenu.showMenu(...). We hook that chokepoint, gated on
     // activeFolderId (null on the homepage, so that path is untouched), and inject a "remove from
     // folder" item by wrapping the menu-create listener and the (obfuscated) select callback.
-    private fun hookConversationClick() {
-        val clazz = runCatching {
-            Class.forName("com.tencent.mm.ui.conversation.ConversationClickListener")
-        }.getOrNull() ?: run {
-            WeLogger.i(TAG, "ConversationClickListener not found")
-            return
-        }
-        clazz.declaredMethods.forEach { m ->
-            runCatching {
-                m.hookBeforeDirectly {
-                    val argsStr = args.joinToString("|") { a: Any? -> a?.javaClass?.simpleName ?: "null" }
-                    WeLogger.i(TAG, "ConvClick: " + m.name + " args=" + argsStr)
-                    diagDb("conv", m.name, "ConvClick " + m.name + " args=" + argsStr + " self=" + thisObject?.javaClass?.name)
-                }
-            }.onFailure { }
-        }
-    }
-
-    private fun hookFolderFragmentMethods() {
-        val clazz = runCatching {
-            Class.forName("com.tencent.mm.ui.conversation.ConvBoxServiceConversationFmUI")
-        }.getOrNull() ?: run {
-            WeLogger.i(TAG, "ConvBoxFmUI not found")
-            return
-        }
-        clazz.declaredMethods.forEach { m ->
-            val mn = m.name
-            if (mn.startsWith("on") && mn.length <= 12) return@forEach
-            runCatching {
-                m.hookBeforeDirectly {
-                    val raw = args.joinToString("|") { a: Any? -> a?.javaClass?.simpleName ?: "null" }
-                    val argsStr = if (raw.length > 80) raw.substring(0, 80) else raw
-                    WeLogger.i(TAG, "FmUI: " + mn + " args=" + argsStr)
-                    diagDb("fm", mn, "FmUI " + mn + " args=" + argsStr)
-                }
-            }.onFailure { }
-        }
-    }
-
     // Special rows in a folded folder ("公众号" / "服务号" / "学校通知") must open the same
     // aggregated pages as their homepage counterparts. The container switches views on item
     // click (no new Activity), so we hook the shared AdapterView.performItemClick while a
