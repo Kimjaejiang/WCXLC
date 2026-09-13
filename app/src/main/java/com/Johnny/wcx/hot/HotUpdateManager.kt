@@ -331,7 +331,10 @@ object HotUpdateManager {
             }
 
             val installed = installedManifest()
-            if (installed != null && remote.version == installed.version) {
+            // 必须是「远端比已装的新」才算更新，不能只判不等。
+            // 远端回滚/重新发布旧版时（例如把 1.0.0 发到通道上，而设备
+            // 已装 1.0.2），只判不等会提示「发现新版本 1.0.0」并把用户降级。
+            if (installed != null && compareVersionName(remote.version, installed.version) <= 0) {
                 return@withContext CheckResult.UpToDate
             }
 
