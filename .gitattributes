@@ -1,0 +1,38 @@
+# 行尾统一约定：Git 内一律以 LF 存储文本文件。
+#
+# 背景：libs/common/bsh/ 下两个 JJTree 生成的文件工作区被写成了 CRLF，
+# 与仓库内的 LF 不一致，导致 git status 永远显示它们被修改，
+# 而 `git diff --ignore-cr-at-eol` 为空（即内容一字未改）。
+# 显式声明 eol=lf 后，检出不再转成 CRLF，diff 恢复干净。
+* text=auto eol=lf
+
+# 二进制：禁止任何行尾/编码转换，否则文件会损坏
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.ttf  binary
+*.otf  binary
+*.woff binary
+*.woff2 binary
+*.so   binary
+*.jar  binary
+*.apk  binary
+*.jks  binary
+*.keystore binary
+*.zip  binary
+*.dex  binary
+*.arsc binary
+
+# Windows 批处理必须 CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# GitHub Actions 工作流用 LF
+.github/workflows/*.yml  text eol=lf
+.github/workflows/*.yaml text eol=lf
+
+# 第三方源码保持原样，不参与行尾归一化，避免制造无意义的巨大 diff
+vendor/** -text

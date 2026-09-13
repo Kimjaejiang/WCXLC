@@ -7,7 +7,6 @@ import com.Johnny.wcx.constants.PackageNames
 import com.Johnny.wcx.constants.Preferences
 import com.Johnny.wcx.dexkit.cache.DexCacheManager
 import com.Johnny.wcx.features.core.FeaturesLoader
-import com.Johnny.wcx.hot.HotUpdateManager
 import com.Johnny.wcx.dynamic.LocalAdaptationEngine
 import com.Johnny.wcx.dynamic.SelfHealingMonitor
 import com.Johnny.wcx.loader.utils.ActivityProxy
@@ -48,12 +47,6 @@ object WeLauncher {
                 result = runCatching { invokeOriginal() }.getOrNull() ?: "null"
             }
         }
-
-        // 热更新插件必须在内置 features 之前装载：插件是增量逻辑，内置 features 是基线。
-        // 整体失败只记日志，不阻断微信启动。
-        runCatching {
-            HotUpdateManager.loadInstalled()
-        }.onFailure { WeLogger.e(TAG, "failed to load hot plugin", it) }
 
         runCatching {
             FeaturesLoader.loadFeatures()
