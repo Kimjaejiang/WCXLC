@@ -15,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -49,6 +51,9 @@ import com.Johnny.wcx.ui.content.AlertDialogContent
 import com.Johnny.wcx.ui.content.Button
 import com.Johnny.wcx.ui.content.DefaultColumn
 import com.Johnny.wcx.ui.content.TextButton
+import com.Johnny.wcx.ui.content.WeDateTimeField
+import com.Johnny.wcx.ui.content.WeDateTimeMode
+import com.Johnny.wcx.ui.content.parseDateTime
 import com.Johnny.wcx.ui.utils.showComposeDialog
 import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.showToast
@@ -72,7 +77,7 @@ import kotlin.io.path.absolutePathString
 @Feature(
     name = "定时发送消息",
     categories = ["聊天"],
-    description = "在指定时间发送消息到群聊或私聊，支持每天重复或单次发送，支持多种消息类型"
+    description = "在指定时间发送消息到群聊或私聊，支持每天/每周/每月/单次发送，支持多种消息类型"
 )
 object ScheduledMessage : ClickableFeature() {
 
@@ -105,7 +110,15 @@ object ScheduledMessage : ClickableFeature() {
         var enabled: Boolean = true,
         val oneTimeOnly: Boolean = false,
         var nextSendTime: Long = 0,
-        val segments: List<MessageSegment> = emptyList()
+        val segments: List<MessageSegment> = emptyList(),
+        /** 重复方式；编辑对话框写入新值，历史任务靠 [repeatDaily]/[oneTimeOnly] 折叠得到。 */
+        val repeatMode: ScheduleRepeat = ScheduleRepeat.DAILY,
+        /** [ScheduleRepeat.WEEKLY] 专用：ISO 星期（1=周一 .. 7=周日），至少一天。 */
+        val daysOfWeek: Set<Int> = setOf(1, 2, 3, 4, 5, 6, 7),
+        /** [ScheduleRepeat.MONTHLY] 专用：1..31；当月没有该日时顺延到当月最后一天。 */
+        val dayOfMonth: Int = 1,
+        /** [ScheduleRepeat.ONCE] 专用：`LocalDate.toEpochDay()`；0 表示历史数据（沿用旧行为）。 */
+        val onceDateEpochDay: Long = 0L
     ) : java.io.Serializable
 
     enum class MessageType(val description: String) {
@@ -116,6 +129,45 @@ object ScheduledMessage : ClickableFeature() {
         FILE("文件"),
         LINK("链接")
     }
+
+    /** 定时任务的重复方式。 */
+    enum class ScheduleRepeat(val description: String) {
+        DAILY("每天"),
+        WEEKLY("每周"),
+        MONTHLY("每月"),
+        ONCE("单次")
+    }
+
+    /** ISO 星期（1=周一 .. 7=周日）的短名，用于周选择与列表摘要。 */
+    private val DAY_OF_WEEK_LABELS: Map<Int, String> = mapOf(
+        1 to "一", 2 to "二", 3 to "三", 4 to "四", 5 to "五", 6 to "六", 7 to "日"
+    )
+
+    /**
+     * 兼容历史数据：旧任务只有 [ScheduleConfig.repeatDaily] / [ScheduleConfig.oneTimeOnly] 两个开关
+     * （此时 [ScheduleConfig.repeatMode] 是默认的 DAILY），这里把它们折叠成新的重复方式。
+     */
+    private fun ScheduleConfig.effectiveRepeat(): ScheduleRepeat =
+        if (repeatMode == ScheduleRepeat.DAILY && (oneTimeOnly || !repeatDaily)) {
+            ScheduleRepeat.ONCE
+        } else {
+            repeatMode
+        }
+
+    /** 列表摘要里的重复方式文案。 */
+    private fun scheduleRepeatLabel(schedule: ScheduleConfig): String =
+        when (schedule.effectiveRepeat()) {
+            ScheduleRepeat.DAILY -> "每天"
+            ScheduleRepeat.WEEKLY -> {
+                val days = schedule.daysOfWeek.sorted().mapNotNull { DAY_OF_WEEK_LABELS[it] }
+                if (days.isEmpty()) "每周" else "每周" + days.joinToString("/")
+            }
+            ScheduleRepeat.MONTHLY -> "每月${schedule.dayOfMonth.coerceIn(1, 31)}号"
+            ScheduleRepeat.ONCE -> schedule.onceDateEpochDay
+                .takeIf { it > 0L }
+                ?.let { java.time.LocalDate.ofEpochDay(it).toString() }
+                ?: "单次"
+        }
 
     private var schedules by prefOption("scheduled_messages", emptyList<ScheduleConfig>())
     private val activeAlarms = ConcurrentHashMap<String, PendingIntent>()
@@ -245,23 +297,60 @@ object ScheduledMessage : ClickableFeature() {
         timerJobs[schedule.id] = job
     }
 
+    /**
+     * 下一次触发时间（epoch millis）；<= 0 表示不再触发。
+     * 支持每天 / 每周（多选星期）/ 每月（当月无该日顺延到月末）/ 单次（指定日期）。
+     */
     private fun calculateNextTriggerTime(schedule: ScheduleConfig): Long {
-        val now = System.currentTimeMillis()
-        val targetTime = LocalTime.of(schedule.hour, schedule.minute)
-        val todayTarget = java.time.LocalDateTime.now().with(targetTime).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val zone = java.time.ZoneId.systemDefault()
+        val now = java.time.ZonedDateTime.now(zone)
+        val nowMillis = now.toInstant().toEpochMilli()
+        val time = LocalTime.of(
+            schedule.hour.coerceIn(0, 23),
+            schedule.minute.coerceIn(0, 59)
+        )
+        val mode = schedule.effectiveRepeat()
 
-        return if (todayTarget > now) {
-            todayTarget
-        } else if (schedule.repeatDaily) {
-            // Bug Fix: 如果今天的目标时间刚过不久（15分钟内），立即触发而不等到明天
-            if (now - todayTarget < 15 * 60 * 1000L) {
-                now + 2000L
-            } else {
-                todayTarget + 24 * 60 * 60 * 1000L
-            }
-        } else {
-            -1L
+        // 单次任务已指定日期：只在这一天触发，过期即不再触发
+        if (mode == ScheduleRepeat.ONCE && schedule.onceDateEpochDay > 0L) {
+            val target = java.time.LocalDate.ofEpochDay(schedule.onceDateEpochDay)
+                .atTime(time)
+                .atZone(zone)
+                .toInstant()
+                .toEpochMilli()
+            return if (target > nowMillis) target else -1L
         }
+
+        val matchesDay: (java.time.LocalDate) -> Boolean = when (mode) {
+            // 单次（历史数据没有日期）：沿用旧行为，只看今天
+            ScheduleRepeat.ONCE, ScheduleRepeat.DAILY -> { _ -> true }
+            ScheduleRepeat.WEEKLY -> { date -> date.dayOfWeek.value in schedule.daysOfWeek }
+            ScheduleRepeat.MONTHLY -> { date ->
+                val day = schedule.dayOfMonth.coerceIn(1, 31).coerceAtMost(date.lengthOfMonth())
+                date.dayOfMonth == day
+            }
+        }
+
+        val maxDaysAhead = when (mode) {
+            ScheduleRepeat.ONCE -> 1
+            ScheduleRepeat.DAILY -> 2
+            ScheduleRepeat.WEEKLY -> 8
+            ScheduleRepeat.MONTHLY -> 63
+        }
+
+        var date = now.toLocalDate()
+        repeat(maxDaysAhead) {
+            if (matchesDay(date)) {
+                val target = date.atTime(time).atZone(zone).toInstant().toEpochMilli()
+                if (target > nowMillis) return target
+                // Bug Fix: 今天的目标时间刚过不久（15分钟内），立即触发而不等下一个周期
+                if (mode != ScheduleRepeat.ONCE && nowMillis - target < 15 * 60 * 1000L) {
+                    return System.currentTimeMillis() + 2000L
+                }
+            }
+            date = date.plusDays(1)
+        }
+        return -1L
     }
 
     private suspend fun handleScheduleTrigger(scheduleId: String) {
@@ -294,11 +383,11 @@ object ScheduledMessage : ClickableFeature() {
             WeLogger.e(TAG, "failed to send scheduled message", it)
         }
 
-        if (schedule.oneTimeOnly) {
+        if (schedule.effectiveRepeat() == ScheduleRepeat.ONCE) {
             schedule.enabled = false
             updateSchedule(schedule)
             cancelAlarm(schedule)
-        } else if (schedule.repeatDaily) {
+        } else {
             scheduleAlarm(schedule)
         }
     }
@@ -538,7 +627,7 @@ object ScheduledMessage : ClickableFeature() {
                                             }
                                             Text(
                                                 "${schedule.hour.toString().padStart(2, '0')}:${schedule.minute.toString().padStart(2, '0')} " +
-                                                        "${if (schedule.repeatDaily) "每天" else "单次"} $summary"
+                                                        "${scheduleRepeatLabel(schedule)} $summary"
                                             )
                                         },
                                         trailingContent = {
@@ -609,7 +698,18 @@ object ScheduledMessage : ClickableFeature() {
             initialMinute = existing?.minute ?: 0,
             is24Hour = true
         )
-        var repeatDaily by remember { mutableStateOf(existing?.repeatDaily ?: true) }
+        var repeatMode by remember { mutableStateOf(existing?.effectiveRepeat() ?: ScheduleRepeat.DAILY) }
+        var daysOfWeek by remember { mutableStateOf(existing?.daysOfWeek ?: setOf(1, 2, 3, 4, 5, 6, 7)) }
+        var dayOfMonthText by remember { mutableStateOf((existing?.dayOfMonth ?: 1).coerceIn(1, 31).toString()) }
+        var onceDateTime by remember {
+            val epochDay = existing?.onceDateEpochDay ?: 0L
+            val date = if (epochDay > 0L) java.time.LocalDate.ofEpochDay(epochDay) else java.time.LocalDate.now()
+            mutableStateOf(
+                date.atTime(existing?.hour ?: 9, existing?.minute ?: 0)
+                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            )
+        }
+        var showRepeatModeDialog by remember { mutableStateOf(false) }
         var enabled by remember { mutableStateOf(existing?.enabled ?: true) }
         var showTalkerSelector by remember { mutableStateOf(false) }
         var talkerSearchQuery by remember { mutableStateOf("") }
@@ -662,14 +762,74 @@ object ScheduledMessage : ClickableFeature() {
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("发送时间", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
 
-                    TimePicker(state = timePickerState)
+                    if (repeatMode == ScheduleRepeat.ONCE) {
+                        WeDateTimeField(
+                            value = onceDateTime,
+                            onValueChange = { onceDateTime = it },
+                            label = "发送日期与时间",
+                            mode = WeDateTimeMode.DATE_TIME,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        TimePicker(state = timePickerState)
+                    }
 
                     ListItem(
-                        modifier = Modifier.clickable { repeatDaily = !repeatDaily },
-                        trailingContent = { Switch(checked = repeatDaily, onCheckedChange = null) },
-                        headlineContent = { Text("每天重复") },
-                        supportingContent = { Text(if (repeatDaily) "每天同一时间发送" else "仅发送一次") }
+                        modifier = Modifier.clickable { showRepeatModeDialog = true },
+                        headlineContent = { Text("重复方式") },
+                        supportingContent = {
+                            Text(
+                                when (repeatMode) {
+                                    ScheduleRepeat.DAILY -> "每天同一时间发送"
+                                    ScheduleRepeat.WEEKLY -> {
+                                        val days = daysOfWeek.sorted().mapNotNull { DAY_OF_WEEK_LABELS[it] }
+                                        if (days.isEmpty()) "每周发送（还没选星期）"
+                                        else "每周 ${days.joinToString("/")} 发送"
+                                    }
+                                    ScheduleRepeat.MONTHLY -> "每月 $dayOfMonthText 号发送（当月无此日顺延到月末）"
+                                    ScheduleRepeat.ONCE -> "仅在指定日期发送一次"
+                                }
+                            )
+                        }
                     )
+
+                    when (repeatMode) {
+                        ScheduleRepeat.WEEKLY -> {
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                DAY_OF_WEEK_LABELS.forEach { (day, label) ->
+                                    val selected = day in daysOfWeek
+                                    FilterChip(
+                                        selected = selected,
+                                        onClick = {
+                                            daysOfWeek = if (selected) daysOfWeek - day else daysOfWeek + day
+                                        },
+                                        label = { Text("周$label") }
+                                    )
+                                }
+                            }
+                            if (daysOfWeek.isEmpty()) {
+                                Text(
+                                    "请至少选择一天",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                        ScheduleRepeat.MONTHLY -> {
+                            OutlinedTextField(
+                                value = dayOfMonthText,
+                                onValueChange = { dayOfMonthText = it.filter { c -> c.isDigit() }.take(2) },
+                                label = { Text("每月几号（1-31）") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                        }
+                        else -> Unit
+                    }
 
                     ListItem(
                         modifier = Modifier.clickable { enabled = !enabled },
@@ -682,8 +842,34 @@ object ScheduledMessage : ClickableFeature() {
             dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
             confirmButton = {
                 Button(onClick = {
-                    val h = timePickerState.hour
-                    val m = timePickerState.minute
+                    var h = timePickerState.hour
+                    var m = timePickerState.minute
+                    var onceEpochDay = 0L
+
+                    if (repeatMode == ScheduleRepeat.ONCE) {
+                        val parsed = parseDateTime(onceDateTime)
+                        if (parsed == null) {
+                            showToast("请选择有效的发送日期与时间")
+                            return@Button
+                        }
+                        if (parsed <= System.currentTimeMillis()) {
+                            showToast("发送时间必须晚于当前时间")
+                            return@Button
+                        }
+                        val parsedZoned = java.time.Instant.ofEpochMilli(parsed)
+                            .atZone(java.time.ZoneId.systemDefault())
+                        h = parsedZoned.hour
+                        m = parsedZoned.minute
+                        onceEpochDay = parsedZoned.toLocalDate().toEpochDay()
+                    } else if (repeatMode == ScheduleRepeat.WEEKLY && daysOfWeek.isEmpty()) {
+                        showToast("请至少选择一个星期")
+                        return@Button
+                    } else if (repeatMode == ScheduleRepeat.MONTHLY &&
+                        (dayOfMonthText.toIntOrNull() ?: 0) !in 1..31
+                    ) {
+                        showToast("请输入 1-31 之间的日期")
+                        return@Button
+                    }
 
                     if (selectedTalker.isBlank()) {
                         showToast("请选择发送对象")
@@ -717,8 +903,13 @@ object ScheduledMessage : ClickableFeature() {
                         duration = existing?.duration ?: 0,
                         hour = h,
                         minute = m,
-                        repeatDaily = repeatDaily,
+                        repeatDaily = repeatMode != ScheduleRepeat.ONCE,
                         enabled = enabled,
+                        oneTimeOnly = repeatMode == ScheduleRepeat.ONCE,
+                        repeatMode = repeatMode,
+                        daysOfWeek = daysOfWeek,
+                        dayOfMonth = (dayOfMonthText.toIntOrNull() ?: 1).coerceIn(1, 31),
+                        onceDateEpochDay = onceEpochDay,
                         segments = segments
                     )
 
@@ -726,6 +917,38 @@ object ScheduledMessage : ClickableFeature() {
                 }) { Text(if (isEditing) "保存" else "添加") }
             }
         )
+
+        if (showRepeatModeDialog) {
+            AlertDialogContent(
+                title = { Text("选择重复方式") },
+                text = {
+                    DefaultColumn {
+                        ScheduleRepeat.values().forEach { mode ->
+                            ListItem(
+                                modifier = Modifier.clickable {
+                                    repeatMode = mode
+                                    showRepeatModeDialog = false
+                                },
+                                headlineContent = { Text(mode.description) },
+                                supportingContent = {
+                                    Text(
+                                        when (mode) {
+                                            ScheduleRepeat.DAILY -> "每天同一时间发送"
+                                            ScheduleRepeat.WEEKLY -> "选择星期几，可多选"
+                                            ScheduleRepeat.MONTHLY -> "每月固定几号，当月无此日顺延到月末"
+                                            ScheduleRepeat.ONCE -> "指定日期与时间，只发送一次"
+                                        }
+                                    )
+                                },
+                                trailingContent = { Text(if (repeatMode == mode) "✓" else "") }
+                            )
+                        }
+                    }
+                },
+                dismissButton = { TextButton(onClick = { showRepeatModeDialog = false }) { Text("取消") } },
+                confirmButton = {}
+            )
+        }
 
         if (showTalkerSelector) {
             val filteredContacts = remember(talkerSearchQuery, contacts) {

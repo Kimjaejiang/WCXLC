@@ -29,6 +29,7 @@ import com.Johnny.wcx.agent.trigger.TriggerConditions
 import com.Johnny.wcx.agent.trigger.TriggerConditionsJson
 import com.Johnny.wcx.agent.trigger.TriggerScope
 import com.Johnny.wcx.agent.trigger.TriggerType
+import com.Johnny.wcx.agent.trigger.WEEKDAY_LABELS
 import com.Johnny.wcx.ui.content.MiuixSmallTitle
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -158,6 +159,17 @@ private fun configSummary(t: TriggerEntity): String = when (t.type) {
             "每天 ${(m / 60).toString().padStart(2, '0')}:${(m % 60).toString().padStart(2, '0')}"
         }
 
+        ScheduleKind.WEEKLY -> {
+            val m = t.dailyMinuteOfDay ?: 0
+            val day = WEEKDAY_LABELS.firstOrNull { it.first == (t.daysOfWeek ?: 1) }?.second ?: "周一"
+            "$day ${(m / 60).toString().padStart(2, '0')}:${(m % 60).toString().padStart(2, '0')}"
+        }
+
+        ScheduleKind.MONTHLY -> {
+            val m = t.dailyMinuteOfDay ?: 0
+            "每月 ${t.dayOfMonth ?: 1} 号 ${(m / 60).toString().padStart(2, '0')}:${(m % 60).toString().padStart(2, '0')}"
+        }
+
         ScheduleKind.CRON -> "cron: ${t.cronExpr}"
         ScheduleKind.ONCE -> "一次性"
         null -> "未配置"
@@ -208,7 +220,10 @@ private fun TriggerEditorDialog(
     val type = typeOptions[typeIndex]
 
     // --- schedule fields ---
-    val scheduleKinds = listOf(ScheduleKind.INTERVAL, ScheduleKind.DAILY, ScheduleKind.CRON, ScheduleKind.ONCE)
+    val scheduleKinds = listOf(
+        ScheduleKind.INTERVAL, ScheduleKind.DAILY, ScheduleKind.WEEKLY,
+        ScheduleKind.MONTHLY, ScheduleKind.CRON, ScheduleKind.ONCE,
+    )
     var kindIndex by remember(existing) {
         mutableStateOf(scheduleKinds.indexOf(existing?.scheduleKind ?: ScheduleKind.INTERVAL).coerceAtLeast(0))
     }
@@ -217,6 +232,10 @@ private fun TriggerEditorDialog(
     var dailyHour by remember(existing) { mutableStateOf(((existing?.dailyMinuteOfDay ?: 540) / 60).toString()) }
     var dailyMinute by remember(existing) { mutableStateOf(((existing?.dailyMinuteOfDay ?: 540) % 60).toString()) }
     var cronExpr by remember(existing) { mutableStateOf(existing?.cronExpr ?: "0 9 * * *") }
+    var weeklyDayIndex by remember(existing) {
+        mutableStateOf((existing?.daysOfWeek ?: 1).coerceIn(1, 7) - 1)
+    }
+    var monthlyDay by remember(existing) { mutableStateOf((existing?.dayOfMonth ?: 1).coerceIn(1, 31).toString()) }
 
     // --- event conditions ---
     val cond = remember(existing) { TriggerConditionsJson.decode(existing?.conditionsJson) }
@@ -277,7 +296,7 @@ private fun TriggerEditorDialog(
                 TriggerType.SCHEDULE -> {
                     WindowDropdownPreference(
                         title = "调度方式",
-                        items = listOf("固定间隔", "每天定时", "Cron 表达式", "一次性"),
+                        items = listOf("固定间隔", "每天定时", "每周定时", "每月定时", "Cron 表达式", "一次性"),
                         selectedIndex = kindIndex,
                         onSelectedIndexChange = { kindIndex = it },
                     )
@@ -287,6 +306,35 @@ private fun TriggerEditorDialog(
                             Column(Modifier.weight(1f)) { NumberField("时（0-23）", dailyHour) { dailyHour = it } }
                             Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) { NumberField("分（0-59）", dailyMinute) { dailyMinute = it } }
+                        }
+
+                        ScheduleKind.WEEKLY -> {
+                            Row(Modifier.fillMaxWidth()) {
+                                Column(Modifier.weight(1f)) { NumberField("时（0-23）", dailyHour) { dailyHour = it } }
+                                Spacer(Modifier.width(8.dp))
+                                Column(Modifier.weight(1f)) { NumberField("分（0-59）", dailyMinute) { dailyMinute = it } }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            WindowDropdownPreference(
+                                title = "星期几",
+                                items = WEEKDAY_LABELS.map { it.second },
+                                selectedIndex = weeklyDayIndex,
+                                onSelectedIndexChange = { weeklyDayIndex = it },
+                            )
+                        }
+
+                        ScheduleKind.MONTHLY -> {
+                            Row(Modifier.fillMaxWidth()) {
+                                Column(Modifier.weight(1f)) { NumberField("时（0-23）", dailyHour) { dailyHour = it } }
+                                Spacer(Modifier.width(8.dp))
+                                Column(Modifier.weight(1f)) { NumberField("分（0-59）", dailyMinute) { dailyMinute = it } }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            NumberField("每月几号（1-31）", monthlyDay) { monthlyDay = it }
+                            Text(
+                                "当月没有该日期时，顺延到当月最后一天执行。",
+                                Modifier.padding(top = 4.dp),
+                            )
                         }
 
                         ScheduleKind.CRON -> {
@@ -418,6 +466,8 @@ private fun TriggerEditorDialog(
                             kind = kind,
                             intervalSeconds = intervalSeconds.toLongOrNull(),
                             dailyMinuteOfDay = (dailyHour.toIntOrNull() ?: 0) * 60 + (dailyMinute.toIntOrNull() ?: 0),
+                            daysOfWeek = weeklyDayIndex + 1,
+                            dayOfMonth = monthlyDay.toIntOrNull() ?: 1,
                             cronExpr = cronExpr,
                             conditions = TriggerConditions(
                                 contentRegex = contentRegex.ifBlank { null },
@@ -498,6 +548,8 @@ private fun buildTrigger(
     kind: ScheduleKind,
     intervalSeconds: Long?,
     dailyMinuteOfDay: Int,
+    daysOfWeek: Int,
+    dayOfMonth: Int,
     cronExpr: String,
     conditions: TriggerConditions,
     debounceSec: Long?,
@@ -525,7 +577,11 @@ private fun buildTrigger(
         TriggerType.SCHEDULE -> base.copy(
             scheduleKind = kind,
             intervalSeconds = intervalSeconds.takeIf { kind == ScheduleKind.INTERVAL },
-            dailyMinuteOfDay = dailyMinuteOfDay.takeIf { kind == ScheduleKind.DAILY }?.coerceIn(0, 1439),
+            dailyMinuteOfDay = dailyMinuteOfDay.takeIf {
+                kind == ScheduleKind.DAILY || kind == ScheduleKind.WEEKLY || kind == ScheduleKind.MONTHLY
+            }?.coerceIn(0, 1439),
+            daysOfWeek = daysOfWeek.takeIf { kind == ScheduleKind.WEEKLY }?.coerceIn(1, 7),
+            dayOfMonth = dayOfMonth.takeIf { kind == ScheduleKind.MONTHLY }?.coerceIn(1, 31),
             cronExpr = cronExpr.takeIf { kind == ScheduleKind.CRON },
             atEpochMillis = existing?.atEpochMillis?.takeIf { kind == ScheduleKind.ONCE },
             conditionsJson = null,

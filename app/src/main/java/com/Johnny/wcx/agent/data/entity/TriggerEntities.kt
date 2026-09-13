@@ -46,7 +46,12 @@ data class TriggerEntity(
     /** [ScheduleKind.CRON]: 5-field cron expression (local time). */
     val cronExpr: String? = null,
     /** [ScheduleKind.DAILY]: minutes past local midnight (0..1439). */
+    /** [ScheduleKind.DAILY]: minutes past local midnight (0..1439). */
     val dailyMinuteOfDay: Int? = null,
+    /** [ScheduleKind.WEEKLY]: ISO weekdays to fire on (1=Mon .. 7=Sun); empty = Monday only. */
+    val daysOfWeek: Int? = null,
+    /** [ScheduleKind.MONTHLY]: day of month (1..31); clamped to the month's last day when shorter. */
+    val dayOfMonth: Int? = null,
     /** [ScheduleKind.ONCE]: absolute fire time (epoch millis). */
     val atEpochMillis: Long? = null,
 

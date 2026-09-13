@@ -23,9 +23,18 @@ enum class TriggerScope { SESSION, GLOBAL }
  *  - [INTERVAL]: every `intervalSeconds` from the last fire (or from arm time on first run).
  *  - [DAILY]: once a day at `dailyMinuteOfDay` (minutes past local midnight, 0..1439).
  *  - [CRON]: a standard 5-field cron expression in `cronExpr` (local time).
+ *  - [WEEKLY]: on the `daysOfWeek` weekdays (ISO 1=Mon..7=Sun) at `dailyMinuteOfDay`.
+ *  - [MONTHLY]: on `dayOfMonth` (1..31) at `dailyMinuteOfDay`; in months without that day it falls
+ *    back to that month's last day, so "31" means the 31st, or the last day of shorter months.
  *  - [ONCE]: a single fire at `atEpochMillis`, then the trigger disables itself.
  */
-enum class ScheduleKind { INTERVAL, DAILY, CRON, ONCE }
+enum class ScheduleKind { INTERVAL, DAILY, WEEKLY, MONTHLY, CRON, ONCE }
+
+/** Weekday chips/summaries for [ScheduleKind.WEEKLY]; ISO numbering (1=Mon .. 7=Sun). */
+val WEEKDAY_LABELS: List<Pair<Int, String>> = listOf(
+    1 to "周一", 2 to "周二", 3 to "周三", 4 to "周四",
+    5 to "周五", 6 to "周六", 7 to "周日",
+)
 
 /** Which direction of message a [TriggerType.MESSAGE] trigger reacts to. */
 @Serializable

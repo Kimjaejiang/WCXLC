@@ -9,6 +9,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Calendar
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.milliseconds
@@ -108,17 +111,20 @@ class TriggerScheduler(
             now + secs * 1000
         }
 
-        ScheduleKind.DAILY -> {
-            val minuteOfDay = trigger.dailyMinuteOfDay?.takeIf { it in 0..1439 } ?: return null
-            val cal = Calendar.getInstance().apply {
-                timeInMillis = now
-                set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
-                set(Calendar.MINUTE, minuteOfDay % 60)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
+        ScheduleKind.DAILY -> nextDaily(trigger, now)
+
+        ScheduleKind.WEEKLY -> {
+            val day = trigger.daysOfWeek?.takeIf { it in 1..7 } ?: 1
+            nextOnMatchingDay(now, trigger.dailyMinuteOfDay, maxDaysAhead = 8) { date ->
+                date.dayOfWeek.value == day
             }
-            if (cal.timeInMillis <= now) cal.add(Calendar.DAY_OF_MONTH, 1)
-            cal.timeInMillis
+        }
+
+        ScheduleKind.MONTHLY -> {
+            val wanted = trigger.dayOfMonth?.takeIf { it in 1..31 } ?: 1
+            nextOnMatchingDay(now, trigger.dailyMinuteOfDay, maxDaysAhead = 63) { date ->
+                date.dayOfMonth == wanted.coerceAtMost(date.lengthOfMonth())
+            }
         }
 
         ScheduleKind.CRON -> {
@@ -132,5 +138,46 @@ class TriggerScheduler(
         }
 
         null -> null
+    }
+
+    /** [ScheduleKind.DAILY]: today at the configured time, else tomorrow. */
+    private fun nextDaily(trigger: TriggerEntity, now: Long): Long? {
+        val minuteOfDay = trigger.dailyMinuteOfDay?.takeIf { it in 0..1439 } ?: return null
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = now
+            set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
+            set(Calendar.MINUTE, minuteOfDay % 60)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        if (cal.timeInMillis <= now) cal.add(Calendar.DAY_OF_MONTH, 1)
+        return cal.timeInMillis
+    }
+
+    /**
+     * The next fire (epoch millis) at [minuteOfDay] on a day satisfying [matches], scanning from
+     * today up to [maxDaysAhead] days. Used by WEEKLY (<=7 days out) and MONTHLY (<=62 days out, the
+     * longest gap between two occurrences of the same day-of-month).
+     */
+    private fun nextOnMatchingDay(
+        now: Long,
+        minuteOfDayRaw: Int?,
+        maxDaysAhead: Int,
+        matches: (LocalDate) -> Boolean,
+    ): Long? {
+        val minuteOfDay = minuteOfDayRaw?.takeIf { it in 0..1439 } ?: return null
+        val zone = ZoneId.systemDefault()
+        var date = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        repeat(maxDaysAhead) {
+            if (matches(date)) {
+                val target = date.atStartOfDay(zone)
+                    .plusMinutes(minuteOfDay.toLong())
+                    .toInstant()
+                    .toEpochMilli()
+                if (target > now) return target
+            }
+            date = date.plusDays(1)
+        }
+        return null
     }
 }

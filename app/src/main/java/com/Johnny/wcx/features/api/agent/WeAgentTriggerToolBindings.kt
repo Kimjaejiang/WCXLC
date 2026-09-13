@@ -63,16 +63,18 @@ object WeAgentTriggerToolBindings {
 
     @AgentTool(
         name = "trigger-create-schedule",
-        description = "Create a scheduled trigger that fires a turn on a timer. scheduleKind is one of: interval (every intervalSeconds), daily (at dailyMinuteOfDay minutes past local midnight), cron (5-field cron in cronExpr, local time), once (single fire at atEpochMillis (absolute) or atRelative (relative, e.g. \"5m\", \"2h\", \"30s\")). By default (omit scope) it is bound to the CURRENT session and fires back into this same conversation; only pass scope='global' if the user explicitly wants a new/separate conversation each fire. promptTemplate is the instruction the agent runs when it fires.",
+        description = "Create a scheduled trigger that fires a turn on a timer. scheduleKind is one of: interval (every intervalSeconds), daily (at dailyMinuteOfDay minutes past local midnight), weekly (on daysOfWeek, ISO 1=Mon..7=Sun, at dailyMinuteOfDay), monthly (on dayOfMonth 1..31 at dailyMinuteOfDay, falling back to that month's last day when shorter), cron (5-field cron in cronExpr, local time), once (single fire at atEpochMillis (absolute) or atRelative (relative, e.g. \"5m\", \"2h\", \"30s\")). By default (omit scope) it is bound to the CURRENT session and fires back into this same conversation; only pass scope='global' if the user explicitly wants a new/separate conversation each fire. promptTemplate is the instruction the agent runs when it fires.",
         sideEffect = true,
         group = GROUP,
     )
     suspend fun triggerCreateSchedule(
         @AgentToolParam("Human-readable trigger name") name: String,
         @AgentToolParam("Prompt the agent runs when the trigger fires") promptTemplate: String,
-        @AgentToolParam("Schedule kind: interval | daily | cron | once") scheduleKind: String,
+        @AgentToolParam("Schedule kind: interval | daily | weekly | monthly | cron | once") scheduleKind: String,
         @AgentToolParam("interval: seconds between fires") intervalSeconds: Long?,
-        @AgentToolParam("daily: minutes past local midnight (0..1439)") dailyMinuteOfDay: Int?,
+        @AgentToolParam("daily/weekly/monthly: minutes past local midnight (0..1439)") dailyMinuteOfDay: Int?,
+        @AgentToolParam("weekly: ISO weekday 1=Mon .. 7=Sun") daysOfWeek: Int?,
+        @AgentToolParam("monthly: day of month 1..31 (clamped to the month's last day when shorter)") dayOfMonth: Int?,
         @AgentToolParam("cron: 5-field cron expression (local time)") cronExpr: String?,
         @AgentToolParam("once: absolute fire time in epoch millis") atEpochMillis: Long?,
         @AgentToolParam("once: relative fire time, e.g. \"5m\", \"2h\", \"30s\", \"1d\" (alternative to atEpochMillis)") atRelative: String?,
@@ -81,9 +83,11 @@ object WeAgentTriggerToolBindings {
         val kind = when (scheduleKind.lowercase()) {
             "interval" -> ScheduleKind.INTERVAL
             "daily" -> ScheduleKind.DAILY
+            "weekly" -> ScheduleKind.WEEKLY
+            "monthly" -> ScheduleKind.MONTHLY
             "cron" -> ScheduleKind.CRON
             "once" -> ScheduleKind.ONCE
-            else -> return "Error: unknown scheduleKind '$scheduleKind' (use interval|daily|cron|once)"
+            else -> return "Error: unknown scheduleKind '$scheduleKind' (use interval|daily|weekly|monthly|cron|once)"
         }
         // Resolve absolute fire time: atRelative if provided, else fall back to atEpochMillis.
         val resolvedAtEpochMillis = when (kind) {
@@ -101,6 +105,14 @@ object WeAgentTriggerToolBindings {
         when (kind) {
             ScheduleKind.INTERVAL -> if (intervalSeconds ?: 0 <= 0) return "Error: interval requires intervalSeconds > 0"
             ScheduleKind.DAILY -> if (dailyMinuteOfDay ?: -1 !in 0..1439) return "Error: daily requires dailyMinuteOfDay in 0..1439"
+            ScheduleKind.WEEKLY -> {
+                if (dailyMinuteOfDay ?: -1 !in 0..1439) return "Error: weekly requires dailyMinuteOfDay in 0..1439"
+                if (daysOfWeek ?: 0 !in 1..7) return "Error: weekly requires daysOfWeek in 1..7 (1=Mon)"
+            }
+            ScheduleKind.MONTHLY -> {
+                if (dailyMinuteOfDay ?: -1 !in 0..1439) return "Error: monthly requires dailyMinuteOfDay in 0..1439"
+                if (dayOfMonth ?: 0 !in 1..31) return "Error: monthly requires dayOfMonth in 1..31"
+            }
             ScheduleKind.CRON -> if (cronExpr.isNullOrBlank()) return "Error: cron requires cronExpr"
             ScheduleKind.ONCE -> {
                 if (resolvedAtEpochMillis == null) return "Error: once requires atEpochMillis (absolute) or atRelative (relative, e.g. \"5m\")"
@@ -116,7 +128,11 @@ object WeAgentTriggerToolBindings {
         val trigger = baseTrigger(name, promptTemplate, TriggerType.SCHEDULE, resolvedScope, boundSession).copy(
             scheduleKind = kind,
             intervalSeconds = intervalSeconds.takeIf { kind == ScheduleKind.INTERVAL },
-            dailyMinuteOfDay = dailyMinuteOfDay.takeIf { kind == ScheduleKind.DAILY },
+            dailyMinuteOfDay = dailyMinuteOfDay.takeIf {
+                kind == ScheduleKind.DAILY || kind == ScheduleKind.WEEKLY || kind == ScheduleKind.MONTHLY
+            },
+            daysOfWeek = daysOfWeek.takeIf { kind == ScheduleKind.WEEKLY },
+            dayOfMonth = dayOfMonth.takeIf { kind == ScheduleKind.MONTHLY },
             cronExpr = cronExpr.takeIf { kind == ScheduleKind.CRON },
             atEpochMillis = resolvedAtEpochMillis.takeIf { kind == ScheduleKind.ONCE },
         )
@@ -326,13 +342,14 @@ object WeAgentTriggerToolBindings {
                 append(" kind=${t.scheduleKind}")
                 t.intervalSeconds?.let { append(" every ${it}s") }
                 t.dailyMinuteOfDay?.let { append(" at ${it / 60}:${(it % 60).toString().padStart(2, '0')}") }
+                t.daysOfWeek?.let { append(" on weekday $it") }
+                t.dayOfMonth?.let { append(" on day $it") }
                 t.cronExpr?.let { append(" cron='$it'") }
+                t.atEpochMillis?.let { append(" at $it") }
                 t.atEpochMillis?.let { append(" at $it") }
             }
 
             TriggerType.MESSAGE, TriggerType.SQL -> {
-                t.conditionsJson?.let { append(" conditions=$it") }
-                append(" buffer(debounce=${t.bufferDebounceMillis}ms,max=${t.bufferMaxEvents},wait=${t.bufferMaxWaitMillis}ms)")
                 if (t.cooldownMillis > 0) append(" cooldown=${t.cooldownMillis}ms")
             }
         }

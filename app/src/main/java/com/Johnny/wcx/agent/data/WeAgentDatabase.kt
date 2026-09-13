@@ -59,11 +59,12 @@ import com.Johnny.wcx.utils.fs.createDirsSafe
         TriggerEntity::class,
         ExternalServiceEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 9, to = 10), // adds external_services table
         AutoMigration(from = 10, to = 11), // adds messages.reasoningSignature, tool_calls.providerSignature
+        AutoMigration(from = 12, to = 13), // adds triggers.daysOfWeek / triggers.dayOfMonth
     ],
 )
 @TypeConverters(WeAgentConverters::class)
