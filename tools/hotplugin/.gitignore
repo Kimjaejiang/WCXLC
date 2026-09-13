@@ -1,0 +1,4 @@
+# 构建产物与发布包：由 publish-plugin.bat 生成，不入库。
+# 发布包体积虽小，但每次发布都会变，进仓库只会污染历史。
+build-publish/
+release/
