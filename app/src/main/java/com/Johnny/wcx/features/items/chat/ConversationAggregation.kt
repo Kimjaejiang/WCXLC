@@ -3517,45 +3517,11 @@ hookViewLongClickProbe()
             }
         }
         hookConversationListDraw()
-        // FunBox 同款：hook RecyclerView.Adapter.bindViewHolder（framework 基类方法，微信 adapter 不 override，
-        // 一定触发，覆盖微信主列表与归拢内部列表的 RecyclerView 行渲染）
-        runCatching {
-            val holderCls = Class.forName(
-                "androidx.recyclerview.widget.RecyclerView\$ViewHolder",
-                false, ClassLoaders.HOST
-            )
-            val adapterCls = Class.forName(
-                "androidx.recyclerview.widget.RecyclerView\$Adapter",
-                false, ClassLoaders.HOST
-            )
-            adapterCls.getMethod(
-                "bindViewHolder", holderCls, Int::class.javaPrimitiveType, java.util.List::class.java
-            ).hookAfterDirectly { tintHolder() }
-            runCatching {
-                adapterCls.getMethod(
-                    "bindViewHolder", holderCls, Int::class.javaPrimitiveType
-                ).hookAfterDirectly { tintHolder() }
-                WeLogger.i(TAG, "bindViewHolder(vh,int) androidx hook registered")
-                diagFile("bindViewHolder(vh,int) androidx registered")
-            }.onFailure { WeLogger.w(TAG, "hook androidx bindViewHolder(2-arg) failed", it) }
-            WeLogger.i(TAG, "bindViewHolder androidx hook registered")
-            diagFile("bindViewHolder androidx registered")
-        }.onFailure { WeLogger.w(TAG, "hook androidx bindViewHolder failed", it); diagFile("bindViewHolder androidx FAILED: $it") }
-        runCatching {
-            val holderCls = Class.forName(
-                "android.support.v7.widget.RecyclerView\$ViewHolder",
-                false, ClassLoaders.HOST
-            )
-            val adapterCls = Class.forName(
-                "android.support.v7.widget.RecyclerView\$Adapter",
-                false, ClassLoaders.HOST
-            )
-            adapterCls.getMethod(
-                "bindViewHolder", holderCls, Int::class.javaPrimitiveType, java.util.List::class.java
-            ).hookAfterDirectly { tintHolder() }
-            WeLogger.i(TAG, "bindViewHolder support hook registered")
-            diagFile("bindViewHolder support registered")
-        }.onFailure { WeLogger.w(TAG, "hook support bindViewHolder failed", it); diagFile("bindViewHolder support FAILED: $it") }
+        // 不再注册 RecyclerView.Adapter.bindViewHolder hook：8.0.78 起宿主把 RecyclerView 的
+        // ViewHolder/Adapter 扁平化改名（ViewHolder -> androidx.recyclerview.widget.k3，Adapter -> f2），
+        // 内嵌名 RecyclerView$ViewHolder 与映射名 $b 在 dex 中都不存在，Class.forName 必然抛 CNFE；
+        // 且 ViewHolder 没有 getItemView()（itemView 是字段）。行绑定必然调用 setText，
+        // 该场景已由 hookTextViewSetText + getView/dispatchDraw 覆盖，故此处注册是死代码。
     }
 
 
@@ -4245,24 +4211,6 @@ hookViewLongClickProbe()
 
 
 
-    private fun XC_MethodHook.MethodHookParam.tintHolder() {
-        val holder = args?.getOrNull(0) ?: return
-        val itemView = runCatching {
-            holder.javaClass.getMethod("getItemView").invoke(holder) as? View
-        }.getOrNull() ?: return
-        val root = itemView as? ViewGroup ?: return
-        WeLogger.i(TAG, "bindViewHolder fired: root=${root.javaClass.simpleName} children=${root.childCount}")
-        diagFile("bindViewHolder fired: ${root.javaClass.simpleName} children=${root.childCount}")
-        tintMentionLabels(root, "bind")
-        markVirtualRow(root)
-        root.post {
-            WeLogger.i(TAG, "bindViewHolder post fired: root=${root.javaClass.simpleName}")
-        diagFile("bindViewHolder post fired: ${root.javaClass.simpleName}")
-            tintMentionLabels(root, "post")
-            markVirtualRow(root)
-        }
-    }
-
     private fun tintMention(text: String, ctx: Context?): CharSequence? {
         // 「对话归拢摘要颜色」总开关：关闭时不注入彩色 span，恢复微信默认灰色。
         if (!WePrefs.getBoolOrFalse(ConversationAggregationColors.ENABLED_PREF_KEY)) return null
@@ -4314,20 +4262,6 @@ hookViewLongClickProbe()
             WeLogger.i(TAG, "execSQL hook registered")
             diagFile("execSQL hook registered")
         }.onFailure { WeLogger.w(TAG, "hook execSQL failed", it) }
-    }
-
-    private val methodRecyclerOnBind by dexMethod(allowFailure = true, allowMultiple = true) {
-        matcher {
-            name = "onBindViewHolder"
-            paramTypes("androidx.recyclerview.widget.RecyclerView\$ViewHolder", "int")
-        }
-    }
-
-    private val methodSupportRecyclerOnBind by dexMethod(allowFailure = true, allowMultiple = true) {
-        matcher {
-            name = "onBindViewHolder"
-            paramTypes("android.support.v7.widget.RecyclerView\$ViewHolder", "int")
-        }
     }
 
     private val methodTextViewSetText by dexMethod(allowFailure = true, allowMultiple = true) {

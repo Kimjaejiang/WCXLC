@@ -1176,22 +1176,24 @@ object WeMessageApi : ApiFeature(), IResolveDex {
             if (tgt == null) { diag("sendtext no-class"); return false }
             diag("sendtext target=" + tgt.name)
             var netScene: Any? = null
+            var lastErr: Throwable? = null
             // 8.0.78 二版：5 参构造移除，真实类 v51.r0 提供两个 6 参形态，逐个尝试。
             netScene = runCatching {
                 tgt.getConstructor(String::class.java, String::class.java, Integer.TYPE, Integer.TYPE, Any::class.java, String::class.java)
                     .newInstance(toUser, text, 1, 0, null, "")
-            }.getOrNull()
+            }.onFailure { lastErr = it }.getOrNull()
             if (netScene == null) {
-                diag("sendtext ctor-obj6 failed, try long6")
+                // 构造函数体内部抛出的异常会被 newInstance 包成 InvocationTargetException，真正原因在 cause 上
+                diag("sendtext ctor-obj6 failed, try long6 cause=" + (lastErr?.cause ?: lastErr))
                 netScene = runCatching {
                     tgt.getConstructor(String::class.java, String::class.java, Integer.TYPE, Integer.TYPE, java.lang.Long.TYPE, String::class.java)
                         .newInstance(toUser, text, 1, 0, 0L, "")
-                }.getOrNull()
+                }.onFailure { lastErr = it }.getOrNull()
                 if (netScene != null) diag("sendtext ctor-long6 ok")
             } else {
                 diag("sendtext ctor-obj6 ok")
             }
-            if (netScene == null) { diag("sendtext all-ctor-failed"); return false }
+            if (netScene == null) { diag("sendtext all-ctor-failed cause=" + (lastErr?.cause ?: lastErr)); return false }
             WeNetSceneApi.sendNetScene(netScene)
             diag("sendtext queued netScene=" + netScene.javaClass.name)
             true

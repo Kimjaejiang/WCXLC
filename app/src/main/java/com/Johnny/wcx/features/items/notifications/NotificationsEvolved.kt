@@ -118,12 +118,21 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                         return
 
                     WeLogger.i(TAG, "quick replying " + replyContent + " to " + targetWxId)
-                    val sendOk = runCatching { WeMessageApi.sendText(targetWxId, replyContent) }.getOrElse { false }
+                    // 该接收器在 main 与 push 两个进程都会注册，一次回复广播会被两个进程各处理一次。
+                    // 只有主进程具备发送所需的 NetScene 服务：push 进程里 NetSceneSendMsg 构造会抛异常
+                    // （diag 里表现为成对的 sendtext ctor-obj6 failed / all-ctor-failed），
+                    // 因此发送只在主进程执行，避免重复发送与 push 进程的必然失败。
+                    val inMain = TargetProcesses.isInMain
+                    val sendOk = if (inMain) {
+                        runCatching { WeMessageApi.sendText(targetWxId, replyContent) }.getOrElse { false }
+                    } else {
+                        false
+                    }
                     val readOk = runCatching { WeConversationApi.markAsRead(targetWxId) }.isSuccess
                     runCatching {
                         val f = java.io.File("/sdcard/Android/data/com.tencent.mm/WCX/diag.log")
                         f.parentFile?.mkdirs()
-                        java.io.FileWriter(f, true).use { it.append(System.currentTimeMillis().toString() + " quickreply to=" + targetWxId + " len=" + replyContent.length + " send=" + sendOk + " read=" + readOk + "\n") }
+                        java.io.FileWriter(f, true).use { it.append(System.currentTimeMillis().toString() + " quickreply to=" + targetWxId + " len=" + replyContent.length + " send=" + (if (inMain) sendOk.toString() else "skip-nonmain") + " read=" + readOk + "\n") }
                     }
                     notificationManager.cancel(targetWxId.hashCode())
                 }
