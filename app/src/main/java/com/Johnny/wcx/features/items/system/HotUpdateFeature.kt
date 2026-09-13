@@ -178,6 +178,8 @@ private fun com.Johnny.wcx.ui.utils.ShowComposeDialogScope.HotUpdateDialog() {
                 is HotState.Ready -> {
                     Button(onClick = {
                         HotUpdateManager.restartHost { ok, msg ->
+                            // 重启指令发出后本进程马上会被 kill，成功与否无从得知，
+                            // 因此这里只在「指令压根没发出去」时报错（通常是没给微信 root）。
                             if (!ok) showToast("重启失败：${msg ?: "未知错误"}")
                         }
                     }) { Text("重启微信生效") }

@@ -522,24 +522,58 @@ object HotUpdateManager {
     /**
      * 强杀微信并重新拉起 LauncherUI，使新插件生效。
      *
-     * 需要 root（走 libsu）。失败通过回调回报，UI 不静默。
+     * 需要 root（走 libsu）。
+     *
+     * 注意本函数**运行在微信进程内**（热更新入口是微信里的设置页），这决定了
+     * 命令的写法：不能用 `Shell.cmd("am force-stop …", "am start …").submit{}`。
+     * 那种写法是 MainActivity（模块自己的进程）里的形态，那里杀微信 ≠ 杀自己，
+     * 回调能正常回来；而在这里 `am force-stop com.tencent.mm` 杀的就是本进程，
+     * 连同 libsu 的 shell 子进程一起被 SIGKILL，第二条命令根本没机会执行，
+     * submit 的回调也永远不会触发 —— 对外表现就是「重启微信失败」。
+     *
+     * 因此命令必须**脱离本进程**执行：`nohup sh -c '…' &` 让 sh 成为会话首进程的
+     * 孤儿后代，微信被杀后由 init 收养，继续把 force-stop → start 跑完。
+     * 前后各留 sleep 是给 am 一点时间：force-stop 是异步的，
+     * 立刻 start 可能被仍在退出的旧进程吃掉。
+     *
+     * 回报语义随之改变：本进程即将被杀，无法得知重启是否真的成功，
+     * 所以只回报「指令已发出」。拿不到结果比假装有结果更诚实。
      */
     fun restartHost(onResult: (Boolean, String?) -> Unit) {
+        // 先问 libsu 有没有 root：没有就直接给明确原因，而不是等 shell 命令失败
+        // 再解析 stderr。isAppGrantedRoot 返回 null 表示 libsu 未初始化（此时
+        // 视为未知，放行让 Shell 自己去试）。
+        if (Shell.isAppGrantedRoot() == false) {
+            WeLogger.w(TAG, "restart refused: no root granted to ${PackageNames.WECHAT}")
+            onResult(false, "微信未获得 root 权限，请先在 KernelSU 中授权")
+            return
+        }
+
         val userId = android.os.Process.myUid() / 100000
         val hostPkg = PackageNames.WECHAT
-        runCatching {
-            Shell.cmd(
-                "am force-stop --user $userId $hostPkg",
-                "am start --user $userId -n $hostPkg/${PackageNames.WECHAT}.ui.LauncherUI"
-            ).submit { result ->
+        val script = "sleep 1; am force-stop --user $userId $hostPkg; " +
+                "sleep 2; am start --user $userId -n $hostPkg/${PackageNames.WECHAT}.ui.LauncherUI"
+
+        val launched = runCatching {
+            // exec() 而非 submit{}：要在本进程被杀之前确认命令已交出去。
+            // 这里等的是 sh 把 nohup 派生出去就返回，不会等到重启跑完。
+            Shell.cmd("nohup sh -c '$script' >/dev/null 2>&1 &").exec()
+        }
+
+        launched.fold(
+            onSuccess = { result ->
                 if (result.isSuccess) {
+                    WeLogger.i(TAG, "restart command dispatched: $script")
                     onResult(true, null)
                 } else {
-                    val msg = (result.out + result.err).joinToString("\n").ifBlank { "无法启动微信" }
+                    val msg = (result.out + result.err).joinToString("\n")
+                        .ifBlank { "无法执行重启命令（是否已授予微信 root？）" }
+                    WeLogger.w(TAG, "restart command rejected: $msg")
                     onResult(false, msg)
                 }
-            }
-        }.onFailure { onResult(false, it.message ?: it.javaClass.simpleName) }
+            },
+            onFailure = { onResult(false, it.message ?: it.javaClass.simpleName) }
+        )
     }
 
     // -------------------------------------------------------------------------
