@@ -55,6 +55,14 @@ object StartupAgent {
             return
         }
 
+        // 宿主版本门禁：微信低于最低支持版本时不注入。
+        // 低版本上微信的类名/方法签名与适配目标不一致，强上往往直接崩溃，
+        // 不如不加载任何 hook，让微信照常启动并由 UI 提示升级。
+        if (!HostVersionGate.check()) {
+            WeLogger.w(TAG, "host version gate not passed, skip all feature loading")
+            return
+        }
+
         WeLauncher.init(application)
 
         runCatching {

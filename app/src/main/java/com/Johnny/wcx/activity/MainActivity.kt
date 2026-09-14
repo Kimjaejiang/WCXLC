@@ -63,7 +63,7 @@ import com.topjohnwu.superuser.Shell
 import com.Johnny.wcx.BuildConfig
 import com.Johnny.wcx.constants.PackageNames
 import com.Johnny.wcx.constants.Preferences
-import com.Johnny.wcx.constants.WeChatVersions
+import com.Johnny.wcx.loader.startup.HostVersionGate
 import com.Johnny.wcx.ui.content.Button
 import com.Johnny.wcx.ui.content.DefaultColumn
 import com.Johnny.wcx.ui.content.IconButton
@@ -169,8 +169,11 @@ class MainActivity : ComponentActivity() {
             // 框架门禁结果由注入侧写入，主进程读到即说明上次注入被判为免 root 框架。
             val gatePassed by remember { mutableStateOf(Preferences.frameworkGatePassed()) }
             val gateReason by remember { mutableStateOf(Preferences.frameworkGateReason()) }
+            // 宿主版本门禁同理：注入侧发现微信低于最低支持版本时也会跳过加载。
+            val hostPassed by remember { mutableStateOf(Preferences.hostGatePassed()) }
+            val hostReason by remember { mutableStateOf(Preferences.hostGateReason()) }
 
-            return remember(isHookEnabled, xposedService, gatePassed) {
+            return remember(isHookEnabled, xposedService, gatePassed, hostPassed) {
                 // 门禁未过时优先展示拒绝原因：此时功能确实没加载，
                 // 显示"已激活"会让用户以为在正常工作。
                 if (!gatePassed) {
@@ -178,6 +181,16 @@ class MainActivity : ComponentActivity() {
                         isActivated = false,
                         title = "不支持的环境",
                         desc = gateReason.ifBlank { "本模块仅支持 LSPosed，免 root 框架无法正常运行。" },
+                        color = Color(0xFFF44336)
+                    )
+                }
+
+                // 版本不达标时同样是"功能没加载"，不能报"已激活"。
+                if (!hostPassed) {
+                    return@remember ActivationState(
+                        isActivated = false,
+                        title = "微信版本过低",
+                        desc = hostReason.ifBlank { HostVersionGate.UPDATE_HINT },
                         color = Color(0xFFF44336)
                     )
                 }
@@ -350,7 +363,7 @@ class MainActivity : ComponentActivity() {
                             formatEpoch(BuildConfig.BUILD_TIMESTAMP, true)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        InfoItem("已适配微信版本", getAdaptedWeChatVersions())
+                        InfoItem("推荐微信版本", getAdaptedWeChatVersions())
                         Spacer(modifier = Modifier.height(8.dp))
                         InfoItem("当前微信版本", getWeChatVersion())
                     }
@@ -687,31 +700,15 @@ class MainActivity : ComponentActivity() {
         }.getOrDefault("未安装")
     }
 
+    /**
+     * 「推荐微信版本」的展示文案。
+     *
+     * 早期版本这里是扫描 WeChatVersions 常量表拼出「完整支持 X 及以上」，
+     * 但那份常量表停留在 8.0.76，拼出来的结论与实际的适配目标不一致。
+     * 支持范围现在由 [HostVersionGate] 统一承载，这里只做展示。
+     */
     private fun getAdaptedWeChatVersions(): String {
-        return try {
-            val versions = WeChatVersions::class.java.declaredFields
-                .mapNotNull { field ->
-                    val name = field.name
-                    if (name.startsWith("MM_")) {
-                        val parts = name.removePrefix("MM_").split("_")
-                        if (parts.size >= 3) {
-                            "${parts[0]}.${parts[1]}.${parts[2]}"
-                        } else null
-                    } else null
-                }
-                .sortedWith(compareBy(
-                    { it.split(".").getOrNull(0)?.toIntOrNull() ?: 0 },
-                    { it.split(".").getOrNull(1)?.toIntOrNull() ?: 0 },
-                    { it.split(".").getOrNull(2)?.toIntOrNull() ?: 0 }
-                ))
-            if (versions.isNotEmpty()) {
-                "完整支持 8.0.77 及以上版本 · 8.0.77 以下不适配，请先升级微信"
-            } else {
-                "推荐 8.0.77 及以上版本，8.0.77 以下不适配，请先升级微信"
-            }
-        } catch (e: Exception) {
-            "推荐 8.0.77 及以上版本，8.0.77 以下不适配，请先升级微信"
-        }
+        return "推荐 ${HostVersionGate.MIN_VERSION_TEXT} 及以上"
     }
 
     @Composable

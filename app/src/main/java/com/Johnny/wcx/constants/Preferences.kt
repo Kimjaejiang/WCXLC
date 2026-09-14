@@ -29,6 +29,11 @@ object Preferences {
     const val FRAMEWORK_GATE_REASON = "framework_gate_reason"
     const val FRAMEWORK_DETECTED = "framework_detected"
 
+    // 宿主（微信）版本门禁结果：低于最低支持版本时不注入
+    const val HOST_GATE_PASSED = "host_gate_passed"
+    const val HOST_GATE_REASON = "host_gate_reason"
+    const val HOST_DETECTED = "host_detected"
+
     var verboseLog by prefOption(VERBOSE_LOG, false)
     var noDexResolve by prefOption(NO_DEX_RESOLVE, false)
     var showStartupToast by prefOption(SHOW_STARTUP_TOAST, false)
@@ -58,5 +63,22 @@ object Preferences {
     /** 检测到的框架描述，用于排查。 */
     fun frameworkDetected(): String =
         runCatching { WePrefs.getStringOrDef(FRAMEWORK_DETECTED, "") }.getOrDefault("")
+
+    /**
+     * 上次注入是否通过了宿主版本门禁（微信版本不低于最低支持版本）。
+     *
+     * 与 [frameworkGatePassed] 同理，默认 true：还没被注入过的首次启动
+     * 不该被当成「版本不支持」。只有注入侧明确写过 false 才算拒绝。
+     */
+    fun hostGatePassed(): Boolean =
+        runCatching { WePrefs.getBoolOrDef(HOST_GATE_PASSED, true) }.getOrDefault(true)
+
+    /** 版本门禁拒绝原因，未拒绝时为空串。 */
+    fun hostGateReason(): String =
+        runCatching { WePrefs.getStringOrDef(HOST_GATE_REASON, "") }.getOrDefault("")
+
+    /** 检测到的宿主版本描述，用于排查。 */
+    fun hostDetected(): String =
+        runCatching { WePrefs.getStringOrDef(HOST_DETECTED, "") }.getOrDefault("")
 
 }
