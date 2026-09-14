@@ -169,6 +169,7 @@ private fun HideContacts.installWrapperHook() {
     }
     methodSqliteWrapperRawQuery.hookBefore {
         val sql = args.firstOrNull() as? String ?: return@hookBefore
+
         val rewritten = rewriteWrapperSql(sql) ?: return@hookBefore
         args[0] = rewritten
     }

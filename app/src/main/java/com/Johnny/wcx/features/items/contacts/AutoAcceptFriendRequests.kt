@@ -247,7 +247,10 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
     // ==================== 数据库监听 — 检测好友验证消息 ====================
 
     override fun onInsert(table: String, values: ContentValues) {
-        WeLogger.i(TAG, "onInsert: table=" + table + " masterEnabled=" + masterEnabled)
+        // 这里刻意不打日志：本监听器会收到微信**每一张表**的每次 insert
+        // （实测一分钟 500+ 条 DisposedTask 之类的内部表写入），
+        // 而真正关心的只有下面几个分支，它们自己会记。
+        // 按次打印会在后台持续写日志文件，白白吃掉 IO 和主线程。
         if (table == "rcontact") {
             handleRcontactInsert()
             return

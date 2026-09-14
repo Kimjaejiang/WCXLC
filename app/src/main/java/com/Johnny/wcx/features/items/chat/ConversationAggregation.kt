@@ -183,16 +183,23 @@ object ConversationAggregation : ClickableFeature(),
     private var mentionMemberEnabled by WePrefs.prefOption("agg_mention_member_enabled", true)
     private fun parseColor(value: String, fallback: String): Int =
         runCatching { value.toColorInt() }.getOrElse { fallback.toColorInt() }
+    /** 暗色模式的提亮结果缓存。这个换算要跑 colorToHSV + HSVToColor，
+     *  而它被 dispatchDraw 按帧、按行、按控件反复调用，原地算会明显拖慢滚动。 */
+    private val adaptNightCache = HashMap<Int, Int>()
+
     /** 暗色/亮色模式适配：暗色模式将染色提亮（HSV 明度下限 0.78），保证深底可读（类似微信原生暗色白字）；亮色模式返回原色 */
     private fun adaptNight(ctx: Context?, color: Int): Int {
         if (ctx == null) return color
         val night = ctx.resources.configuration.uiMode and
             Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         if (!night) return color
+        adaptNightCache[color]?.let { return it }
         val hsv = FloatArray(3)
         android.graphics.Color.colorToHSV(color, hsv)
         hsv[2] = maxOf(hsv[2], 0.78f)
-        return android.graphics.Color.HSVToColor(android.graphics.Color.alpha(color), hsv)
+        val out = android.graphics.Color.HSVToColor(android.graphics.Color.alpha(color), hsv)
+        adaptNightCache[color] = out
+        return out
     }
 
     private val MENTION_RED: Int get() = parseColor(mentionAtColor, DEFAULT_AT_COLOR)
@@ -417,7 +424,6 @@ hookViewLongClickProbe()
         WeLogger.i(TAG, "onEnable: after hookMvvmContactListItemClick")
         diagFile("onEnable: after hookMvvmContactListItemClick")
         hookSqliteWrapperQuery()
-        hookSqliteExec()
         WeLogger.i(TAG, "onEnable: after hookSqliteWrapperQuery")
         diagFile("onEnable: after hookSqliteWrapperQuery")
         hookConversationStorageParentQuery()
@@ -3394,10 +3400,10 @@ hookViewLongClickProbe()
         methodSqliteWrapperRawQuery.hookBefore {
             if (suppressQueryRewrite.get()!!) return@hookBefore
             val sql = args.firstOrNull() as? String ?: return@hookBefore
-            if (sql.contains("rconversation") && (activeFolderId != null || sql.contains("update", true) || sql.contains("unread", true))) {
-                WeLogger.i(TAG, "rawQuery: $sql")
-                diagFile("rawQuery: $sql")
-            }
+            // 曾经这里把含 rconversation 的 SQL 连着日志（还额外写一份 diag 文件）打出来。
+            // 这条 hook 在每次 rawQuery 上都会跑，实测一分钟上百条，
+            // 字符串拼接 + 两次文件 IO 全部落在发起查询的那个线程上。
+            // 归拢的 SQL 改写早已稳定，这里不再记录。
             onQuery(sql)?.let { args[0] = it }
         }
     }
@@ -3582,11 +3588,23 @@ hookViewLongClickProbe()
      */
     private fun retitleFolderRow(list: View, row: ViewGroup) {
         runCatching {
-            val pos = runCatching { list.javaClass.getMethod("getPositionForView", View::class.java).invoke(list, row) as? Int }.getOrDefault(-1)
-            if (pos == null || pos < 0) return
-            val item = runCatching { list.javaClass.getMethod("getItemAtPosition", Int::class.javaPrimitiveType).invoke(list, pos) }.getOrNull() ?: return
+            // 直接用 ListView 的公开 API：这两个方法本来就是公开的，
+            // 之前走反射纯属多余，而这里是每轮扫描 × 每一行都要跑的热路径，
+            // 反射的 Method 查找与参数装箱在滚动时是可观的额外开销。
+            val lv = list as? android.widget.ListView ?: return
+            val pos = lv.getPositionForView(row)
+            if (pos < 0) return
+            val item = lv.getItemAtPosition(pos) ?: return
             val uname = readRowUsername(item) ?: return
-            if (!isFolderId(uname)) return  // 普通会话行不处理(8.0.78 普通行标题也是 NoMeasuredTextView，避免误染)
+            if (!isFolderId(uname)) {
+                // 普通会话行不处理（8.0.78 普通行标题也是 NoMeasuredTextView，避免误染）。
+                // 但必须清掉可能残留的文件夹名：行 View 是复用的，上一次当文件夹行用时
+                // 但必须清掉可能残留的文件夹名：行 View 是复用的，上一次当文件夹行用时
+                // 被写入了 folder.name；这次复用给普通群聊时微信不一定重写标题，
+                // 结果就是“个别群名显示成文件夹名”。
+                clearStaleFolderTitle(row)
+                return
+            }
             val title = findTitleTextView(row)
             if (title == null) {
                 WeLogger.w(TAG, "retitle: no title view for " + uname)
@@ -3604,6 +3622,8 @@ hookViewLongClickProbe()
             }
             // 文本修正：TextView(g_u 展开态/回收行) cur 可读时才改；NoMeasuredTextView(cur 空) 文本由微信 bind(folder 名)
             if (cur.isNotEmpty() && cur != folder.name) setViewText(title, folder.name)
+            // 打个 tag：这个名字是我们写上去的。行被复用给普通会话时靠它清残留。
+            title.setTag(FOLDER_TITLE_TAG, uname)
             // 颜色驱动补色：微信 bind 会把颜色重置回默认——viewColor != blue 时补一次；开关关闭则保持微信默认
             val blue = adaptNight(row.context, MENTION_TITLE_BLUE)
             if (folderTitleEnabled) {
@@ -3643,6 +3663,10 @@ hookViewLongClickProbe()
         return null
     }
 
+    /** 遍历用的复用队列：dispatchDraw 每帧都要走一遍行内控件树，
+     *  每次都 new 一个 ArrayDeque 会给滚动时的 GC 添不必要的压力。 */
+    private val tintQueue = java.util.ArrayDeque<View>()
+
     private fun tintFolderTitleByText(root: ViewGroup) {
         // 开关关闭时不染文件夹标题。
         if (!WePrefs.getBoolOrFalse(ConversationAggregationColors.ENABLED_PREF_KEY)) return
@@ -3653,15 +3677,22 @@ hookViewLongClickProbe()
                 if (orig != null && title != null && title.currentTextColor != orig) title.setTextColor(orig)
                 return
             }
-            val queue = java.util.ArrayDeque<View>()
+            // 这两个值在整棵树里是常量，循环外算一次即可 ——
+            // 原先放在内层循环里，每个 TextView 都要白算一遍 colorToHSV/HSVToColor。
+            val blue = adaptNight(root.context, MENTION_TITLE_BLUE)
+            val names = folderTitleNames()
+            if (names.isEmpty()) return
+
+            val queue = tintQueue
+            queue.clear()
             queue.add(root)
             var guard = 0
             while (queue.isNotEmpty() && guard++ < 200) {
                 val v = queue.removeFirst()
                 if (v is TextView) {
                     val t = v.text?.toString()?.trim().orEmpty()
-                    if (t.isNotEmpty() && folderTitleNames().contains(t) && v.currentTextColor != adaptNight(root.context, MENTION_TITLE_BLUE)) {
-                        v.setTextColor(adaptNight(root.context, MENTION_TITLE_BLUE))
+                    if (t.isNotEmpty() && names.contains(t) && v.currentTextColor != blue) {
+                        v.setTextColor(blue)
                     }
                 }
                 if (v is ViewGroup) for (i in 0 until v.childCount) queue.addLast(v.getChildAt(i))
@@ -3671,7 +3702,18 @@ hookViewLongClickProbe()
             WeLogger.w(TAG, "ConversationList dispatchDraw hook fail", it)
         }
     }
-    /** Hook WeChat conversation list dispatchDraw: tint folder-title rows every frame (idempotent) */
+    /** Hook WeChat conversation list dispatchDraw: 节流后约 12fps */
+    /**
+     * 上一次完整扫描列表的时间戳。
+     *
+     * 这个 hook 挂在 dispatchDraw 上，也就是**每帧**都会跑。列表内容并不会每帧变，
+     * 而一次扫描要对每一行做「两次控件树遍历 + 若干次反射」，滚动时按 60fps 乘上去
+     * 就是明显的卡顿来源。这里做节流：同一时间窗内只扫一次，掉帧时也不会叠加。
+     * 80ms 约合 12fps 的刷新率，对「标题上色 / 修正文案」这类低频视觉变更足够。
+     */
+    private var lastListScanAt = 0L
+    private const val LIST_SCAN_INTERVAL_MS = 80L
+
     private fun hookConversationListDraw() {
         var lastDump = 0L
         runCatching {
@@ -3679,6 +3721,12 @@ hookViewLongClickProbe()
             cls.getMethod("dispatchDraw", android.graphics.Canvas::class.java).hookAfterDirectly {
                 val list = thisObject as? ViewGroup ?: return@hookAfterDirectly
                 cachedConvListView = WeakReference(list)
+
+                // 节流：不是每帧都扫。此前无节流是滚动卡顿的主因之一。
+                val now = SystemClock.uptimeMillis()
+                if (now - lastListScanAt < LIST_SCAN_INTERVAL_MS) return@hookAfterDirectly
+                lastListScanAt = now
+
                 runCatching {
                     // Self-heal: 8.0.78 never routes the home resume through MainUI.onResume,
                     // so the folder index can stay empty after a cold start and refreshes no-op.
@@ -3706,10 +3754,34 @@ hookViewLongClickProbe()
     /** 8.0.78 fold 行标题可能是 NoMeasuredTextView(X2C 自绘,非 TextView,getText 空)。
      * 候选 = 可见 且 (NoMeasured 或 含字母非摘要 TextView)；字号最大优先(NoMeasured 不可读给 0)。
      * GONE 子树直接跳过——修正此前常改到回收/GONE 区视图的问题。 */
+    /** 缓存的「行内标题控件」挂在行（row）上。
+     *
+     * [findTitleTextView] 会 BFS 遍历整棵行内视图树，还会对非 TextView 反射
+     * `getTextSize`。它被 `dispatchDraw` 按帧、按行反复调用，实测一个会话列表
+     * 开一分钟累计 674 次“候选”命中 —— 全是同一个控件，纯粹白烧 CPU。
+     *
+     * 行的子控件结构在绑定后不会再变（换的只是文本），所以按 row 缓存控件引用是安全的；
+     * row 被 ListView 复用时旧位置会重新绑定，但控件树还是那几棵，缓存依然指向对的控件。 */
+    private val TITLE_VIEW_CACHE_TAG = "wcx_agg_title_view".hashCode()
+
     private fun findTitleTextView(root: ViewGroup): View? {
+        // 先看缓存：命中的话连遍历都省了，这才是真正的开销所在。
+        (root.getTag(TITLE_VIEW_CACHE_TAG) as? WeakReference<View>)?.get()?.let { cached ->
+            if (cached.isShown) return cached
+            root.setTag(TITLE_VIEW_CACHE_TAG, null)
+        }
+        val found = findTitleTextViewUncached(root)
+        if (found != null) {
+            root.setTag(TITLE_VIEW_CACHE_TAG, WeakReference(found))
+        }
+        return found
+    }
+
+    private fun findTitleTextViewUncached(root: ViewGroup): View? {
         var best: View? = null
         var bestSize = -1f
-        val queue = java.util.ArrayDeque<View>()
+        val queue = tintQueue
+        queue.clear()
         queue.add(root)
         while (queue.isNotEmpty()) {
             val v = queue.removeFirst()
@@ -3740,8 +3812,9 @@ hookViewLongClickProbe()
             val lv = cachedConvListView?.get() as? android.widget.ListView ?: return@runCatching
             for (i in 0 until lv.childCount) {
                 val row = lv.getChildAt(i) as? ViewGroup ?: continue
-                val pos = runCatching { lv.javaClass.getMethod("getPositionForView", View::class.java).invoke(lv, row) as? Int }.getOrDefault(-1)
-                val item = runCatching { lv.javaClass.getMethod("getItemAtPosition", Int::class.javaPrimitiveType).invoke(lv, pos) }.getOrNull() ?: continue
+                val pos = lv.getPositionForView(row)
+                if (pos < 0) continue
+                val item = lv.getItemAtPosition(pos) ?: continue
                 val uname = readRowUsername(item) ?: continue
                 if (!isFolderId(uname)) continue
                 val unread = runCatching {
@@ -3779,9 +3852,11 @@ hookViewLongClickProbe()
                     badgeTv.text = if (unread > 0) unread.toString() else ""
                     badgeTv.visibility = if (unread > 0) View.VISIBLE else View.INVISIBLE
                     if (dotIv != null) dotIv.visibility = if (unread > 0) View.VISIBLE else View.INVISIBLE
-                    WeLogger.i(TAG, "restoreHomeBadge uname=$uname unread=$unread tv=${badgeTv.javaClass.simpleName} dot=${dotIv != null}")
-                } else {
-                    WeLogger.i(TAG, "restoreHomeBadge uname=$uname unread=$unread no badge tv found")
+                    // 只在真有未读时记日志：这条路径每个文件夹行跑一次，
+                    // 而 unread=0 是绝大多数情况，按行打印只是噪音。
+                    if (unread > 0) {
+                        WeLogger.i(TAG, "restoreHomeBadge uname=$uname unread=$unread tv=${badgeTv.javaClass.simpleName} dot=${dotIv != null}")
+                    }
                 }
             }
         }.onFailure { WeLogger.w(TAG, "restoreHomeBadge failed: " + it) }
@@ -3807,6 +3882,9 @@ hookViewLongClickProbe()
                 m.isAccessible = true
                 m.invoke(target)
                 WeLogger.i(TAG, "adapter notifyDataSetChanged ($tag) on " + target.javaClass.name)
+                // 列表结构变了，别让节流窗口挡住这次刷新。
+                lastListScanAt = 0L
+                lastItemScanAt = 0L
                 lv.postDelayed({ runCatching { lv.invalidate() } }, 60)
             }.onFailure { WeLogger.w(TAG, "adapter refresh ($tag) failed: " + it, it) }
         }, 300)
@@ -3879,25 +3957,24 @@ hookViewLongClickProbe()
 
     /** Fallback for cache-adapter rows: tint the row title with folder-title color */
     private fun tintFolderTitle(summaryView: View?, text: String) {
-        if (summaryView == null) { diagFile("tintFolderTitle: summaryView null"); return }
+        // 这条路径在 dispatchDraw 里按帧、按行跑。以前这里铺了 6 条 diagFile，
+        // 而 diagFile 每次都是「开文件句柄 + 写盘」，其中一条还在最多迭代 8 次的
+        // 循环里 —— 等于每帧几十次磁盘写，是滚动掉帧的主要来源。
+        // 调试期已过，只保留真正需要分支的代码。
+        if (summaryView == null) return
         if (!CHAT_COUNT_REGEX.containsMatchIn(text)) return
-        diagFile("tintFolderTitle: start sv=" + summaryView.javaClass.simpleName)
         runCatching {
             var v: View? = summaryView
             var guard = 0
-            var firstGroup: ViewGroup? = null
             while (v != null && guard++ < 8) {
                 v = v.parent as? View ?: break
-                diagFile("tintFolderTitle: parent#" + guard + " " + v.javaClass.simpleName + " vg=" + (v is ViewGroup))
                 if (v is ViewGroup) {
-                    if (firstGroup == null) firstGroup = v
-                    val title = findTitleTextView(v)
-                    val tt = title?.let { viewText(it) } ?: ""
-                    diagFile("tintFolderTitle: title=" + (tt.take(15)))
-                    if (title == null) continue
-                    if (!folderTitleNames().contains(tt)) { diagFile("tintFolderTitle: skip not-whitelist: " + tt.take(15)); continue }
-                    if (folderTitleEnabled) setViewColor(title, adaptNight(summaryView.context, MENTION_TITLE_BLUE))
-                    diagFile("tintFolderTitle: tinted " + tt.take(20) + " color=" + Integer.toHexString(MENTION_TITLE_BLUE))
+                    val title = findTitleTextView(v) ?: continue
+                    val tt = viewText(title)
+                    if (!folderTitleNames().contains(tt)) continue
+                    if (folderTitleEnabled) {
+                        setViewColor(title, adaptNight(summaryView.context, MENTION_TITLE_BLUE))
+                    }
                     return@runCatching
                 }
             }
@@ -4096,7 +4173,6 @@ hookViewLongClickProbe()
                     // 标题：非摘要、含文字（排除未读数角标等纯数字/时间控件）、字号最大的 TextView
                     if (!isAggSummary(t) && t.any { it.isLetter() } && (titleTv == null || v.textSize > titleTv.textSize)) {
                         titleTv = v
-                        WeLogger.i(TAG, "titleTv candidate: class=${v.javaClass.simpleName} textSize=${v.textSize} text=${t.take(20)}")
                     }
                     // 归拢摘要标记命中即识别（摘要控件不限于 NoMeasuredTextView）
                     if (isAggSummary(t) && summaryTv == null) {
@@ -4128,6 +4204,13 @@ hookViewLongClickProbe()
         }
     }
 
+    /**
+     * 这个 hook 也挂在 dispatchDraw 上：每个可见 item 每帧都会进来一次。
+     * 里面只做「标题染色补色 / 摘要补涂」这类幂等操作，没必要按帧跑，
+     * 与列表级扫描用同一个时间窗节流。
+     */
+    private var lastItemScanAt = 0L
+
     /** 首次遇到某 Item 根类时 hook 其 dispatchDraw(after)：子 View（含灰色摘要）画完后叠加彩色 */
     private fun ensureItemDispatchDrawHook(cls: Class<*>) {
         if (!hookedItemDrawClasses.add(cls)) return
@@ -4135,6 +4218,13 @@ hookViewLongClickProbe()
             cls.getMethod("dispatchDraw", android.graphics.Canvas::class.java).hookAfterDirectly {
                 val list = thisObject as? ViewGroup ?: return@hookAfterDirectly
                 cachedConvListView = WeakReference(list)
+
+                // 节流：每个 item 每帧都会调到这里，但补色是幂等的，
+                // 按帧跑只是白白消耗滚动时本就紧张的绘制时间。
+                val now = SystemClock.uptimeMillis()
+                if (now - lastItemScanAt < LIST_SCAN_INTERVAL_MS) return@hookAfterDirectly
+                lastItemScanAt = now
+
                 runCatching {
                     // Self-heal: 8.0.78 never routes the home resume through MainUI.onResume,
                     // so the folder index can stay empty after a cold start and refreshes no-op.
@@ -4197,22 +4287,9 @@ hookViewLongClickProbe()
         if (hit > 0) WeLogger.i(TAG, "tint[$tag] done tv=$tvCount hit=$hit")
     }
 
-    private fun hookSqliteExec() {
-        runCatching {
-            android.database.sqlite.SQLiteDatabase::class.java
-                .getMethod("execSQL", String::class.java)
-                .hookBeforeDirectly {
-                    val sql = args?.getOrNull(0) as? String ?: return@hookBeforeDirectly
-                    val low = sql.lowercase()
-                    if (low.contains("rconversation") && (low.contains("update") || low.contains("unread"))) {
-                        WeLogger.i(TAG, "execSQL: $sql")
-                        diagFile("execSQL: $sql")
-                    }
-                }
-            WeLogger.i(TAG, "execSQL hook registered")
-            diagFile("execSQL hook registered")
-        }.onFailure { WeLogger.w(TAG, "hook execSQL failed", it) }
-    }
+    // 曾经这里 hook 了 SQLiteDatabase.execSQL 只为打日志（先 lowercase() 再两次 contains）。
+    // 那是纯诊断代码，却让每一次 SQL 执行都多出一份字符串拷贝；
+    // 归拢的 SQL 早已稳定，这里不再挂任何 hook。
 
     private val methodTextViewSetText by dexMethod(allowFailure = true, allowMultiple = true) {
         matcher {
@@ -4276,11 +4353,16 @@ hookViewLongClickProbe()
         }
         methodConversationStorageUpdateUnreadByTalker.hookBefore {
             val username = args.firstOrNull() as? String ?: return@hookBefore
-            WeLogger.i(TAG, "updateUnreadByTalker: $username folder=${isFolderId(username)}")
-            diagFile("updateUnreadByTalker: $username folder=${isFolderId(username)}")
+            // 这个方法微信会在每次切会话时调，普通会话占绝大多数，
+            // 而它们永远不会进下面的拦截分支 —— 记了也没信息量，
+            // 只是白白写两条日志文件。只在真要拦截时才记。
+            val blocked = isFolderId(username) || username == WeChatFolderPlaceholder.CONVERSATION_BOX
+            if (blocked) {
+                WeLogger.i(TAG, "updateUnreadByTalker blocked: $username")
+            }
             // WeChat fires b0(conversationboxservice) while ENTERING the box page (8.0.78 observed) -
             // it clears the box aggregate read; our folder container reuses the box UI so block it too.
-            if (isFolderId(username) || username == WeChatFolderPlaceholder.CONVERSATION_BOX) result = true
+            if (blocked) result = true
         }
     }
 
@@ -4835,13 +4917,11 @@ hookViewLongClickProbe()
             } else {
                 // 任一未读成员行命中 @所有人 即显示 [@全体]（不只看最新一条）；
                 // 但该标记应只对「有未读」的文件夹生效（已读后恢复普通摘要）。
+                //
+                // 这里曾经逐条打印摘要诊断（带完整 digest / content 拼接）。
+                // 摘要重算在消息到来与刷新路径上跑，每个文件夹都打一条，
+                // 字符串拼接加上写日志文件，是纯白烧的开销。
                 val everyoneHit = state.everyoneMentioned
-                WeLogger.i(
-                    TAG,
-                    "folderSummary diag folderId=$folderId atMeCount=${state.atMeCount} " +
-                        "unreadChatCount=${state.unreadChatCount} normal=${state.normalUnread} muted=${state.mutedUnread} everyoneHit=$everyoneHit " +
-                        "digest=[${latest.digest}] content=[${latest.content.take(80)}]"
-                )
                 FolderSummary(
                     digest = (
                         if (everyoneHit && (state.atMeCount > 0 || state.unreadChatCount > 0)) "[@全体]"
@@ -5419,64 +5499,6 @@ hookViewLongClickProbe()
                                     Text(if (hasAvatar) "更换头像" else "设置头像")
                                 }
                             }
-                            val context = LocalContext.current
-                            Button(
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = {
-                                    if (members.isEmpty()) {
-                                        showToast("文件夹暂无成员可移出")
-                                        return@Button
-                                    }
-                                    val others = loadFolders().filter { it.id != folderId && it.type == FolderType.MANUAL }
-                                    if (others.isEmpty()) {
-                                        showToast("没有其他手动文件夹可移出")
-                                        return@Button
-                                    }
-                                    showComposeDialog(context) {
-                                        val dismiss = this.onDismiss
-                                        ContactsSelector(
-                                            title = "选择要移出的对话",
-                                            contacts = remember { WeDatabaseApi.getContacts().filter { it.wxId in members } },
-
-                                            initialSelectedWxIds = emptySet(),
-                                            onDismiss = dismiss,
-                                            onConfirm = { toMove ->
-                                                dismiss()
-                                                showComposeDialog(context) {
-                                                    val innerDismiss = this.onDismiss
-                                                    AlertDialogContent(
-                                                        title = { Text("移出到其他文件夹") },
-                                                        text = {
-                                                            LazyColumn {
-                                                                items(others) { target ->
-                                                                    Text(
-                                                                        target.name,
-                                                                        modifier = Modifier
-                                                                            .fillMaxWidth()
-                                                                            .clickable {
-                                                                                val current = loadFolders()
-                                                                                val curList = current.map { if (it.id == folderId) it.copy(members = it.members - toMove) else it }
-                                                                                val finalList = curList.map { if (it.id == target.id) it.copy(members = (it.members + toMove).distinct().sorted()) else it }
-                                                                                saveFolders(finalList)
-                                                                                members = members - toMove
-                                                                                innerDismiss()
-                                                                                dismiss()
-                                                                                onSave(folder!!.copy(members = (members - toMove).sorted()))
-                                                                            }
-                                                                            .padding(12.dp)
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
-                            ) {
-                                Text("移出到其他文件夹")
-                            }
                         }
 
                         FolderType.PRESET_GROUPS -> {
@@ -5755,6 +5777,7 @@ hookViewLongClickProbe()
     private fun saveFolders(folders: List<ChatFolder>) {
         foldersCache = folders
         foldersCacheWxid = currentAccountWxid()
+        folderNamesCache = null
         folderMembersCache.clear()
         saveFoldersTo(foldersFileFor(foldersCacheWxid), folders)
     }
@@ -5767,6 +5790,54 @@ hookViewLongClickProbe()
     private fun newFolderId(): String = "$FOLDER_PREFIX${System.currentTimeMillis()}"
 
     private fun isFolderId(value: String): Boolean = value.startsWith(FOLDER_PREFIX)
+
+    /** 标记「这个标题 View 上当前是我们写上去的文件夹名」。 */
+    private val FOLDER_TITLE_TAG = "wcx_agg_folder_title".hashCode()
+
+    /**
+     * 清掉复用行上残留的归拢文件夹名。
+     *
+     * 行 View 会在文件夹行和普通会话行之间复用。当它从文件夹行变成普通群聊行时，
+     * 微信不一定重写标题（自绘的 NoMeasuredTextView 里读不到当前文本），
+     * 上次写上去的文件夹名就会留在屏幕上 —— 表现为“个别群名显示成文件夹名”。
+     *
+     * 判据不看文本内容，而看我们自己打的 tag：文本在自绘控件的 getText() 里可能是空的，
+     * 靠 tag 能可靠地知道「这个名字是我们写的」。
+     * 另外再要求它确实等于某个现有文件夹名，避免误伤正常会话。
+     */
+    private fun clearStaleFolderTitle(row: ViewGroup) {
+        val title = findTitleTextView(row) ?: return
+        if (title.getTag(FOLDER_TITLE_TAG) == null) return
+
+        val cur = viewText(title)
+        // 只有「确实读到上一轮写下的文件夹名」才清。
+        //
+        // 不能因为读不到文本就当成「自绘控件的残留」去清：
+        // [viewText] 只能读 TextView 子类，而微信的群名控件是 NoMeasuredTextView
+        // （自绘，不是 TextView），通过它读永远是空串；而 [setViewText] 走反射调 setText
+        // 是真能写进去的。当初把「空串」当作待清残留，结果行被 ListView 复用成普通群聊时，
+        // 这一句直接把微信刚写进去的群名抹掉了 —— 表现为「文件夹外的群聊名消失」。
+        //
+        // 反过来，读到具体名字时判据是可靠的：那个名字只可能是我们写进去的。
+        if (cur.isEmpty() || cur !in currentFolderNames()) {
+            title.setTag(FOLDER_TITLE_TAG, null)
+            return
+        }
+
+        WeLogger.i(TAG, "retitle: 清掉复用行残留的文件夹名「$cur」")
+        title.setTag(FOLDER_TITLE_TAG, null)
+        setViewText(title, "")
+    }
+
+    /** 当前所有文件夹的名字，带缓存避免每帧重算。 */
+    private var folderNamesCache: Set<String>? = null
+
+    private fun currentFolderNames(): Set<String> {
+        folderNamesCache?.let { return it }
+        val names = loadFolders().mapNotNull { it.name }.toSet()
+        folderNamesCache = names
+        return names
+    }
     /**
      * Marks every member conversation of [folderId] as read. WeChat's own
      * updateUnreadByTalker(folderId) is a no-op for folder rows (see

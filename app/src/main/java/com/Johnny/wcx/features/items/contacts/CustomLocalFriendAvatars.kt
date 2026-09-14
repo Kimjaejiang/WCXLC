@@ -80,6 +80,7 @@ import java.util.Collections
 import java.util.Locale
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
+import android.os.SystemClock
 import kotlin.io.path.div
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -264,6 +265,21 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
             if (migrated != avatarMap) avatarMap = migrated
         }
 
+        // 恢复备份后，映射里存的是**导出那台机器**上的绝对路径。
+        // 正常情况下两台机器的路径完全一样（都是
+        // `…/Android/data/<微信包名>/WCXLC/avatars/…`），直接能用；
+        // 但如果备份来自另一个包名的微信（官方版 ↔ 分身），前缀就是对不上的。
+        // 这里把指向 avatars 目录的路径换成**本机当前实际位置**，
+        // 文件名不变 —— 图片本体就在同一个包里、也刚被恢复到那里。
+        runCatching {
+            val avatarDir = KnownPaths.moduleData / "avatars"
+            val rewritten = avatarMap.mapValues { (_, uri) -> rebaseAvatarPath(uri, avatarDir) }
+            if (rewritten != avatarMap) {
+                WeLogger.i(TAG, "avatar paths rebased to $avatarDir")
+                avatarMap = rewritten
+            }
+        }
+
         listOf(
             methodConversationAvatar,
             methodMvvmLoadAvatar1,
@@ -280,9 +296,17 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
                 val wxId = args.getOrNull(1) as? String ?: return@hookBefore
 
                 // RecyclerView 复用：先清掉上一个条目的自定义头像 tag，避免微信 setImageDrawable
-                // 覆盖时被误当成当前条目重设（系统会话/其他文件夹串图）
+                // 覆盖时被误当成当前条目重设（系统会话/其他文件夹串图）。
+                //
+                // appliedBitmap 也要一起失效。它记录「这个 ImageView 上已经设过哪张图」，
+                // 用于跳过重复设图；但 ImageView 被 ListView 复用时，微信会先往它上面
+                // 设当前条目的头像（比如好友头像），而那时 tag 已被这里清掉，
+                // hook 不会介入——appliedBitmap 却还指着上一张旧图。
+                // 之后这格若恰好又轮到同一个来源（同一个文件夹），幂等判断会误以为
+                // “已经是这张图了”而跳过设图，屏幕上留着的却是好友头像。
                 imageView.setTag(VIEW_TAG_CUSTOM_AVATAR, null)
                 boundAvatarViews.remove(imageView)
+                appliedBitmap.remove(imageView)
 
                 val redirectedId = fallbackUsernameProvider?.invoke(wxId)
                 if (redirectedId != null) {
@@ -297,7 +321,12 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
                 } else {
                     false
                 }
-                WeLogger.i(TAG, "avatar hit[$index] wxId=$wxId hasCustom=$hasCustom applied=$applied")
+                // 只在真的命中自定义头像时记日志。这个 hook 笼罩微信所有头像加载，
+                // 而 hasCustom=false 是绝对常态（普通会话逐个过这里），
+                // 按次打印会在滚动时一秒写十几条日志，日志 IO 本身就成了帧耗。
+                if (hasCustom) {
+                    WeLogger.i(TAG, "avatar hit[$index] wxId=$wxId applied=$applied")
+                }
                 if (applied) {
                     result = null
                 }
@@ -427,7 +456,10 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         val tag = "$username$SEP$uri$SEP$effectiveRadiusFactor"
         imageView.setTag(VIEW_TAG_CUSTOM_AVATAR, tag)
         boundAvatarViews[imageView] = BoundAvatar(username, uri, radiusFactor)
-        loadAvatarInto(imageView, uri, effectiveRadiusFactor)
+        val applied = loadAvatarInto(imageView, uri, effectiveRadiusFactor)
+        // 解码失败时 loadAvatarInto 已经摘掉 tag 并退回微信头像，这里不必再补一次 ——
+        // 补的那次同样会失败，只是白白多走一遍渲染路径。
+        if (!applied) return false
         imageView.post {
             if (imageView.getTag(VIEW_TAG_CUSTOM_AVATAR) == tag) {
                 loadAvatarInto(imageView, uri, effectiveRadiusFactor)
@@ -436,7 +468,21 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         return true
     }
 
-    private fun loadAvatarInto(imageView: ImageView, uri: String, radiusFactor: Float) {
+    /**
+     * 记录「上一次真正设到这个 ImageView 上的 bitmap」。
+     *
+     * 这是**消除 hook 抖动的关键**：微信每次重绘都可能调 setImageDrawable
+     * （哪怕设的是它自己的默认图），而我们的 hook 命中 tag 后又会重新解码设图，
+     * 于是「设图 → 触发 hook → 再设图」无限往复。实测一台机器上一天累计
+     * 1568 次重复应用、每分钟数十次，每次都要解文件 + 裁切 + 圆角，
+     * 主线程被持续吃掉 —— 恢复备份后头像变多时直接卡到微信进不去。
+     *
+     * 记下实际设过的 bitmap 后，同一个 View 要设的又是同一张（缓存命中即同一对象）
+     * 就什么都不做，循环自然断开。
+     */
+    private val appliedBitmap = Collections.synchronizedMap(WeakHashMap<ImageView, Bitmap>())
+
+    private fun loadAvatarInto(imageView: ImageView, uri: String, radiusFactor: Float): Boolean {
         val targetSize = imageView.width
             .takeIf { it > 0 }
             ?: imageView.layoutParams?.width?.takeIf { it > 0 }
@@ -448,17 +494,31 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
             targetSize = targetSize,
             round = shouldRound,
             radiusFactor = if (shouldRound) radiusFactor else 0f
-        ) ?: run {
-            imageView.load(uri) {
-                allowHardware(false)
-                crossfade(false)
-            }
-            return
+        )
+        if (bitmap == null) {
+            // 解码不出来（文件被删、换机后路径失效……）。
+            //
+            // 这里**必须摘掉 tag 再退场**：tag 是 setImageDrawable hook 唯一的命中条件，
+            // 留着它就会形成
+            //     loadAvatarInto → imageView.load() → setImageDrawable → hook → loadAvatarInto
+            // 的死循环，把主线程占满。摘掉后这一格退回微信自己的头像。
+            imageView.setTag(VIEW_TAG_CUSTOM_AVATAR, null)
+            boundAvatarViews.remove(imageView)
+            appliedBitmap.remove(imageView)
+            WeLogger.w(TAG, "avatar decode failed, falling back to WeChat default: $uri")
+            return false
         }
+
+        // 已经是这张图了就别再设一遍：setImageDrawable 会触发重绘，
+        // 重绘又会把 hook 叫回来，是我们之前抖动的主因。
+        // 用引用相等判断即可 —— bitmap 来自缓存，同样的 uri+尺寸必是同一对象。
+        if (appliedBitmap[imageView] === bitmap) return true
 
         imageView.scaleType = ImageView.ScaleType.FIT_XY
         imageView.setImageDrawable(bitmap.toDrawable(imageView.resources))
+        appliedBitmap[imageView] = bitmap
         imageView.invalidate()
+        return true
     }
 
     private fun applyCustomHdAvatar(gallery: Any?, username: String): Boolean {
@@ -489,16 +549,33 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         return true
     }
 
+    /**
+     * 解码失败的 URI 及其失败时间。
+     *
+     * 这张表是**防死循环卡死的关键**：解码失败时 [loadAvatarInto] 会退回 Coil 加载，
+     * 而 Coil 设置占位/失败图时会再次触发 setImageDrawable，hook 又调回这里 ——
+     * 恢复备份后 URI 集体失效的场景下会形成死循环，把主线程占满（实测表现为
+     * 恢复完备份微信直接进不去）。记下失败项后短期内不再重试，循环自然断掉。
+     */
+    private val failedAvatarUris = ConcurrentHashMap<String, Long>()
+    private const val FAILED_URI_RETRY_MS = 60_000L
+
     private fun decodeAvatarBitmap(uri: String, targetSize: Int, round: Boolean, radiusFactor: Float): Bitmap? {
+        // 刚失败过的 URI 别再试：每次尝试都要开流/解码，而调用方在渲染路径上，
+        // 反复失败会直接把 UI 线程拖死。
+        val lastFail = failedAvatarUris[uri]
+        if (lastFail != null && SystemClock.uptimeMillis() - lastFail < FAILED_URI_RETRY_MS) return null
+
         val cacheKey = "$uri|$targetSize|$round|$radiusFactor"
         val cache = if (round) roundedBitmapCache else originalBitmapCache
         cache[cacheKey]?.takeIf { !it.isRecycled }?.let { return it }
 
-        val bitmap = runCatching {
-            HostInfo.application.contentResolver.openInputStream(uri.toUri())?.use { stream ->
-                android.graphics.BitmapFactory.decodeStream(stream)
-            }
-        }.getOrNull() ?: return null
+        val bitmap = runCatching { decodeSampled(uri, targetSize) }.getOrNull()
+        if (bitmap == null) {
+            failedAvatarUris[uri] = SystemClock.uptimeMillis()
+            return null
+        }
+        failedAvatarUris.remove(uri)
 
         val cropped = centerCrop(bitmap, targetSize, targetSize)
         if (cropped !== bitmap && !bitmap.isRecycled) bitmap.recycle()
@@ -509,6 +586,54 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         cache[cacheKey] = result
         trimBitmapCache(cache)
         return result
+    }
+
+    /**
+     * 按目标尺寸采样解码，避免把整张原图读进内存。
+     *
+     * 原先直接 decodeStream 全尺寸解码：一张 4000×3000 的照片展开就是约 48MB 位图，
+     * 而调用点位于列表渲染路径上，几行下来就足以 OOM 或把主线程卡住。
+     * 这里先用 inJustDecodeBounds 读尺寸、算出 inSampleSize 再解码，
+     * 最终只会拿到略大于 [target] 的位图（后续 centerCrop 会缩到目标尺寸）。
+     */
+    private fun decodeSampled(uri: String, target: Int): Bitmap? {
+        val resolver = HostInfo.application.contentResolver
+        val bounds = android.graphics.BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        runCatching {
+            resolver.openInputStream(uri.toUri())?.use {
+                android.graphics.BitmapFactory.decodeStream(it, null, bounds)
+            }
+        }
+        val srcW = bounds.outWidth
+        val srcH = bounds.outHeight
+        if (srcW <= 0 || srcH <= 0) return null
+
+        val options = android.graphics.BitmapFactory.Options().apply {
+            inSampleSize = computeSampleSize(srcW, srcH, target)
+            inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+        }
+        return runCatching {
+            resolver.openInputStream(uri.toUri())?.use {
+                android.graphics.BitmapFactory.decodeStream(it, null, options)
+            }
+        }.getOrNull()
+    }
+
+    /** 最接近但不小于 [target] 的 2 的幂采样率。 */
+    private fun computeSampleSize(srcW: Int, srcH: Int, target: Int): Int {
+        if (target <= 0) return 1
+        var sample = 1
+        var w = srcW
+        var h = srcH
+        // 每放大一档，解码出的位图边长减半；直到再减就会小于目标为止。
+        while (w / 2 >= target && h / 2 >= target) {
+            w /= 2
+            h /= 2
+            sample *= 2
+        }
+        return sample
     }
 
     private fun centerCrop(source: Bitmap, width: Int, height: Int): Bitmap {
@@ -633,6 +758,34 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
         val persistentUri = persistAvatarFile(uri)
         avatarMap = avatarMap + (wxId to persistentUri)
         clearBitmapCaches()
+    }
+
+    /**
+     * 把指向其它机器上 `avatars/` 目录的头像路径，改成**本机**的对应路径。
+     *
+     * 备份恢复后映射里的 `file://` 绝对路径是导出那台机器的。
+     * 同一款微信（同包名）两台机器路径一致，什么都不用做；
+     * 但备份可能来自另一个包名的微信（官方版 ↔ 分身），那种前缀就对不上。
+     *
+     * 改写条件很严：只有当**原路径读不到、本机同名文件确实存在**时才换。
+     * 文件名是导出时生成的唯一名（时间戳 + 随机串），同名即同一张图，
+     * 不会错配到别人的头像上。
+     */
+    private fun rebaseAvatarPath(uri: String, avatarDir: java.nio.file.Path): String {
+        if (uri.isBlank()) return uri
+        // 路径已经在 avatars 目录下：按文件名找本机副本。
+        val fileName = uri.substringAfterLast('/').takeIf { it.isNotBlank() } ?: return uri
+        val local = avatarDir / fileName
+
+        // 原路径能用就不动 —— 绝大多数情况下就是同一台机器的路径。
+        val originalOk = runCatching {
+            val path = uri.removePrefix("file://")
+            java.io.File(path).exists()
+        }.getOrDefault(false)
+        if (originalOk) return uri
+
+        if (!runCatching { local.exists() }.getOrDefault(false)) return uri
+        return local.toUri().toString()
     }
 
     /** 把头像图片复制到模块私有目录，返回可长期读取的 file:// URI；失败回退原 URI。 */

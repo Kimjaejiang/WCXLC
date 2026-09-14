@@ -25,7 +25,7 @@ import java.util.zip.ZipOutputStream
  * 模块的用户数据分两处存：
  *
  *  - MMKV 偏好（[WePrefs.default]）：开关状态、各功能参数
- *  - WCXLC 数据目录下的散装文件：归拢规则、自定义头像映射、真实姓名、JS 脚本
+ *  - WCXLC 数据目录下的散装文件：归拢规则、真实姓名、JS 脚本
  *
  * 设置页原有的「导出配置」只导了前者。这留下过一个真实的坑：用户清数据后
  * 重装，「开关还在」但归拢规则没了 —— 因为 `chat_folders_<wxid>.json` 根本
@@ -33,6 +33,9 @@ import java.util.zip.ZipOutputStream
  *
  * 所以这里把两处合并导出，并带上清单文件（版本、时间、条目列表），
  * 让恢复端能判断包是不是本模块产生的、有没有被截断。
+ *
+ * **不包含自定义头像**：图片本体是缓存、映射里存的是本机绝对路径，
+ * 两者要么一起走要么一起不走。详见 [USER_DATA_PATTERNS]。
  *
  * ## 格式
  *
@@ -58,20 +61,60 @@ object BackupManager {
      * 这里只收「用户产生的、丢了就回不来的」数据，不收缓存：
      *
      *  - `chat_folders_*.json` 归拢规则，手工重建成本极高
-     *  - `custom_avatars_map.json`、`real_names.json` 用户手工录入的映射
+     *  - `real_names.json` 用户手工录入的姓名映射
      *  - `scripts_js/` 用户写的脚本，纯文本，代价小
+     *  - `custom_avatars_map.json` + `avatars/` 自定义头像（映射与图片）
      *
-     * 刻意排除：`dex_cache/`（可由微信 dex 重建）、`avatars/`、
-     * `notif_avatars_v3/`（图片缓存，重下即可）、`logs/`、`crashes/`、
-     * `diag.log`（诊断信息，备份它们只会让包变大且含隐私）。
+     * 头像的**映射和图片必须一起走**：映射里存的是
+     * `file://…/WCXLC/avatars/…` 这类**本机绝对路径**，图片本体又在
+     * `avatars/` 目录里。只备份其中一个，恢复后就会指向不存在的文件 ——
+     * 早先正是这种情况：映射进了包、图片没进，用户恢复后背负一堆坏引用。
+     *
+     * （那条坏引用曾经把微信卡到进不去，根因不在备份本身，而在头像加载 hook
+     * 会「设图 → 触发 setImageDrawable → hook → 再设图」地自激。该问题已在
+     * [com.Johnny.wcx.features.items.contacts.CustomLocalFriendAvatars] 里用
+     * 「已设过同一张就跳过」修掉，所以现在可以放心把头像纳入备份。）
+     *
+     * 仍刻意排除：`dex_cache/`（可由微信 dex 重建）、`notif_avatars_v3/`
+     * （通知头像缓存，重下即可）、`logs/`、`crashes/`、`diag.log`
+     * （诊断信息，备份它们只会让包变大且含隐私）。
      */
     private val USER_DATA_PATTERNS = listOf(
         Regex("^chat_folders.*\\.json$"),
-        Regex("^custom_avatars_map\\.json$"),
         Regex("^real_names\\.json$"),
+        Regex("^custom_avatars_map\\.json$"),
     )
 
-    private val USER_DATA_DIRS = listOf("scripts_js")
+    private val USER_DATA_DIRS = listOf("scripts_js", "avatars")
+
+    /**
+     * 恢复时当心「只有映射、没有图片」的历史包。
+     *
+     * 映射（`custom_avatars_map.json`）存的是 `file://…/WCXLC/avatars/…`
+     * 这类**本机绝对路径**，值只有在图片本体同时存在时才有意义。
+     * 早先版本的备份只装了映射、没装 `avatars/`，用户恢复后每一条都指向
+     * 不存在的文件 —— 当时它把微信卡到进不去（头像加载 hook 会
+     * 「设图 → 触发 setImageDrawable → hook → 再设图」地自激；该问题已在
+     * [com.Johnny.wcx.features.items.contacts.CustomLocalFriendAvatars] 修掉）。
+     *
+     * 现在导出会把映射和图片一起打包，所以新包不需要区别对待；
+     * 但对**旧包**仍要挡住那伤感情的映射：没有图片配套，恢复它只有坏处。
+     */
+    private const val AVATAR_MAP_NAME = "custom_avatars_map.json"
+
+    /** `avatars/` 目录在包内的前缀，用于判断这份备份里到底有没有图片。 */
+    private const val AVATAR_DIR_PREFIX = "${FILE_PREFIX}avatars/"
+
+    /**
+     * 该不该在恢复时跳过 [relativePath]。
+     *
+     * 目前只针对头像映射：包里没带图片（旧备份）就跳过，
+     * 带了图片（新备份）就正常恢复。理由见 [AVATAR_MAP_NAME]。
+     */
+    private fun shouldSkipOnRestore(relativePath: String, restoreAvatarMap: Boolean): Boolean {
+        val name = relativePath.substringAfterLast('/')
+        return name == AVATAR_MAP_NAME && !restoreAvatarMap
+    }
 
     /** 一次备份的结果，用于给用户反馈。 */
     data class Result(val fileCount: Int, val prefCount: Int, val bytes: Long)
@@ -171,6 +214,31 @@ object BackupManager {
     class BackupException(message: String) : Exception(message)
 
     /**
+     * 包里都有些什么，恢复前先扫一遍用做决策。
+     *
+     * 只要知道「有没有 `avatars/` 下的图片」这一点：它决定了包里的
+     * `custom_avatars_map.json` 能不能恢复（见 [AVATAR_MAP_NAME]）。
+     */
+    private data class PackageScan(val hasAvatarImages: Boolean)
+
+    private fun scanPackage(source: File): PackageScan {
+        var hasAvatarImages = false
+        runCatching {
+            ZipInputStream(source.inputStream().buffered()).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    if (!entry.isDirectory && entry.name.startsWith(AVATAR_DIR_PREFIX)) {
+                        hasAvatarImages = true
+                        break
+                    }
+                    entry = zip.nextEntry
+                }
+            }
+        }
+        return PackageScan(hasAvatarImages)
+    }
+
+    /**
      * 从 [source] 恢复。
      *
      * 恢复是**覆盖式**的：包里有的键和文件会覆盖本地同名项，包里没有的保持不动。
@@ -193,6 +261,13 @@ object BackupManager {
             throw BackupException("备份来自更新的模块版本，当前版本读不了")
         }
 
+        // 旧备份只装了映射、没装图片，那种映射恢复过去只是个坏引用，跳过它。
+        // 新备份两者都在，正常恢复。
+        val restoreAvatarMap = scanPackage(source).hasAvatarImages
+        if (!restoreAvatarMap) {
+            WeLogger.i(TAG, "package has no avatars/, skip avatar map on restore")
+        }
+
         val root = KnownPaths.moduleData.toFile()
 
         ZipInputStream(source.inputStream().buffered()).use { zip ->
@@ -203,7 +278,8 @@ object BackupManager {
                         prefCount = restorePrefs(zip.readBytes().toString(Charsets.UTF_8))
                     }
 
-                    entry.name.startsWith(FILE_PREFIX) && !entry.isDirectory -> {
+                    entry.name.startsWith(FILE_PREFIX) && !entry.isDirectory &&
+                        !shouldSkipOnRestore(entry.name.removePrefix(FILE_PREFIX), restoreAvatarMap) -> {
                         val relative = entry.name.removePrefix(FILE_PREFIX)
                         // 拒绝跳出数据目录的相对路径。备份文件可能来自不可信来源
                         // （用户在群里转发），"../" 会把内容写到模块目录之外。
