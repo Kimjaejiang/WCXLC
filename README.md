@@ -13,6 +13,8 @@
 > 本仓库功能特性以本仓库实际代码为准（含下游优化），上游更新持续合并。
 > 一款基于 Xposed 框架的开源微信增强模块，提供**美化主题、聊天增强、隐私防护、AI 自动回复、红包助手**等丰富的功能定制能力。
 
+> ⚠️ **运行要求**：仅支持 **微信 8.0.78 及以上**、**LSPosed（API ≥ 102）**。低于此版本的微信，模块会直接跳过注入（不加载任何 hook），详见 [📋 适配版本](#-适配版本)。
+
 > 🚀 **项目定位**：不仅仅是一个微信模块，更是一个集成了**去混淆分析工具 (deobf)** 的综合项目 —— 从逆向分析到功能实现，一站式搞定。
 
 ---
@@ -21,6 +23,45 @@
 
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 > ⚠️ 标记「已随 v247」的条目：v247 重构合入后**采用上游实现，本地无独有代码保留**（上游已含同等能力），仅作功能存档。
+
+### 2026-09-14
+
+- **🛠️ 门禁 · 新增宿主版本门禁：微信低于 8.0.78 不再注入**
+  - 涉及文件：`app/src/main/java/com/Johnny/wcx/loader/startup/HostVersionGate.kt`（新增）、`loader/startup/StartupAgent.kt`、`constants/Preferences.kt`、`activity/MainActivity.kt`
+  - 背景：模块大量 hook 依赖微信的类名、方法签名与控件层级，这些结构在小版本之间会变（8.0.77 → 8.0.78 就有若干处），而适配是按较高版本做的。低版本上强行注入往往不是「少几个功能」，而是命中错位的类或方法导致启动崩溃或卡死，且故障现象与模块自身的 bug 难以区分。
+  - 实现：新增 `HostVersionGate`（最低支持 8.0.78），在 `StartupAgent` 中**紧随框架门禁之后**串联第二道门；不通过即 `return`，不加载任何 hook，微信照常启动。判定结果与框架门禁一样写入 `WePrefs` 跨进程共享，首页激活状态卡片据此显示「微信版本过低」与升级提示（不再误报「已激活」）。
+  - 判定只用 `versionName`（如 `8.0.78`），**不用 `versionCode`**：微信的 versionCode 与 versionName 并非稳定一一对应，实测 8.0.76 与 8.0.78 出现过同值（均为 3180），用它比较会误判。解析不出三段版本号时默认放行，避免把可用环境误判为不可用。
+  - 文案：「已适配微信版本」改为「推荐微信版本」，取值统一来自 `HostVersionGate`。原先该项是扫描 `WeChatVersions` 常量表拼出结论，而那份表停留在 8.0.76，拼出的版本与实际的适配目标并不一致。
+
+- **🛠️ 性能 · 主页会话列表卡顿修复（逐帧遍历与高频诊断日志）**
+  - 涉及文件：`features/items/chat/ConversationAggregation.kt`、`features/items/contacts/AutoAcceptFriendRequests.kt`
+  - 定位方式：先按 TAG 统计日志频次找出真正的热点，而不是凭感觉改。修复前同机型相邻时段实测：`AutoAcceptFriendRequests` 618 行、`titleTv candidate` 1450 行、`AggregateChats` 1204 行，总计约 2100 行；修复后降至 1062 行。
+  - 修复 ①：`findTitleTextView` 每帧对控件树做 BFS 找标题控件 —— 改为按控件缓存结果（`WeakReference`），原实现挪到 `findTitleTextViewUncached`。
+  - 修复 ②：删除逐帧写磁盘的诊断日志 —— `titleTv candidate`（1450 次/分钟）、`rawQuery`、`tintFolderTitle` 内的 6 条 `diagFile`（循环内最多写 8 次/帧）。
+  - 修复 ③：删除 `hookSqliteExec` 及其调用 —— 它不改变行为，却给每一次 SQL 都套了 `lowercase()`。
+  - 修复 ④：`AutoAcceptFriendRequests.onInsert` 开头的无条件日志会覆盖微信所有表的每一次 insert（实测 539 行/分钟均为无关表），移除。
+  - 修复 ⑤：`restoreHomeFolderBadge` / `updateUnreadByTalker` 日志改为仅在真正拦截时打印。
+
+- **🐛 聊天增强 · 归拢文件夹外的群聊名消失修复**
+  - 涉及文件：`features/items/chat/ConversationAggregation.kt`（`clearStaleFolderTitle`）
+  - 根因：该函数原先读控件文本判断「是否还是当前文件夹的群名」，但微信群名控件是 `NoMeasuredTextView`（自绘，非 `TextView` 子类），`viewText` 读出来恒为空串，于是每次都被判为脏值并清空；而 `setViewText` 走反射 `setText` 是能真写进去的 —— 结果把微信刚写好的群名抹掉。
+  - 修复：改为只在「读到的文本非空且确实属于当前文件夹」时才清。
+
+- **🐛 美化 · 文件夹头像被好友头像顶替修复（列表复用残留）**
+  - 涉及文件：`features/items/contacts/CustomLocalFriendAvatars.kt`
+  - 根因：`appliedBitmap` 记录「这个 ImageView 已设过哪张图」用于跳过重复解码与设图，但 ImageView 被列表复用时该记录没有失效。复用流程：文件夹行 → 复用为好友行（微信自行设了好友头像）→ 再滚回同一个文件夹时，幂等判断误认为「已设过」而跳过，屏幕上留着好友头像。
+  - 修复：在清 tag 的位置一并 `appliedBitmap.remove`，使该缓存随列表复用失效。
+
+- **✨ 备份恢复 · 自定义头像随全局备份一起恢复**
+  - 涉及文件：`utils/backup/BackupManager.kt`、`features/items/contacts/CustomLocalFriendAvatars.kt`
+  - 备份：`USER_DATA_PATTERNS` 重新纳入 `custom_avatars_map.json`，`USER_DATA_DIRS` 纳入 `avatars` 目录（映射与图片必须成对，只恢复其一会得到一份指向不存在文件的映射）。
+  - 恢复：先 `scanPackage` 探测备份包内是否真的含有 `avatars/` 图片，不含则跳过头像映射，避免恢复出空映射。
+  - 换机：新增 `rebaseAvatarPath` —— 从旧机恢复后，把条目里指向旧机 `avatars/` 的绝对路径改写为本机路径（仅当原路径不存在且本机同名文件存在时），否则头像会因路径失效而全部丢失。
+
+- **✨ 界面 · 编辑文件夹弹窗移除「移出到其他文件夹」按钮**
+  - 涉及文件：`features/items/chat/ConversationAggregation.kt`（`FolderEditorDialog`）
+  - 说明：该按钮位于共享的编辑弹窗组件内，移除后三个入口（首页长按加入文件夹后弹出的编辑框、归拢文件夹容器内「文件夹配置」、对话归拢设置页）一次性全部生效。
+  - 归拢文件夹内部长按好友的菜单（「移出文件夹」「移到文件夹」）**保持不变**，那是另一条独立路径。
 
 ### 2026-09-11
 
@@ -625,14 +666,17 @@ wcx/
 ---
 ## 📋 适配版本
 
-> 💡 **推荐使用微信 8.0.76 ~ 8.0.77**，功能完整且经过测试。
+> ⚠️ **仅支持微信 8.0.78 及以上**。低于此版本的微信，模块会直接跳过注入（不加载任何 hook），并在首页显示「微信版本过低」，**请先更新微信**。
 
 | 状态 | 版本范围 | 说明 |
 |------|----------|------|
-| ✅ 推荐使用 | 8.0.76 ~ 8.0.77 | 功能完整适配，推荐使用 |
-| 🔧 维护中 | 8.0.69 ~ 8.0.75 | 基本可用，如有问题欢迎反馈 |
-| ⚠️ 低版本 | < 8.0.69 | 部分功能可能无法使用，不推荐 |
-- **框架支持**：LSPosed（推荐）、EdXposed、Xposed
+| ✅ 支持 | 8.0.78 及以上 | 当前适配目标，经实测验证 |
+| ❌ 不支持 | < 8.0.78 | 模块不注入，微信照常启动；请更新微信后再使用 |
+
+> 为什么划出这条线：模块大量 hook 依赖微信的类名、方法签名与控件层级，这些结构在小版本之间会变。低版本上强行注入往往不是「少几个功能」，而是命中错位的类或方法导致启动崩溃或卡死，且故障现象与模块自身的 bug 难以区分。与其让用户在必然出问题的环境里踩坑，不如在入口拦下并明确告知。
+
+- **框架支持**：**仅 LSPosed**（需 API ≥ 102）
+  > 免 root 方案（LSPatch 集成/本地模式、VirtualXposed、太极免 root 等）虽也能让模块代码跑起来，但会把模块 dex 直接塞进宿主 APK 的类加载体系，与本模块依赖的类加载拓扑不兼容，会被框架门禁拦下。
 - **系统要求**：Android 8.0+（推荐 Android 10+）
 - **架构支持**：arm64-v8a（主要）、armeabi-v7a
 
