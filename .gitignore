@@ -60,3 +60,6 @@ ui_dump.xml
 build_local.pid
 vendor/mp3lame-sys/lame-3.100/
 
+
+# 本地签名凭据（复制 local-creds.env.example 得到，不入库）
+local-creds.env
