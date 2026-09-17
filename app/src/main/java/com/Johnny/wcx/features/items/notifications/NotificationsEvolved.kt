@@ -490,15 +490,16 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
     private fun resolveSenderWxid(convWxId: String, senderName: String): String? {
         if (senderName.isBlank()) return null
         if (!convWxId.isGroupChatWxId) return convWxId
-        // 群聊：按昵称/备注在联系人表里最佳匹配（同名时取第一个）
-        runCatching {
-            val esc = senderName.replace("'", "''")
-            WeDatabaseApi.executeQuery(
-                "SELECT username FROM rcontact WHERE nickname = '$esc' OR conRemark = '$esc' LIMIT 1"
-            ).firstOrNull()?.get("username")?.toString()
-        }.getOrNull()?.let { return it }
-        // 群昵称反查：rcontact 只存好友，群里的陌生人查不到，但通知上显示的名字
-        // 正是群昵称（roomdata.members[].displayName），用它反查必然命中。
+
+        // 群聊必须**先**按群成员反查，不能先查 rcontact。
+        //
+        // 通知上显示的名字是**群昵称**（roomdata.members[].displayName），而 rcontact
+        // 是全量联系人表。两者很容易撞名：群里的「白白」和好友列表里的「白白」是
+        // 完全不同的两个人，而 rcontact 那条 `nickname = ?` 查询带 LIMIT 1，
+        // 取到的是**任意一个**同名的好友 —— 于是通知上挂着别人的头像。
+        //
+        // 群成员表是「这个群里到底有谁」的权威来源，拿它反查必然命中正确的人；
+        // 只有群里查不到时，才轮到 rcontact 兜底。
         runCatching {
             val blob = WeDatabaseApi.executeQuery(
                 "SELECT roomdata FROM chatroom WHERE chatroomname = '" +
@@ -509,7 +510,22 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                 roomData.members.firstOrNull { it.displayName == senderName }?.wxId
                     ?.takeIf { it.isNotEmpty() }
             } else null
-        }.getOrNull()?.let { return it }
+        }.getOrNull()?.let {
+            WeLogger.i(TAG, "resolveSenderWxid: 群成员命中 conv=$convWxId name=$senderName → $it")
+            return it
+        }
+
+        // 群成员表没命中（昵称带后缀、被截断等）：按昵称/备注在联系人表里匹配。
+        // 注意这里仍可能撞名，只作为兜底。
+        runCatching {
+            val esc = senderName.replace("'", "''")
+            WeDatabaseApi.executeQuery(
+                "SELECT username FROM rcontact WHERE nickname = '$esc' OR conRemark = '$esc' LIMIT 1"
+            ).firstOrNull()?.get("username")?.toString()
+        }.getOrNull()?.let {
+            WeLogger.w(TAG, "resolveSenderWxid: 群成员未命中，回退 rcontact conv=$convWxId name=$senderName → $it（可能撞名）")
+            return it
+        }
         // 精确匹配失败：LIKE 模糊兜底（备注/昵称可能有空格/符号差异）
         return runCatching {
             val esc = senderName.replace("'", "''")
