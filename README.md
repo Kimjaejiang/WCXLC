@@ -24,6 +24,66 @@
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 > ⚠️ 标记「已随 v247」的条目：v247 重构合入后**采用上游实现，本地无独有代码保留**（上游已含同等能力），仅作功能存档。
 
+### 2026-09-17
+
+- **✨ 聊天增强 · 收藏语音长按转发（新功能）**
+  - 涉及文件：`features/items/chat/ForwardFavoriteVoices.kt`
+  - 背景：收藏页的语音此前无法转发 —— 微信自身对收藏语音不提供转发入口，长按菜单里点「转发」只会提示不支持。
+  - 实现：拦截 `FavoriteIndexUI.K7`（4 参重载，入参为 `(Int 菜单项 id, Int, LinearLayout, 收藏项)`），当菜单 id `== 3`（转发）且该收藏的类型 `== 3`（语音）时接管：先置 `result = null` 拦掉微信自身的「不能转发」校验，再弹出自己的预览对话框，确认后进入联系人选择器批量发送。
+  - 入口只做**收藏主页面**（`FavoriteIndexUI`）。早期曾在 `FavSelectUI.onItemClick` 上试过拦截，那是**错误入口**（该页是「选择要转发的收藏」列表，不是收藏主页），已删除。
+  - 交互沿用**长按菜单**方案，未改成「点击弹对话框」。
+
+- **🐛 聊天增强 · 语音转发完全不可用修复（四个叠加缺陷）**
+  - 涉及文件：`features/api/core/WeMessageApi.kt`、`utils/AudioUtils.kt`、`features/items/chat/ForwardMessages.kt`
+  - 现象：转发语音后提示「已转发(部分失败)」，或看似成功但**收方收不到**。
+  - 根因（四个缺陷叠加，逐个修完才通）：
+    1. **时长恒为 0**：Rust 侧 `get_audio_duration_ms` 用 `SKP_Silk_SDK_get_TOC` 逐包解析，而微信的 SILK 包结构让 TOC 一律判为 `corrupt` 被跳过，`total_ms` 保持 0 **且不报错**。这个 0 传进 `sendVoice` 后被 `coerceIn(1, 60000)` 夹成 **1ms**，服务端视为无效语音拒收。
+    2. **方法匹配失败**：`setVoiceMethod` 的条件是 `parameterCount == 3 || 4`，而微信实际是 **5 参** `v61.d1.u(String,int,int,e9,String)`，永远匹配不到。
+    3. **实参个数硬编码**：按 3/4 个实参调用，与实际重载不符。
+    4. **接收者传错**：`invoke(this, receiver, *args)` 写成把 receiver 当第一个实参，导致 `expected 5, got 6`。
+  - 修复：①`AudioUtils` 新增 `getDurationMsSafe` —— native 拿不到有效值时，按 SILK 容器结构（`0x02` + `#!SILK_V3` 头，随后 `[2字节长度][payload]` 重复）**纯 Kotlin 数包**，每包按一帧 20ms 计；10 处调用点全部切换。②匹配条件放宽为 `3..6`。③新增 `Method.invokeWithPadding(receiver, vararg knownArgs)`，按参数类型补默认值（引用→`null`，int→`0`，bool→`false`）。④改为 `this.invoke(receiver, *filled)`。
+  - 微信真实签名（已 dump 确认，类 `v61.d1` 即 VoiceLogic 的混淆名）：
+    - `static boolean u(String,int,int,e9,String)` ← `setVoice` 真身
+    - `static String  s(String,String,int)`
+    - `static int     v(String,int,p0)`
+
+- **✨ 聊天增强 · 收藏语音试听（SILK → MP3 转码）**
+  - 涉及文件：`utils/AudioUtils.kt`、`features/items/chat/ForwardFavoriteVoices.kt`
+  - 根因：收藏/聊天里的语音都是 **SILK 容器**，`MediaPlayer` 直接解不了，`prepare()` 报 `status=0x1`。
+  - 实现：`AudioUtils.silkToPlayableMp3(silkPath, cacheDir)` 走 native 两步转换 `SILK → PCM(24kHz 单声道) → MP3`；结果按 `路径 + 大小 + 修改时间` 做键缓存，同一段语音只转一次，中间 PCM 用完即删。
+  - **试听失败不阻断转发**：发送走的是文件拷贝与元数据，与能否试听无关，原先 `if (prepareError != null) return@Button` 会导致点「转发」毫无反应。
+  - 顺带修正 `pcmToMp3` 的形参名（原写作 `silkPath`/`pcmPath`，native 实际是 `(pcm, mp3)`）。
+
+- **🐛 通知 · 群聊通知首条头像缺失修复（改读微信本地头像缓存）**
+  - 涉及文件：`features/items/notifications/NotificationsEvolved.kt`
+  - 根因：通知构建时只读「模块自己的」头像缓存，而**首条通知时它必然是空的** —— 异步预取还没回来（实测晚于通知构建约 29ms）。这条路走不通，因为首次必然来不及。
+  - 实现：补一层**微信自己的头像缓存**。微信把头像按 `md5(wxid)` 分层落盘：
+    ```
+    <userDataDir>/avatar/<md5[0:2]>/<md5[2:4]>/<md5>/
+        user_<md5>.png    ← 主头像（实测 3011 个，覆盖最广；实际可能是 JPEG 96x96 或 PNG 156x156）
+        small_*           ← 小图补充（5719 个）
+        hd_*              ← 高清（209 个）
+    ```
+    同步读盘、不触网，已聊过的人必然命中。这是「截图里能看到头像就说明本地有」的正解。
+  - 顺带修复：`senderWxidMap` 未命中时**完全不解析 wxid**，直接拿 `senderKey` 当 wxid 查 —— 而群聊的 `senderKey` 含 `|`，必然落空。改为同步 `resolveSenderWxid` 并回填映射，预取也一并受益。
+  - 抽出 `finishAvatar()` 统一「缩放 → 圆角 → 落盘」，各头像来源共用收尾。
+
+- **🐛 界面 · 「修改好友数量」设置不生效修复（两处叠加）**
+  - 涉及文件：`features/items/contacts/ModifyFriendsCount.kt`
+  - 根因 ①：`setText` 只按 `parameterCount == 1` 取方法，但 `TextView` 同时有 `setText(CharSequence)` 与 `setText(int)`（资源 id 版本），反射顺序不保证 —— 一旦取到 `setText(int)`，`args[0] as? CharSequence` 恒为 `null`，回调每次都在第一行 `return`。改为**按参数类型精确匹配** `setText(CharSequence)`。
+  - 根因 ②：页面判断用 activity 类名前缀 `com.tencent.mm.ui.contact`，但 8.0.78 起联系人页已并入 `LauncherUI` 的 tab，该前缀的 activity **运行时不存在**，条件恒为 `false`。改为沿 View 父链查找 `ContactCountView`（实测父链：`TextView < FrameLayout < ContactCountView < WxRecyclerView < ...`），既能精确定位，又不会误伤资料页/搜索结果里同名的「N个朋友」。
+  - 两处叠加的表现都是「设置里改完保存了、值也写进 prefs 了，界面却纹丝不动」。
+
+- **🐛 美化 · 本地好友头像幂等失效修复（缓存键含渲染期变量）**
+  - 涉及文件：`features/items/contacts/CustomLocalFriendAvatars.kt`
+  - 根因：`decodeAvatarBitmap` 的 `cacheKey` 含 `targetSize`，而它直接取自 `imageView.width` —— 这个值在渲染过程中会变（列表项测量时机、行复用、密度换算）。键一抖，位图缓存**永不命中**，每次重绘都重新开流 + 解码 + 裁切 + 圆角，且每次都返回**新的 Bitmap 对象**；下游 `appliedBitmap` 用引用相等（`===`）判断「是否已设过同一张图」，引用不同就永远判为未设过，幂等短路彻底失效，于是「设图 → `setImageDrawable` hook → 再设图」的环闭不上。
+  - 实测证据：日志里 `avatar hit` 与 `avatar re-applied` 次数**完全相等（653 = 653）**，说明幂等一次都没生效过；滚动时每格头像都要重解码，主线程被吃掉，列表复用与头像绑定错拍，表现为多行头像重复/错乱。
+  - 修复：新增 `quantizeAvatarSize()`，把目标尺寸量化到 `AVATAR_SIZE_STEP = 64` 的整数倍（向上取整，最小不低于一个步长）。同一档位内的宽度共用同一个缓存项，命中即可复用同一个 Bitmap 对象，引用相等判断恢复有效。
+
+- **🧹 代码 · 移除 VirtualNewFriends 虚拟「新的朋友」功能**
+  - 涉及文件：`features/items/contacts/VirtualNewFriends.kt`（删除）、`VirtualNewFriendsConfig.kt`（删除）
+  - 说明：不再使用，整体移除，减少维护面。已确认无悬挂引用。
+
 ### 2026-09-14
 
 - **🛠️ 门禁 · 新增宿主版本门禁：微信低于 8.0.78 不再注入**
@@ -403,6 +463,13 @@
 
 | 日期 | 功能 | 变更说明 | 涉及文件 |
 |---|---|---|---|
+| 09-17 | **收藏语音长按转发（新）** | 拦截 `FavoriteIndexUI.K7`（菜单 id==3「转发」+ 收藏类型==3「语音」），置 `result=null` 拦掉微信「不能转发」校验；预览确认后选联系人批量发送 | `ForwardFavoriteVoices.kt` |
+| 09-17 | **收藏语音试听** | SILK 是容器 MediaPlayer 解不了（`status=0x1`）；新增 `silkToPlayableMp3` 走 SILK→PCM→MP3 两步转码 + 按内容缓存；试听失败不再阻断转发 | `AudioUtils.kt`、`ForwardFavoriteVoices.kt` |
+| 09-17 | **语音转发完全不可用修复** | 四缺陷叠加：SILK 时长恒 0 被夹成 1ms 遭服务端拒收 / `setVoiceMethod` 少算 2 个参数（实际 5 参）/ 实参个数硬编码 / `invoke` 接收者传错。新增 `getDurationMsSafe` 纯 Kotlin 数包兜底 | `WeMessageApi.kt`、`AudioUtils.kt`、`ForwardMessages.kt` |
+| 09-17 | **群聊首条通知头像缺失修复** | 首条时模块自身缓存必为空（异步预取晚 29ms）；改读微信本地缓存 `avatar/<md5[0:2]>/<md5[2:4]>/<md5>/user_<md5>.png`，同步读盘不触网；并修复 `senderWxidMap` 未命中时不解析 wxid 的问题 | `NotificationsEvolved.kt` |
+| 09-17 | **「修改好友数量」不生效修复** | `setText` 只数参数个数可能取到 `setText(int)`（回调恒空转）；页面判断用 activity 类名前缀，但联系人页已并入 `LauncherUI` 而恒为 false。改为精确匹配 `setText(CharSequence)` + 沿父链找 `ContactCountView` | `ModifyFriendsCount.kt` |
+| 09-17 | **头像幂等失效修复** | `cacheKey` 含 `imageView.width`（渲染期会变）→ 缓存永不命中 → 每次返回新 Bitmap → 引用相等判断失效（日志实测 hit 与 re-applied 653 = 653）。改为量化到 64 的整数倍 | `CustomLocalFriendAvatars.kt` |
+| 09-17 | **移除 VirtualNewFriends** | 虚拟「新的朋友」功能不再使用，整体移除 | `VirtualNewFriends.kt`、`VirtualNewFriendsConfig.kt`（删除） |
 | 09-05 | **文件夹容器长按移出/移到菜单（8.0.78）** | 直钩 `eu5.s0.g` 注入菜单 + 确定性行解析（r0→ConvBoxServiceConversationFmUI→adapter），移出/移到一步完成 | `ConversationAggregation.kt` |
 | 09-05 | **归拢刷新节流 + 日志收缩** | 消息风暴刷新合并（≥800ms 窗口）；按日日志/diag 上限收缩、日志页尾部读取，修复日志页卡顿 | `ConversationAggregation.kt`、`WeLogger.kt`、`LogsPager.kt` |
 | 09-02 | **归拢 @所有人 显示 [@全体]** | `atCount` bit24（0x01000000）权威标志 + 文本关键词双重判定；聚合判断（任一未读成员命中即显示），不再误判 [有人@我] | `ConversationAggregation.kt` |
@@ -515,6 +582,10 @@
   - 本地完整适配（08-27/28）：framework + WCDB compat/database 三类 `insert` hook 双路径捕获、好友资料 XML 属性解析、`NetSceneVerifyUser` opcode=3 接受、去重 key 改 `encryptUsername`（ticket 每次插入都会变）、欢迎语单发
 - **Markdown 渲染**：支持 Markdown 格式消息渲染
 - **消息复读**：一键复读群消息
+- **语音消息转发** 🛠️：长按消息转发给好友或群聊（支持批量）
+  - 本地修复（09-17）：语音转发此前完全不可用（提示「部分失败」或收方收不到）。四个叠加缺陷：SILK 时长恒解析为 0 被服务端视为无效语音、`setVoiceMethod` 少算参数个数（实际 5 参）、实参个数硬编码、`Method.invoke` 接收者传错。新增 `getDurationMsSafe` 纯 Kotlin 数包兜底时长
+- **收藏语音转发** 🛠️：收藏页长按语音直接转发（微信自身不提供该入口）
+  - 本地新增（09-17）：拦截 `FavoriteIndexUI.K7` 接管「转发」菜单项，弹出预览对话框确认后选联系人发送；支持 SILK 试听（`SILK → PCM → MP3` 转码后播放，带内容缓存）；试听失败不影响转发
 - **左划引用消息**：左划消息快速引用回复
 - **贴纸/语音保存到本地**：一键保存到手机存储
 - **虚拟视频通话**：自定义视频通话画面
@@ -524,6 +595,7 @@
 ### 🔔 通知
 - **新消息通知增强** 🛠️：会话新消息的系统通知优化
   - 本地增强（08-25/27/30）：通知头像圆角矩形（25% 半径，微信默认样式）、头像磁盘缓存 + 异步预取 + CDN 兜底、同会话通知合并、取消通知时正确清空 id 与历史、单聊首条同步读盘立即显示、群聊昵称 LIKE 模糊兜底匹配
+  - 本地修复（09-17）：群聊**首条**通知头像缺失。首条时模块自身缓存必然为空（异步预取实测晚于通知构建约 29ms），改为同步读微信本地头像缓存 `avatar/<md5[0:2]>/<md5[2:4]>/<md5>/user_<md5>.png`（不触网，已聊过的人必然命中）；并修复 `senderWxidMap` 未命中时直接拿含 `|` 的群聊 key 当 wxid 查、必然落空的问题
 
 ### 🎨 界面美化
 - **隐藏对话列表分割线** 🛠️：隐藏会话列表/归拢文件夹/搜索页的分割线，界面更清爽
