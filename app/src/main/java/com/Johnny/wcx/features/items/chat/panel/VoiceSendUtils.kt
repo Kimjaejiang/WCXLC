@@ -57,7 +57,7 @@ internal fun selectAndSendVoice(context: Context, currentConv: String) {
                     val mimeType = contentResolver.getType(uri).orEmpty()
                     val isSilk = mimeType in setOf("audio/amr", "audio/silk") ||
                             extension.equals("silk", true) || extension.equals("amr", true)
-                    Triple(isSilk, AudioUtils.getDurationMs(tempPath.absolutePathString()), tempPath)
+                    Triple(isSilk, AudioUtils.getDurationMsSafe(tempPath.absolutePathString()), tempPath)
                 }
                 if (prepareResult.isFailure) {
                     tempPath.deleteIfExists()

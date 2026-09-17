@@ -454,7 +454,7 @@ object WeChatService {
 
     fun audioGetDuration(path: String): Result<Long> =
         runCatching {
-            Result.Success(AudioUtils.getDurationMs(path))
+            Result.Success(AudioUtils.getDurationMsSafe(path))
         }.getOrElse { Result.Error(it.message ?: "Failed to get duration") }
 
     suspend fun jsLogin(appId: String): Result<String> = suspendCancellableCoroutine { cont ->

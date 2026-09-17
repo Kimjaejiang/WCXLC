@@ -141,9 +141,18 @@ object ForwardMessages : SwitchFeature(),
     }
 
     private fun forwardVoice(toUser: String, msgInfo: MessageInfo): Boolean {
-        val encPath = msgInfo.imagePath ?: return false
+        val encPath = msgInfo.imagePath ?: run {
+            WeLogger.w(TAG, "forwardVoice: msgId=${msgInfo.id} 没有 voice 路径")
+            return false
+        }
         val voicePath = WeMessageApi.getVoiceFullPath(encPath)
-        val durationMs = AudioUtils.getDurationMs(voicePath).toInt()
+        // 时长必须有效：sendVoice 内部会把 0 夹成 1ms，服务端视为无效语音而拒收。
+        // getDurationMsSafe 在 native 解析失败时用纯 Kotlin 数 SILK 包兜底。
+        val durationMs = AudioUtils.getDurationMsSafe(voicePath).toInt()
+        if (durationMs <= 0) {
+            WeLogger.w(TAG, "forwardVoice: 无法解析时长, voicePath=$voicePath")
+            return false
+        }
         return WeMessageApi.sendVoice(toUser, voicePath, durationMs)
     }
 

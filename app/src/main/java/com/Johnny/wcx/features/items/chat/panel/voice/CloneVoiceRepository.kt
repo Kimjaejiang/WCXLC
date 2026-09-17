@@ -211,7 +211,7 @@ object CloneVoiceRepository {
 
     private fun isReadableVoice(path: Path): Boolean {
         if (!path.isRegularFile() || path.fileSize() <= 0) return false
-        return AudioUtils.getDurationMs(path.absolutePathString()) > 0
+        return AudioUtils.getDurationMsSafe(path.absolutePathString()) > 0
     }
 
     private fun hasSilkHeader(path: Path): Boolean = runCatching {

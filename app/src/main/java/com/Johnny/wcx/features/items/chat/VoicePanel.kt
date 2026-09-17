@@ -276,10 +276,10 @@ object VoicePanel : SwitchFeature() { // entry implementation in ChatFooterHooks
                 // particular, reports the same value for every track). The downloaded file is
                 // authoritative; only trust the cached metadata for local files.
                 val durationMs = if (item.localPath == null) {
-                    AudioUtils.getDurationMs(resolvedPath).coerceAtLeast(0L)
+                    AudioUtils.getDurationMsSafe(resolvedPath).coerceAtLeast(0L)
                 } else {
                     item.durationMs.takeIf { it > 0 }
-                        ?: AudioUtils.getDurationMs(resolvedPath).coerceAtLeast(0L)
+                        ?: AudioUtils.getDurationMsSafe(resolvedPath).coerceAtLeast(0L)
                 }
 
                 // 应用伪装语音时长配置
@@ -381,7 +381,7 @@ object VoicePanel : SwitchFeature() { // entry implementation in ChatFooterHooks
                 id = preview.path,
                 title = title,
                 localPath = preview.path,
-                durationMs = AudioUtils.getDurationMs(preview.path).coerceAtLeast(0L),
+                durationMs = AudioUtils.getDurationMsSafe(preview.path).coerceAtLeast(0L),
                 format = preview.path.asPath.extension,
             ),
             recordUsage = false,

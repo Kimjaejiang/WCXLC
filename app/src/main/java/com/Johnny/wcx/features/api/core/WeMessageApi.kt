@@ -425,7 +425,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
     }
     private val setVoiceMethod: Method by lazy {
         classVoiceNameGen.reflekt().firstMethod {
-            parameterCount { it == 3 || it == 4 }
+            parameterCount { it in 3..6 }
             parameters {
                 it[0] == BString && it[1].typeMatches(int) && it[2].typeMatches(int)
             }
@@ -1314,18 +1314,16 @@ object WeMessageApi : ApiFeature(), IResolveDex {
             // 设置语音信息
             val finalDurationMs = durationMs.coerceIn(1, 60_000)
             val setVoiceReceiver = getReceiverForMethod(setVoiceMethod)
-            val setVoiceResult = if (setVoiceMethod.parameterCount == 4) {
-                setVoiceMethod.invoke(setVoiceReceiver, fileName, finalDurationMs, 0, null)
-            } else {
-                setVoiceMethod.invoke(setVoiceReceiver, fileName, finalDurationMs, 0)
-            } as? Boolean ?: false
+            val setVoiceResult = setVoiceMethod.invokeWithPadding(setVoiceReceiver, fileName, finalDurationMs, 0) as? Boolean ?: false
 
             if (!setVoiceResult) {
                 WeLogger.w(TAG, "VoiceLogic.setVoice returned false, still starting voice service: fileName=$fileName, target=$toUser")
             }
 
             startVoiceService()
-        }.onFailure { WeLogger.e(TAG, "failed to send voice (Service method)", it) }.isSuccess
+        }.onFailure {
+            WeLogger.e(TAG, "failed to send voice (Service method)", it)
+        }.isSuccess
 
         if (succeeded) return true
 
@@ -1349,11 +1347,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
                     }
                     returnType = bool
                 }.self
-            if (target.parameterCount == 4) {
-                target.invoke(null, partialPath, actualDuration, 0, null)
-            } else {
-                target.invoke(null, partialPath, actualDuration, 0)
-            }
+            target.invokeWithPadding(null, partialPath, actualDuration, 0)
 
             val service = classSceneVoiceService.clazz.reflekt()
                 .firstMethod {
@@ -1375,9 +1369,45 @@ object WeMessageApi : ApiFeature(), IResolveDex {
             }
 
             WeLogger.i(TAG, "sent voice (WAuxv method): $fullPath")
-        }.onFailure { WeLogger.e(TAG, "failed to send voice (WAuxv method)", it) }.isSuccess
+        }.onFailure {
+            WeLogger.e(TAG, "failed to send voice (WAuxv method)", it)
+        }.isSuccess
 
         return succeeded
+    }
+
+    /**
+     * 按目标方法的参数类型补齐实参后调用。
+     *
+     * 微信语音相关方法在不同版本间参数个数会变。以 VoiceLogic.setVoice 真身为例，
+     * 当前版本是 `static boolean u(String,int,int,e9,String)` 共 5 个参数，
+     * 而旧代码只按 3 或 4 个硬编码传参，于是：
+     *  - 路径1 用 parameterCount==3||4 匹配，5 参的 u 根本匹配不到 → NoSuchElementException
+     *  - 路径2 匹配到 u 后走 else 分支只传 3 个 → IllegalArgumentException: expected 5, got 3
+     * 这里按「已知语义参数在前、其余类型默认值补齐」的方式调用，避免再被版本参数个数绑死。
+     * 前 [knownArgs] 之后的槽位一律填该参数类型的默认值（引用类型 null、数值 0、布尔 false）。
+     */
+    private fun Method.invokeWithPadding(receiver: Any?, vararg knownArgs: Any?): Any? {
+        val types = parameterTypes
+        val filled = arrayOfNulls<Any?>(types.size)
+        for (i in knownArgs.indices) {
+            if (i < filled.size) filled[i] = knownArgs[i]
+        }
+        for (i in knownArgs.size until types.size) {
+            if (!types[i].isPrimitive) continue
+            filled[i] = when (types[i]) {
+                java.lang.Boolean.TYPE -> false
+                java.lang.Character.TYPE -> '\u0000'
+                java.lang.Byte.TYPE -> 0.toByte()
+                java.lang.Short.TYPE -> 0.toShort()
+                java.lang.Integer.TYPE -> 0
+                java.lang.Long.TYPE -> 0L
+                java.lang.Float.TYPE -> 0f
+                java.lang.Double.TYPE -> 0.0
+                else -> null
+            }
+        }
+        return this.invoke(receiver, *filled)
     }
 
     private fun getReceiverForMethod(method: Method): Any? {
@@ -1387,6 +1417,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
             WeServiceApi.getServiceByClass(method.declaringClass)
         }
     }
+
 
     private fun startVoiceService() {
         runCatching {

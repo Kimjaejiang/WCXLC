@@ -90,7 +90,7 @@ object RepeatMessages : SwitchFeature(), WeChatMessageContextMenuApi.IMenuItemsP
     private fun repeatVoice(msgInfo: MessageInfo): Boolean {
         val encPath = msgInfo.imagePath ?: return false
         val voicePath = WeMessageApi.getVoiceFullPath(encPath)
-        val durationMs = AudioUtils.getDurationMs(voicePath).toInt()
+        val durationMs = AudioUtils.getDurationMsSafe(voicePath).toInt()
         return WeMessageApi.sendVoice(msgInfo.talker, voicePath, durationMs)
     }
 

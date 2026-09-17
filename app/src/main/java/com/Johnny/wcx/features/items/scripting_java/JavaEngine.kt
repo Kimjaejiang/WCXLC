@@ -334,7 +334,7 @@ object JavaEngine {
             setMethod(
                 BshMethod(
                     "getDuration", arrayOf(BString)
-                ) { return@BshMethod AudioUtils.getDurationMs(it[0] as String) })
+                ) { return@BshMethod AudioUtils.getDurationMsSafe(it[0] as String) })
 
             // ===== Config: Properties-based persistent storage =====
 

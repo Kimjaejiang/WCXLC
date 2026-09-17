@@ -482,11 +482,47 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
      */
     private val appliedBitmap = Collections.synchronizedMap(WeakHashMap<ImageView, Bitmap>())
 
+    /**
+     * 把头像目标尺寸量化到固定档位（[AVATAR_SIZE_STEP] 的整数倍，向上取整）。
+     *
+     * 目的不是省内存，而是让 [decodeAvatarBitmap] 的 cacheKey 稳定：cacheKey 里含
+     * targetSize，若它随 imageView.width 逐像素抖动，缓存永远命中不了，
+     * 每次都返回新的 Bitmap 对象，[appliedBitmap] 的引用相等判断随之失效。
+     *
+     * 最小不低于 [AVATAR_SIZE_STEP]，避免 width 尚未测量时算出 0 尺寸的位图。
+     */
+    private fun quantizeAvatarSize(size: Int): Int {
+        val clamped = size.coerceAtLeast(AVATAR_SIZE_STEP)
+        // 向上取整到档位边界：(n + step - 1) / step * step
+        return (clamped + AVATAR_SIZE_STEP - 1) / AVATAR_SIZE_STEP * AVATAR_SIZE_STEP
+    }
+
+    /** 头像目标尺寸的量化步长（px）。 */
+    private const val AVATAR_SIZE_STEP = 64
+
     private fun loadAvatarInto(imageView: ImageView, uri: String, radiusFactor: Float): Boolean {
-        val targetSize = imageView.width
-            .takeIf { it > 0 }
-            ?: imageView.layoutParams?.width?.takeIf { it > 0 }
-            ?: 156
+        // 目标尺寸必须**量化到固定档位**，不能直接把 imageView.width 当键。
+        //
+        // width 在渲染过程中是会变的（列表项测量时机、行复用、密度换算），而它参与
+        // decodeAvatarBitmap 的 cacheKey（"$uri|$targetSize|…"）。键一抖，位图缓存
+        // 就永不命中，每次重绘都会重新开流 + 解码 + 裁切 + 圆角，并且每次都返回
+        // **新的 Bitmap 对象**——下游 appliedBitmap 用引用相等（===）判断
+        // 「是否已经设过同一张图」，引用不同就永远判为未设过，幂等短路彻底失效，
+        // 于是「设图 → setImageDrawable hook → 再设图」的环闭不上。
+        //
+        // 实测证据：日志里 avatar hit 与 avatar re-applied 次数完全相等（653 = 653），
+        // 说明幂等一次都没生效过；滚动时每格头像都要重解码，主线程被吃掉，
+        // 列表复用与头像绑定错拍，表现为多行头像重复/错乱。
+        //
+        // 量化后同一档位内的宽度共用同一个缓存项，命中即可复用同一个 Bitmap 对象。
+        // 档位取 64 的倍数并向上取整，最坏情况只多解出不到 64px 的余量，
+        // 而 centerCrop 随后会缩到实际需要的尺寸。
+        val targetSize = quantizeAvatarSize(
+            imageView.width
+                .takeIf { it > 0 }
+                ?: imageView.layoutParams?.width?.takeIf { it > 0 }
+                ?: 156
+        )
 
         val shouldRound = RoundAvatars.isEnabled
         val bitmap = decodeAvatarBitmap(

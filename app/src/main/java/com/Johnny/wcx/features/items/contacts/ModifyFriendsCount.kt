@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
+import android.view.ViewParent
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,7 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
-import dev.ujhhgtg.reflekt.reflekt
+import com.Johnny.wcx.utils.hookBeforeDirectly
 import com.Johnny.wcx.features.core.ClickableFeature
 import com.Johnny.wcx.features.core.Feature
 
@@ -49,21 +50,45 @@ object ModifyFriendsCount : ClickableFeature() {
     private var count by prefOption("modify_friends_count", 10)
 
     override fun onEnable() {
-        TextView::class.reflekt()
-            .firstMethod { name = "setText"; parameterCount = 1 }.hookBefore {
-                val text = args[0] as? CharSequence ?: return@hookBefore
-                if (!FRIEND_COUNT_REGEX.containsMatchIn(text)) return@hookBefore
-                val view = thisObject as TextView
-                val activity = view.context.findActivity() ?: return@hookBefore
-                if (!activity.javaClass.name.startsWith("com.tencent.mm.ui.contact")) return@hookBefore
+        // 必须精确挑到 setText(CharSequence)。
+        //
+        // 原先写的是 firstMethod { name = "setText"; parameterCount = 1 }，只数参数个数。
+        // 但 TextView 同时有 setText(CharSequence) 与 setText(int)（资源 id 版本），
+        // 反射顺序不保证，一旦取到 setText(int)，下面 args[0] as? CharSequence 恒为 null，
+        // 回调每次都在第一行 return —— 设置里改完保存了、值也写进 prefs 了，界面上却纹丝不动。
+        val setTextMethod = TextView::class.java.declaredMethods.firstOrNull {
+            it.name == "setText" &&
+                it.parameterTypes.size == 1 &&
+                it.parameterTypes[0] == CharSequence::class.java
+        }
+        if (setTextMethod == null) {
+            WeLogger.w(TAG, "setText(CharSequence) not found, feature disabled")
+            return
+        }
+        setTextMethod.isAccessible = true
 
-                if (count == HIDE) {
-                    view.visibility = View.GONE
-                } else {
-                    view.visibility = View.VISIBLE
-                    args[0] = FRIEND_COUNT_REGEX.replaceFirst(text.toString(), count.toString())
-                }
+        setTextMethod.hookBeforeDirectly {
+            val text = args[0] as? CharSequence ?: return@hookBeforeDirectly
+            if (!FRIEND_COUNT_REGEX.containsMatchIn(text)) return@hookBeforeDirectly
+            val view = thisObject as TextView
+            // 只处理联系人页顶部那个「N个朋友」。
+            //
+            // 原先判断的是 activity 类名前缀 com.tencent.mm.ui.contact，但 8.0.78 起
+            // 联系人页已并入 LauncherUI 的 tab，运行时不存在任何该前缀的 activity，
+            // 条件恒为 false —— 设置里改完保存了、值也写进 prefs 了，界面却纹丝不动。
+            //
+            // 改为顺着 View 父链找 ContactCountView：它就是联系人页承载这个数字的容器。
+            // 这样既能精确定位，又不会误伤资料页/搜索结果/群成员列表里同名的「N个朋友」。
+            if (!isInsideContactCountView(view)) return@hookBeforeDirectly
+
+            if (count == HIDE) {
+                view.visibility = View.GONE
+            } else {
+                view.visibility = View.VISIBLE
+                args[0] = FRIEND_COUNT_REGEX.replaceFirst(text.toString(), count.toString())
             }
+        }
+        WeLogger.i(TAG, "setText(CharSequence) hook registered")
     }
 
     override fun onClick(context: ComponentActivity) {
@@ -126,4 +151,23 @@ private fun Context.findActivity(): Activity? {
         current = current.baseContext
     }
     return null
+}
+
+/**
+ * view 是否位于联系人页的 ContactCountView 之内。
+ *
+ * 实测父链（微信 8.0.78）：
+ *   TextView < FrameLayout < ContactCountView < WxRecyclerView < ...
+ * ContactCountView 是联系人页承载「N 个朋友」的容器，用它定位比判断 activity 可靠 ——
+ * 联系人页已并入 LauncherUI，没有独立的 activity 类名可用。
+ */
+private fun isInsideContactCountView(view: View): Boolean {
+    var parent: ViewParent? = view.parent
+    var depth = 0
+    while (parent != null && depth < 6) {
+        if (parent.javaClass.name == "com.tencent.mm.ui.contact.ContactCountView") return true
+        parent = (parent as? View)?.parent
+        depth++
+    }
+    return false
 }

@@ -28,9 +28,11 @@ import com.Johnny.wcx.features.api.core.WeMessageApi
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.features.core.SwitchFeature
 import com.Johnny.wcx.utils.HostInfo
+import com.Johnny.wcx.utils.RuntimeConfig
 import com.Johnny.wcx.utils.hookBeforeDirectly
 import com.Johnny.wcx.utils.TargetProcesses
 import com.Johnny.wcx.utils.WeLogger
+import com.Johnny.wcx.features.api.net.models.protobuf.ChatRoomDataProto
 import com.Johnny.wcx.utils.android.getSystemService
 import com.Johnny.wcx.utils.collections.LruCache
 import com.Johnny.wcx.utils.fs.KnownPaths
@@ -41,6 +43,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.protobuf.ProtoBuf
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -57,6 +62,7 @@ import kotlin.time.Duration.Companion.milliseconds
     categories = ["通知"],
     description = "让微信的新消息通知更易用\n1. 「快速回复」按钮\n2. 「标记为已读」按钮\n3. 使用原生对话样式 (MessagingStyle)"
 )
+@OptIn(ExperimentalSerializationApi::class)
 object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
     private const val TAG = "NotificationsEvolved"
@@ -80,6 +86,10 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
     // sender 头像缓存：senderKey(会话|发送者) -> Icon，异步预取，下一条通知构建时生效
     private val senderAvatarCache = LruCache<String, Icon>(maxLimit = 64)
+
+    // senderKey -> wxid 映射：群聊的 senderKey 是「会话|昵称」，而头像磁盘文件按 wxid 命名，
+    // 两者对不上会导致已缓存的头像读不出来（表现为头像占位）。预取时记下映射，构建通知时反查。
+    private val senderWxidMap = LruCache<String, String>(maxLimit = 256)
 
     private data class HistoryEntry(val senderName: String, val text: String, val timestamp: Long, val senderKey: String)
 
@@ -277,18 +287,43 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
                 for (entry in history) {
                     val personBuilder = Person.Builder().setName(entry.senderName)
+                    // 头像三级查找：内存 → 映射反查磁盘 → 按 key 直接读磁盘。
+                    //
+                    // 之前群聊（senderKey 含 "|"）被排除在磁盘兜底之外，而磁盘文件名按 wxid 生成，
+                    // 单聊的 senderKey 恰好就是 wxid、群聊的却不是 —— 两者叠加导致群聊通知
+                    // 在内存缓存未命中时（首条、被 LRU 挤掉、预取未完成）必然显示占位。
+                    //
+                    // 另外这里全部只读「本扩展自己的」缓存，而首条通知时它是空的（异步预取还没回来）。
+                    // 所以还要补一层微信自己的头像缓存：同步读盘，已聊过的人必然命中。
                     val cachedIcon = senderAvatarCache[entry.senderKey]
                     if (cachedIcon != null) {
                         personBuilder.setIcon(cachedIcon)
-                    } else if (!entry.senderKey.contains("|")) {
-                        // 单聊第一条（异步预取尚未完成）：同步读磁盘缓存，命中立即显示头像
-                        val bmp = loadAvatarIconFromCache(entry.senderKey)
+                    } else {
+                        val resolvedWxid = senderWxidMap[entry.senderKey]
+                            ?: resolveSenderWxid(convWxId, entry.senderName)
+                            ?.also { senderWxidMap[entry.senderKey] = it }
+
+                        val bmp = resolvedWxid?.let { loadAvatarIconFromCache(it) }
+                            ?: loadAvatarIconFromCache(entry.senderKey)
+                            ?: resolvedWxid?.let { loadAvatarFromWeChatCache(it) }
+
                         if (bmp != null) personBuilder.setIcon(Icon.createWithBitmap(bmp))
                     }
                     messagingStyle.addMessage(entry.text, entry.timestamp, personBuilder.build())
                 }
 
                 builder.style = messagingStyle
+
+                // 交给 MessagingStyle 独占渲染后，必须清掉微信原本写进 extras 的标题与内容。
+                //
+                // 否则同一段文字会被渲染两遍：群聊里 conversationTitle 已设成 notifTitle，
+                // 系统 header 又照 EXTRA_TITLE 再画一次标题，于是「标题下方又多显示一行标题」；
+                // 单聊同理——MessagingStyle 拿 Person 名当标题，EXTRA_TEXT 里那句
+                // 「张三：你好」还会作为正文再出现一次。
+                //
+                // 折叠态不会因此失去标题：系统会改用 style 自己的 conversationTitle / Person 名。
+                builder.setContentTitle(null)
+                builder.setContentText(null)
 
                 // 2.5. Wrap WeChat's contentIntent so tapping the notification clears
                 //      history before handing off to WeChat's own chat-open flow.
@@ -462,6 +497,19 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                 "SELECT username FROM rcontact WHERE nickname = '$esc' OR conRemark = '$esc' LIMIT 1"
             ).firstOrNull()?.get("username")?.toString()
         }.getOrNull()?.let { return it }
+        // 群昵称反查：rcontact 只存好友，群里的陌生人查不到，但通知上显示的名字
+        // 正是群昵称（roomdata.members[].displayName），用它反查必然命中。
+        runCatching {
+            val blob = WeDatabaseApi.executeQuery(
+                "SELECT roomdata FROM chatroom WHERE chatroomname = '" +
+                    convWxId.replace("'", "''") + "'"
+            ).firstOrNull()?.get("roomdata") as? ByteArray
+            if (blob != null) {
+                val roomData = ProtoBuf.decodeFromByteArray<ChatRoomDataProto>(blob)
+                roomData.members.firstOrNull { it.displayName == senderName }?.wxId
+                    ?.takeIf { it.isNotEmpty() }
+            } else null
+        }.getOrNull()?.let { return it }
         // 精确匹配失败：LIKE 模糊兜底（备注/昵称可能有空格/符号差异）
         return runCatching {
             val esc = senderName.replace("'", "''")
@@ -476,9 +524,19 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
         if (senderAvatarCache[key] != null) return
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
-                val wxid = resolveSenderWxid(convWxId, senderName) ?: return@runCatching
-                val bmp = loadAvatarIcon(wxid) ?: return@runCatching
+                val wxid = resolveSenderWxid(convWxId, senderName) ?: run {
+                    WeLogger.w(TAG, "预取头像：解析不到 wxid key=$key")
+                    return@runCatching
+                }
+                // 先记映射再下载：即使这次下载失败，磁盘里也可能已有他人预取过的缓存，
+                // 记下 wxid 才能让构建通知时的反查命中。
+                senderWxidMap[key] = wxid
+                val bmp = loadAvatarIcon(wxid) ?: run {
+                    WeLogger.w(TAG, "预取头像：加载失败 wxid=$wxid key=$key")
+                    return@runCatching
+                }
                 senderAvatarCache[key] = Icon.createWithBitmap(bmp)
+                WeLogger.i(TAG, "预取头像成功 key=$key wxid=$wxid")
             }.onFailure { WeLogger.w(TAG, "预取头像失败 key=$key: ${it.message}") }
         }
     }
@@ -493,6 +551,45 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
         val f = avatarCacheFileFor(wxid)
         if (f.exists() && f.toFile().length() > 0) BitmapFactory.decodeFile(f.pathString) else null
     }.getOrNull()
+
+    /**
+     * 直接读微信自己的头像缓存（不触网、同步、必然命中已聊过的人）。
+     *
+     * 微信把头像按 md5(wxid) 分层落盘：
+     *   <userDataDir>/avatar/<md5[0:2]>/<md5[2:4]>/<md5>/
+     * 目录内 `user_<md5>.png` 是主头像，`small_*` 是小图补充。虽然叫 .png，
+     * 实际可能是 JPEG（96x96）或 PNG（156x156 / 416x416），BitmapFactory 都能解。
+     *
+     * 这是首条通知头像缺失的正解：原来只能靠异步 CDN 下载，首次必然晚于通知构建；
+     * 而这里的数据微信早就落盘了（截图里能看到头像就说明本地有），读盘是毫秒级的。
+     */
+    private fun loadAvatarFromWeChatCache(wxid: String): Bitmap? {
+        if (wxid.isBlank()) return null
+        return runCatching {
+            val md5 = java.security.MessageDigest.getInstance("MD5")
+                .digest(wxid.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+
+            val dir = RuntimeConfig.userDataDir / "avatar" / md5.substring(0, 2) / md5.substring(2, 4) / md5
+            if (!dir.exists()) return@runCatching null
+
+            // 优先 user_*.png（主头像，覆盖最广），再退到 small_*（改名过的用户）
+            val candidates = listOf(
+                dir / "user_$md5.png",
+                dir / "user_hd_$md5.png",
+            ) + runCatching {
+                Files.list(dir).use { s ->
+                    s.filter { it.fileName.toString().startsWith("small_") }
+                        .sorted()
+                        .limit(1)
+                        .toList()
+                }
+            }.getOrDefault(emptyList())
+
+            candidates.firstOrNull { it.exists() && it.toFile().length() > 0 }
+                ?.let { BitmapFactory.decodeFile(it.pathString) }
+        }.getOrNull()
+    }
 
     /**
      * 统一头像加载（圆角化）：
@@ -512,9 +609,14 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
             }
         }
 
-        // 2. 微信头像 URL（可能是 CDN 地址或本地缓存路径）
+        // 2. 微信自己的头像缓存（本地读盘，毫秒级，不用等网络）
+        loadAvatarFromWeChatCache(wxid)?.let { return finishAvatar(it, wxid, cacheFile) }
+
+        // 3. 微信头像 URL（可能是 CDN 地址或本地缓存路径）
         var bmp: Bitmap? = null
         var urlStr = runCatching { WeDatabaseApi.getAvatarUrl(wxid) }.getOrNull() ?: ""
+        // img_flag 没有时查 rcontact（bigHeadImgUrl/smallHeadImgUrl/avatarUrl）。
+        // 同一个值后面还要用来做 CDN 兜底，所以只查一次、复用。
         if (urlStr.isBlank()) urlStr = queryContactAvatarFallback(wxid)
 
         if (urlStr.isNotEmpty()) {
@@ -529,17 +631,28 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
             }
         }
 
-        // 3. CDN 兜底：img_flag 没有时查 rcontact（bigHeadImgUrl/smallHeadImgUrl/avatarUrl）
-        if (bmp == null) {
+        // 3. CDN 兜底：上面的 URL 下载失败时，若它不是 http 地址（是本地文件名），
+        //    再查一次 rcontact 拿 CDN 地址重试。
+        if (bmp == null && !urlStr.startsWith("http")) {
             val fallback = queryContactAvatarFallback(wxid)
             if (fallback.startsWith("http://") || fallback.startsWith("https://")) {
                 bmp = downloadAvatarBitmap(fallback)
             }
         }
 
-        if (bmp == null) return null
+        if (bmp == null) {
+            WeLogger.w(TAG, "头像加载失败 wxid=$wxid url=${urlStr.take(80)}")
+            return null
+        }
 
-        // 4. 缩放至通知头像尺寸
+        return finishAvatar(bmp, wxid, cacheFile)
+    }
+
+    /** 缩放至通知尺寸 → 圆角裁剪 → 落盘缓存。各头像来源共用这一收尾。 */
+    private fun finishAvatar(src: Bitmap, wxid: String, cacheFile: Path): Bitmap {
+        var bmp = src
+
+        // 缩放至通知头像尺寸
         val maxSize = 192
         if (bmp.width > maxSize || bmp.height > maxSize) {
             val scale = maxSize.toFloat() / maxOf(bmp.width, bmp.height)
@@ -548,10 +661,10 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
             )
         }
 
-        // 5. 圆角裁剪（微信原生样式：小圆角圆角矩形）
+        // 圆角裁剪（微信原生样式：小圆角圆角矩形）
         val rounded = toRoundedBitmap(bmp)
 
-        // 6. 落盘缓存，下次直接读盘
+        // 落盘缓存，下次直接读盘
         runCatching {
             Files.createDirectories(avatarCacheDir)
             val baos = java.io.ByteArrayOutputStream()

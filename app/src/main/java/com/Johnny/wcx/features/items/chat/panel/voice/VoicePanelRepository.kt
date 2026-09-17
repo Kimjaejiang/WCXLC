@@ -292,7 +292,7 @@ object VoicePanelRepository {
             localPath = path,
             source = source,
             packId = packId,
-            durationMs = AudioUtils.getDurationMs(path).coerceAtLeast(0L),
+            durationMs = AudioUtils.getDurationMsSafe(path).coerceAtLeast(0L),
             format = extension.lowercase(),
             sendCount = itemStats.sendCount,
             lastSentAt = itemStats.lastSentAt,
