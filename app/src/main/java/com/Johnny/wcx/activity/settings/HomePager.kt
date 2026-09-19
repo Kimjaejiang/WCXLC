@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,11 +39,13 @@ import com.composables.icons.materialsymbols.MaterialSymbols
 import com.composables.icons.materialsymbols.outlined.Build_circle
 import com.composables.icons.materialsymbols.outlined.Check_circle
 import com.composables.icons.materialsymbols.outlined.Phone_android
+import com.composables.icons.materialsymbols.outlined.Report
 import com.composables.icons.materialsymbols.outlined.Smartphone
 import com.composables.icons.materialsymbols.outlined.Sports_esports
 import com.Johnny.wcx.BuildConfig
 import com.Johnny.wcx.constants.PackageNames
 import com.Johnny.wcx.constants.Preferences
+import com.Johnny.wcx.features.core.FeatureHealth
 import com.Johnny.wcx.features.core.FeaturesProvider
 import com.Johnny.wcx.preferences.WePrefs
 import com.Johnny.wcx.utils.AppUpdater
@@ -50,6 +53,7 @@ import com.Johnny.wcx.utils.HostInfo
 import com.Johnny.wcx.utils.UpdateResult
 import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.Intent
+import com.Johnny.wcx.utils.android.showToast
 import com.Johnny.wcx.utils.formatEpoch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -200,6 +204,10 @@ fun HomePager(onOpenFeatures: () -> Unit) {
     }
     val totalCount = remember { FeaturesProvider.ALL_HOOK_ITEMS.size }
 
+    // 健康快照在进入页面时取一次即可：它只在 FeaturesLoader 加载结束时更新，
+    // 而设置页是在加载之后才可能被打开的。
+    val healthEntries = remember { FeatureHealth.snapshot() }
+
     var latestVersion by remember { mutableStateOf<String?>(null) }
     var isLatest by remember { mutableStateOf(false) }
     var isChecking by remember { mutableStateOf(true) }
@@ -345,6 +353,27 @@ fun HomePager(onOpenFeatures: () -> Unit) {
             SystemInfoCard(wechatVersion, lspEnvironment, lspApiVersion, !safeIsHost())
         }
 
+        // ---- 功能健康（常驻显示）----
+        // 曾经这里是「仅发现问题才出现」，结果是：一切正常时首页一片空白，
+        // 用户无法区分「诊断没问题」和「诊断根本没跑」—— 这个歧义真实发生过。
+        // 所以改成常驻，正常时也把结论摆出来。
+        item {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "功能健康",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        item {
+            HealthStatusCard(
+                entries = healthEntries,
+                context = context,
+            )
+        }
+
         // ---- 底部留白 ----
         item {
             Spacer(Modifier.height(CONTENT_BOTTOM_INSET))
@@ -460,6 +489,109 @@ private fun TagChip(text: String, color: Color, textColor: Color = color) {
             color = textColor,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
         )
+    }
+}
+
+/**
+ * 功能健康状态卡片（常驻）。
+ *
+ * 正常与异常都显示：正常时给一行简洁结论，异常时列出具体功能。
+ * 不这么做的话，「一切正常」和「诊断没跑」在界面上完全一样。
+ */
+@Composable
+private fun HealthStatusCard(
+    entries: List<FeatureHealth.Entry>,
+    context: android.content.Context,
+) {
+    val problems = entries.filter { it.isProblem }
+    val ok = problems.isEmpty()
+
+    Card {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (ok) {
+                        MaterialSymbols.Outlined.Check_circle
+                    } else {
+                        MaterialSymbols.Outlined.Report
+                    },
+                    contentDescription = null,
+                    tint = if (ok) {
+                        MiuixTheme.colorScheme.primary
+                    } else {
+                        MiuixTheme.colorScheme.error
+                    },
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = when {
+                            entries.isEmpty() -> "尚未完成加载"
+                            ok -> "${entries.size} 个功能正常"
+                            else -> "${problems.size} 个功能未生效"
+                        },
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = if (entries.isEmpty()) {
+                            "模块可能尚未启动完成，重启微信后查看"
+                        } else if (ok) {
+                            "全部功能已正常加载"
+                        } else {
+                            "DEX 缓存未就绪的功能会在下次启动微信后自动生效"
+                        },
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+
+            if (problems.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                problems.take(8).forEach { entry ->
+                    Text(
+                        text = "• ${entry.name}${entry.detail?.let { " — $it" } ?: ""}",
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
+                if (problems.size > 8) {
+                    Text(
+                        text = "…还有 ${problems.size - 8} 个",
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "复制诊断报告",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.clickable {
+                    copyDiagnosticsToClipboard(context)
+                    showToast(context, "诊断报告已复制")
+                },
+            )
+        }
+    }
+}
+
+private fun copyDiagnosticsToClipboard(context: android.content.Context) {
+    runCatching {
+        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                as android.content.ClipboardManager
+        clipboard.setPrimaryClip(
+            android.content.ClipData.newPlainText("WCXLC 诊断", FeatureHealth.buildReport())
+        )
+    }.onFailure {
+        WeLogger.e("HomePager", "Failed to copy diagnostics", it)
     }
 }
 

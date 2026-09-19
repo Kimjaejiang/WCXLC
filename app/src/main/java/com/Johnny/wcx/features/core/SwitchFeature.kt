@@ -18,6 +18,14 @@ abstract class SwitchFeature : BaseFeature() {
     protected open val shouldEnableOnStartup: Boolean
         get() = _isEnabled
 
+    /**
+     * 供健康检查读取「该功能在当前进程会不会加载」，不改变加载行为。
+     *
+     * [shouldLoadInCurrentProcess] 是 protected 的，诊断需要从外部只读地拿到它；
+     * 直接放开可见性会扩大子类可覆盖的 API 面，所以单开一个只读包装。
+     */
+    fun shouldLoadInProcessForHealth(): Boolean = shouldLoadInCurrentProcess
+
     final override fun startup() {
         if (!shouldLoadInCurrentProcess) return
         _isEnabled = WePrefs.getBoolOrDef(name, defaultEnabled)

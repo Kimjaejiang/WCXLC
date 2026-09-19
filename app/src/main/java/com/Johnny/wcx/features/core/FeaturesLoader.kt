@@ -24,6 +24,20 @@ object FeaturesLoader {
 
     private const val TAG = "FeaturesLoader"
 
+    private var healthEntries: List<FeatureHealth.Entry> = emptyList()
+
+    private fun describe(
+        feature: BaseFeature,
+        status: FeatureHealth.Status,
+        detail: String?,
+    ) = FeatureHealth.Entry(
+        name = feature.name,
+        displayName = feature.displayName,
+        categories = feature.categories,
+        status = status,
+        detail = detail,
+    )
+
     fun loadFeatures() {
         val allFeatures = FeaturesProvider.ALL_HOOK_ITEMS
         val allDexItems = allFeatures.filterIsInstance<IResolveDex>()
@@ -43,17 +57,41 @@ object FeaturesLoader {
             handleBrokenItems(allBrokenItems)
 
         val elapsed = measureTime {
-            allFeatures.forEach { feature ->
+            healthEntries = allFeatures.map { feature ->
                 val isBroken = feature is IResolveDex && allBrokenItems.contains(feature)
 
-                if (isBroken && feature !is WeSettingsInjector) {
-                    WeLogger.w(TAG, "skipping ${feature.name} — incomplete cache, awaiting re-resolution")
-                    return@forEach
+                // 明确不该在本进程加载的功能：不算故障，与「用户没开」区分开。
+                if (feature is SwitchFeature && !feature.shouldLoadInProcessForHealth()) {
+                    return@map describe(feature, FeatureHealth.Status.SKIPPED_PROCESS, "当前进程不需加载")
                 }
 
-                feature.startup()
+                if (isBroken && feature !is WeSettingsInjector) {
+                    val fromCacheFailed = cacheFailedItems.contains(feature)
+                    val status = if (fromCacheFailed) {
+                        FeatureHealth.Status.SKIPPED_CACHE_FAILED
+                    } else {
+                        FeatureHealth.Status.SKIPPED_INCOMPLETE_CACHE
+                    }
+                    WeLogger.w(TAG, "skipping ${feature.name} — incomplete cache, awaiting re-resolution")
+                    return@map describe(feature, status, "DEX 缓存未就绪，下次启动生效")
+                }
+
+                try {
+                    feature.startup()
+                    // 未启用的功能属正常状态，单独标出，避免与「异常」混淆。
+                    val status = if (feature is SwitchFeature && !feature.isEnabled) {
+                        FeatureHealth.Status.DISABLED
+                    } else {
+                        FeatureHealth.Status.LOADED
+                    }
+                    describe(feature, status, null)
+                } catch (e: Throwable) {
+                    WeLogger.e(TAG, "startup failed for ${feature.name}", e)
+                    describe(feature, FeatureHealth.Status.FAILED, e.message)
+                }
             }
         }
+        FeatureHealth.publish(healthEntries)
         WeLogger.i(TAG, "loading all features took $elapsed")
 
         if (TargetProcesses.isInMain && Preferences.showStartupToast) {
