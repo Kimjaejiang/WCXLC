@@ -25,6 +25,44 @@
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 > ⚠️ 标记「已随 v247」的条目：v247 重构合入后**采用上游实现，本地无独有代码保留**（上游已含同等能力），仅作功能存档。
 
+### 2026-09-20
+
+- **📋 适配记录 · 微信 8.0.78 锚点全量实测（新增可复用验证工具）**
+  - 涉及文件：`tools/verify-8078/`（新增：`DexStrings.java`、`README.md`、锚点清单）
+  - 做法：从设备取出微信 8.0.78 正式版 `base.apk`，解出 **17 个 dex**，用 `DexStrings.java` 直接解析 DEX 的 `string_ids` 段，得到 **857,369 条唯一字符串**；再把模块全部 **560 条字符串锚点**（`usingEqStrings` / `usingStrings` 的字面量）逐条精确比对。
+  - 为什么不用 `dexdump -d`：它只能看到代码里**被引用**的字符串，而锚点可能锚在常量池任意位置；`string_ids` 才是全集。
+  - 结果：**命中 526 / 未命中 33（94% 有效）**。结论是模块并非「整体不支持 8.0.78」，而是**少数模块发生结构迁移**——不应因升版本重写全部 hook。
+  - 未命中集中在：`SplitGroupCall` 7 个（旧 MultiTalk / ILink 控制链整体迁移）、`PipVoip` 5 个（VoIP 控制迁向 Flutter `FlutterVoipPlugin` → `Lf73/t`）、`HideContacts` 3 / `Themes` 3 / API 层 15。
+  - 局限：只能判「字符串是否存在」，**判不了语义是否等价**。命中不代表行为正确（日志串可能保留但所在方法已重构）。
+
+- **🐛 分裂群组通话 · 8.0.78 点击「确定」崩溃（锚点全失效且未带 allowFailure）**
+  - 涉及文件：`features/items/contacts/SplitGroupCall.kt`
+  - 根因：该功能 **12 个** `dexClass()` / `dexMethod()` / `dexField()` 锚点**均未带 `allowFailure`**（实测 4+6+2，全文 0 处），在 8.0.78 下全部匹配失败并落入 placeholder；而 `startBatch()` 里的 `check(mode != VOIP || !classSubCoreMultiTalk.isPlaceholder)` 因此必然失败。该调用点位于 Compose `onClick` 内、**无异常捕获**，表现为点「确定」直接崩溃。
+  - 注：这不是加一个 `allowFailure = true` 就能算适配的 —— 旧 MultiTalk / ILink 控制链本身已迁移，需**重新定位 8.0.78 的 MultiTalk 控制链**（8.0.78 中可见 `voipmp/v2/multitalk`、`MultiTalkActionEvent` 等新结构）。
+  - 当前状态：已在 README「适配版本」章标记为已知缺陷，**修复前请勿使用**。
+
+- **🐛 对话归拢 · 选择器头像缺失与刷新慢（排序改走会话时间）**
+  - 涉及文件：`ui/content/ContactSelectors.kt`、`features/api/core/WeDatabaseApi.kt`、`features/items/chat/ConversationAggregation.kt`
+  - 根因 ①（头像空白）：`avatarModelProvider` 返回**空字符串**时被当作有值传给 `AsyncImage`，而空 model 不触发占位图，表现为头像缺失。改为可空返回并把空字符串归一为 `null`，交回 Coil 的占位处理。
+  - 根因 ②（刷新慢+头像缺失）：排序原走 `message` 表 `IN + GROUP BY` 算最近消息时间，导致「先按传入顺序显示 → 时间回来后突然重排」，重排又让整个列表重新组合、头像重新加载。改为直接查 `rconversation.conversationTime`（每会话一行，无需聚合）。
+  - 顺带：DB 未就绪轮询由 60 次降为 5 次（正常开机后立即就绪），并新增 `WeDatabaseApi.getLocalAvatarFile()` 作头像本地兜底。
+
+- **🛠️ 对话归拢 · 冷启动残留回收（补充 onDisable 覆盖不到的场景）**
+  - 涉及文件：`features/items/chat/ConversationAggregation.kt`
+  - 背景：归拢把成员 `parentRef` 改写为 `wekit_folder_*` 写入微信库，而微信自己就认这个字段——**模块在不在它都照样折叠**。原来唯一的清理入口 `releaseAllFolders()` 只挂在 `onDisable` 上，而用户在 LSPosed 取消勾选时模块一行代码都不跑，残留就永久留在库里（表现为几百个会话从主页消失、只剩几个空壳文件夹）。
+  - 实现：新增 `hookColdStartResidualRecovery()`，挂 `WeMainActivityBeautifyApi.methodDoOnCreate`（每次冷启动必跑，**不依赖 `isEnabled`**），与 `HideContacts.migrateLegacyHiddenParentRef` 同思路。
+  - 仍然覆盖不到的场景：**LSPosed 取消勾选** —— 清理代码属于模块，而「禁用」= 不加载 = 不执行，在现有架构下无解（详见设计文档）。
+
+- **🐛 对话归拢 · 内转发不再弹第二次选择器**
+  - 涉及文件：`features/items/chat/ConversationAggregation.kt`
+  - 修复：在归拢文件夹行被点选后，直接用**已选成员**改写本监听器读到的对象并推进，不再二次弹出成员选择器。
+
+- **📝 设计记录 · 归拢 parentRef 显示机制（一份否定性结论）**
+  - 涉及文件：`docs/design/aggregation-parentref-and-residue.md`（新增）
+  - 实测抓到的微信主页原生 SQL：`WHERE (parentRef is null OR parentRef = '') OR (parentRef = 锚点值)`——**主页只认「空」与「锚点值」两种 `parentRef`**。
+  - 据此证伪一个方案：「写一个微信不认识的 `parentRef` 值，让模块不在时微信自动还原成普通会话」。实测样本 `filehelper` 写入陌生值后**从主页消失**，且**关闭模块后依然消失、不会自动恢复**——写陌生值等于**永久隐藏**，比原方案更糟。
+  - 推论：任何写入非空非锚点值的做法都等于隐藏，「模块不在时自动还原」在**落库路线**上不可能实现，只能改走**查询层拦截**。
+
 ### 2026-09-17
 
 - **✨ 聊天增强 · 收藏语音长按转发（新功能）**
