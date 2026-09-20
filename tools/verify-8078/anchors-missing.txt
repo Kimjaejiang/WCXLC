@@ -1,33 +1,24 @@
-<appmsg appid=\
-BaseSettingConvert
-Cannot resolve path or URI
 Hangup ret:
-HistoryMsgTongueComponent
 ILinkMember{memberId=
-Initialize skeleton
+MicroMsg.MT.MultiTalkManager
 MicroMsg.MT.MultiTalkUIViewModel
 MicroMsg.NetSceneUploadMsgImg
 MicroMsg.SubCoreMultiTalk
-SyncAddChatroomMember
-[locationByMsgId] position:%s mode:%s
-[setShowHistoryMsgTipId] pos:%s
-delChatContact username:
+MicroMsg.VerifyUserUtil
 enter inviteSync. %s, %s, %d, %b
 exitCurrentMultiTalk: isReject %b isMissCall %b isPhoneCall %b isNetworkError %b
-initBackground:
-launchInComingCardAsync: 
+mCurrentStatus %d mIsJoiningRoom %b
 onCameraClick, cur state: 
 onChangeMultiTalkStatus is %s
 onExitMultiTalk
-onItemClickListener data.type
+onInviteMultiTalk All Var Value:
+ isMute: %b isHandsFree: %b isCameraFace: %b multiTalkStatus: %s groupIsNull: %b
 onMicClick, cur state: 
 onMiniMultiTalk
-readFileAsString(\
 set name=%s, uin=%d
 setCurrentMTSDKMode groupid:%s, mode:%d
 setImageHdImgBtnVisibility
 setSelection: %s
-summerbig sendAppMsg attachFilePath
-waiting2running waitingQueue_size =
-weixin://voip/callagain/?username=
-worker thread has not been se
+steve: initsession : mIsInitedEngine :%b mIsInitingEngine %b 
+summerverify opcode[%s], verifyContent[%s], verifyScene[%s]
+verify ok clicked

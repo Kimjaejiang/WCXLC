@@ -1442,9 +1442,13 @@ object Themes : ClickableFeature(), IResolveDex {
         }
     }
 
-    private val classSmileyTabAdapter by dexClass {
+    private val classSmileyTabAdapter by dexClass(allowFailure = true) {
         matcher {
-            usingStrings("MicroMsg.emoji.SmileyPanel.SmileyTabAdapter", "setSelection: %s")
+            // 8.0.78 起第二个日志串 "setSelection: %s" 已移除，而 usingStrings 多串是
+            // AND 语义，旧写法会必然匹配失败。类本身仍在（包路径由 emoji.panel 迁到
+            // emoji.panel.adapter），日志串 "MicroMsg.emoji.SmileyPanel.SmileyTabAdapter"
+            // 仍保留且唯一，单串即可定位。
+            usingStrings("MicroMsg.emoji.SmileyPanel.SmileyTabAdapter")
         }
     }
 
@@ -1944,7 +1948,12 @@ object Themes : ClickableFeature(), IResolveDex {
         }
 
         // C0838j 28 —— 表情面板 tab
-        classSmileyTabAdapter.clazz.reflekt()
+        // 锚点未命中时直接跳过：该子功能是可选增强，不应连累整个主题功能。
+        // （本处曾因锚点失效抛 Class resolution has failed，冒泡到 enable() 的
+        //  runCatching，触发 unhookAll() 并令 isActive=false，导致 hookA~hookD 被撤销、
+        //  hookE~hookL 从未执行。）
+        if (!classSmileyTabAdapter.isPlaceholder) {
+            classSmileyTabAdapter.clazz.reflekt()
             .firstMethod { name = "onBindViewHolder" }.hookAfter {
                 val holder = args.getOrNull(0) ?: return@hookAfter
                 val position = args.getOrNull(1) as? Int ?: return@hookAfter
@@ -1974,6 +1983,7 @@ object Themes : ClickableFeature(), IResolveDex {
                     break
                 }
             }
+        }
 
         // C0838j 29 —— 聊天「+」面板
         methodAppGridGetView.hookAfter {

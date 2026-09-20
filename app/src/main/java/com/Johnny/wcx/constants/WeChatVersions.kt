@@ -1,7 +1,14 @@
 package com.Johnny.wcx.constants
 
 object WeChatVersions {
-    const val MM_8_0_76 = 3180
+    // 实测校对（2026-09-20，微信 8.0.78 正式版 versionCode=3180）：
+    // 8.0.76 -> 3140、8.0.77 -> 3160、8.0.78 -> 3180。
+    // 原名 MM_8_0_76 = 3180 与版本号对不上（3180 实为 8.0.78），已修正并补齐缺号。
+    const val MM_8_0_78 = 3180
+    const val MM_8_0_77 = 3160
+    const val MM_8_0_76 = 3140
+    const val MM_8_0_75 = 3120
+    const val MM_8_0_73 = 3110
     const val MM_8_0_72 = 3100
     const val MM_8_0_71 = 3080
     const val MM_8_0_70 = 3060

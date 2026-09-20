@@ -29,9 +29,9 @@
 
 - **📋 适配记录 · 微信 8.0.78 锚点全量实测（新增可复用验证工具）**
   - 涉及文件：`tools/verify-8078/`（新增：`DexStrings.java`、`README.md`、锚点清单）
-  - 做法：从设备取出微信 8.0.78 正式版 `base.apk`，解出 **17 个 dex**，用 `DexStrings.java` 直接解析 DEX 的 `string_ids` 段，得到 **857,369 条唯一字符串**；再把模块全部 **560 条字符串锚点**（`usingEqStrings` / `usingStrings` 的字面量）逐条精确比对。
+  - 做法：从设备取出微信 8.0.78 正式版 `base.apk`，解出 **17 个 dex**，用 `DexStrings.java` 直接解析 DEX 的 `string_ids` 段，得到 **857,369 条唯一字符串**；再把模块全部 **717 条字符串锚点**（`usingEqStrings` / `usingStrings` 的字面量）逐条精确比对。
   - 为什么不用 `dexdump -d`：它只能看到代码里**被引用**的字符串，而锚点可能锚在常量池任意位置；`string_ids` 才是全集。
-  - 结果：**命中 526 / 未命中 33（94% 有效）**。结论是模块并非「整体不支持 8.0.78」，而是**少数模块发生结构迁移**——不应因升版本重写全部 hook。
+  - 结果：**命中 693 / 未命中 24（96.7% 有效）**。结论是模块并非「整体不支持 8.0.78」，而是**少数模块发生结构迁移**——不应因升版本重写全部 hook。
   - 未命中集中在：`SplitGroupCall` 7 个（旧 MultiTalk / ILink 控制链整体迁移）、`PipVoip` 5 个（VoIP 控制迁向 Flutter `FlutterVoipPlugin` → `Lf73/t`）、`HideContacts` 3 / `Themes` 3 / API 层 15。
   - 局限：只能判「字符串是否存在」，**判不了语义是否等价**。命中不代表行为正确（日志串可能保留但所在方法已重构）。
 
@@ -64,6 +64,26 @@
   - 实测抓到的微信主页原生 SQL：`WHERE (parentRef is null OR parentRef = '') OR (parentRef = 锚点值)`——**主页只认「空」与「锚点值」两种 `parentRef`**。
   - 据此证伪一个方案：「写一个微信不认识的 `parentRef` 值，让模块不在时微信自动还原成普通会话」。实测样本 `filehelper` 写入陌生值后**从主页消失**，且**关闭模块后依然消失、不会自动恢复**——写陌生值等于**永久隐藏**，比原方案更糟。
   - 推论：任何写入非空非锚点值的做法都等于隐藏，「模块不在时自动还原」在**落库路线**上不可能实现，只能改走**查询层拦截**。
+
+- **🐛 主题 · 表情面板 tab 锚点失效会连累全部主题 hook（已修复）**
+  - 涉及文件：`features/items/beautify/Themes.kt`
+  - 根因：`classSmileyTabAdapter` 用 `usingStrings("MicroMsg.emoji.SmileyPanel.SmileyTabAdapter", "setSelection: %s")` 定位，而 `usingStrings` 多串是 **AND** 语义；8.0.78 里第二个日志串 `setSelection: %s` 已移除，matcher 必然失败。该锚点**没有 `allowFailure`**，使用处 `classSmileyTabAdapter.clazz` 直接抛 `Class resolution has failed`。
+  - 后果（在 `onEnable()` 内，最严重的一类）：异常冒泡到 `BaseFeature.enable()` 的 `runCatching`，触发 `unhookAll()` + `isActive = false` —— **`hookA`~`hookD` 已装上的 hook 被全部撤销、`hookE`~`hookL` 从未执行**，整个主题功能静默失效，而表象只是「表情面板 tab 没换图」。
+  - 修复：① 锚点改为单串（类仍在，包路径由 `emoji.panel` 迁到 `emoji.panel.adapter`，日志串 `MicroMsg.emoji.SmileyPanel.SmileyTabAdapter` 保留且全库唯一，单串即可定位）；② 补 `allowFailure = true`；③ 使用处加 `isPlaceholder` 守卫，即使将来再次失效也只跳过这个可选子功能。
+  - 教训：**AND 配对锚点里任意一串消失 = 整个 matcher 失败**，比单串锚点脆弱得多；且「次要子功能」的锚点若不加守卫，会把整个功能的 hook 一起拖垮。
+
+- **🐛 版本号常量 · `MM_8_0_76 = 3180` 名实不符（已修正并补齐缺号）**
+  - 涉及文件：`constants/WeChatVersions.kt`
+  - 根因：实测微信 8.0.78 正式版 `versionCode = 3180`，而常量名却是 `MM_8_0_76`。外部资料独立印证：8.0.76 → 3140、8.0.77 → 3160、8.0.78 → 3180。
+  - 影响：该常量**当前零引用**，所以未造成实际错误；但任何后续按名取用的人都会拿到偏小两档的阈值，做出错误的版本分叉。
+  - 修复：改为 `MM_8_0_78 = 3180`、`MM_8_0_77 = 3160`、`MM_8_0_76 = 3140`，并补齐 `MM_8_0_75 = 3120`、`MM_8_0_73 = 3110`。
+
+- **📋 核查结论 · 另 5 处「未命中」经查无需改动**
+  - `AutoViewOriginalMedia`（1 个）：`setImageHdImgBtnVisibility` 只是 `ifEmpty` 里的**备用锚点**，主锚点 `setHdImageActionDownloadable` 命中，备用分支从不执行 —— 属设计正确。
+  - `HideContacts`（3 个）：均为 MultiTalk 相关且 `allowFailure = true`，使用处 `HideContactsVoip.kt` 已有 `isPlaceholder` 守卫（失效时记 warning 并优雅返回）—— 无需修改。
+  - `WeMessageApi`（1 个）：`MicroMsg.NetSceneUploadMsgImg` 位于 `versionCode >= MM_8_0_67` 的 **else 旧分支**，8.0.78 走 if 新分支，旧锚点不会被求值 —— 无需修改。
+  - `Themes.classBaseSettingConvert`（初判未命中，实为误报）：两个串在 8.0.78 均命中。
+  - 结论：**「字符串不存在」≠「功能失效」**，必须回到源码看是否有 `allowFailure` / `isPlaceholder` 守卫才能定责。
 
 ### 2026-09-17
 
@@ -795,8 +815,8 @@ wcx/
 
 | 结果 | 数量 | 占比 |
 |------|------|------|
-| 命中（8.0.78 中仍存在） | 526 | 94% |
-| **未命中（疑似失效）** | **33** | **6%** |
+| 命中（8.0.78 中仍存在） | 693 | 96.7% |
+| **未命中（疑似失效）** | **24** | **3.3%** |
 
 **结论：模块并非「整体不支持 8.0.78」，而是少数模块发生结构迁移。**
 不要因为升版本就重写全部 hook。
