@@ -135,6 +135,22 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
             $LEFT_JOIN_IMG_FLAG
         """.trimIndent()
 
+        /**
+         * 按 username 白名单取账号。
+         *
+         * CONTACTS 会扫完整个 rcontact 并 LEFT JOIN 头像表（几千行），
+         * 成员选择器已知具体几个 wxid，用 IN 限定即可，避免全表扫描 + 事后过滤。
+         */
+        fun contactsByUsernames(usernames: Collection<String>): String {
+            val quoted = usernames.joinToString(",") { "'" + it.replace("'", "''") + "'" }
+            return """
+                SELECT $CONTACT_FIELDS, r.type
+                FROM rcontact r
+                $LEFT_JOIN_IMG_FLAG
+                WHERE r.username IN ($quoted)
+            """.trimIndent()
+        }
+
         /** 好友列表（排除群聊和公众号和系统账号和自己和假好友） */
         val FRIENDS = """
             SELECT $CONTACT_FIELDS, r.type
@@ -309,6 +325,20 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
             GROUP BY talker
         """.trimIndent()
 
+        /**
+         * 限定会话子集的最近活跃时间，改从 rconversation 取。
+         *
+         * 与 [lastMessageTimesFor] 同样表达「该会话最后活跃时间」，但后者对 message 表
+         * （全库最大的表）做 IN + GROUP BY，即使限定子集仍需大量扫描；
+         * rconversation 每个会话只有一行，conversationTime 就是微信维护的最近消息时间，
+         * 行数少几个数量级 —— 这是选择器「新-旧排序」的性能瓶颈。
+         */
+        fun conversationTimesFor(talkerIn: String) = """
+            SELECT username AS talker, conversationTime AS lastTime
+            FROM rconversation
+            WHERE username IN ($talkerIn)
+        """.trimIndent()
+
         /** 获取头像 URL */
         fun avatar(wxid: String) = """
             SELECT i.reserved2 AS avatarUrl
@@ -454,6 +484,17 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
      */
     fun getContacts(): List<WeContact> {
         return mapToContacts(executeQuery(SqlStatements.CONTACTS))
+    }
+
+    /**
+     * 按 username 白名单获取联系人。
+     *
+     * 与 [getContacts] 结果等价（取其子集），但用 IN 限定查询范围，
+     * 适合「已知具体几个 wxid」的场景，避免全表扫描 + 事后过滤。
+     */
+    fun getContactsByUsernames(usernames: Collection<String>): List<WeContact> {
+        if (usernames.isEmpty()) return emptyList()
+        return mapToContacts(executeQuery(SqlStatements.contactsByUsernames(usernames)))
     }
 
     /**
@@ -760,6 +801,30 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
     }
 
     /**
+     * 获取指定会话集合的最近消息时间。
+     *
+     * 从 rconversation.conversationTime 取，不扫 message 表。
+     * 与 [getLastMessageTimesFor] 同一语义（都是「最后活跃时间」），
+     * 但快得多，适合列表「新-旧排序」这类每次开列表都要跑的场景。
+     */
+    fun getConversationTimesFor(wxIds: Collection<String>): Map<String, Long> {
+        if (wxIds.isEmpty()) return emptyMap()
+        return try {
+            val result = HashMap<String, Long>()
+            wxIds.chunked(800).forEach { chunk ->
+                val quoted = chunk.joinToString(",") { "'${it.replace("'", "''")}'" }
+                executeQuery(SqlStatements.conversationTimesFor(quoted)).forEach { row ->
+                    result[row.str("talker")] = row.long("lastTime")
+                }
+            }
+            result
+        } catch (e: Exception) {
+            WeLogger.e(TAG, "failed to get conversation times for subset", e)
+            emptyMap()
+        }
+    }
+
+    /**
      * 获取头像
      */
     fun getAvatarUrl(wxid: String): String {
@@ -770,6 +835,43 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
         } else {
             ""
         }
+    }
+
+    /**
+     * 微信本地头像文件的路径（若存在）。
+     *
+     * [getAvatarUrl] 依赖 img_flag.reserved2，该列只在微信主动加载过该账号头像后才有值，
+     * 大量群聊/未展示过的联系人为空 —— 但微信本地其实已缓存了头像文件。
+     * 这里按微信自己的目录规则（MD5 前两位/次两位分层）找文件。
+     */
+    fun getLocalAvatarFile(wxid: String): java.io.File? {
+        if (wxid.isEmpty()) return null
+        return runCatching {
+            val md5 = java.security.MessageDigest.getInstance("MD5")
+                .digest(wxid.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+
+            val base = com.Johnny.wcx.utils.RuntimeConfig.userDataDir.toFile()
+            val dir = java.io.File(
+                java.io.File(java.io.File(java.io.File(base, "avatar"), md5.substring(0, 2)), md5.substring(2, 4)),
+                md5
+            )
+            if (!dir.exists()) return@runCatching null
+
+            // user_* 是主头像；小头像文件名不固定（实测有 small_avatar_no_url），
+            // 所以 small_* 里取第一个非空文件。
+            val candidates = ArrayList<java.io.File>()
+            candidates.add(java.io.File(dir, "user_$md5.png"))
+            candidates.add(java.io.File(dir, "user_hd_$md5.png"))
+            runCatching {
+                dir.listFiles()
+                    ?.filter { it.name.startsWith("small_") }
+                    ?.sortedBy { it.name }
+                    ?.let { candidates.addAll(it) }
+            }
+
+            candidates.firstOrNull { it.exists() && it.length() > 0 }
+        }.getOrNull()
     }
 
     private fun mapToContacts(data: List<Map<String, Any?>>): List<WeContact> {

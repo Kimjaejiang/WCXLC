@@ -45,9 +45,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +72,7 @@ import com.Johnny.wcx.features.api.core.models.SelfProfileField
 import com.Johnny.wcx.features.api.core.WeDatabaseListenerApi
 import com.Johnny.wcx.features.api.core.models.IWeContact
 import com.Johnny.wcx.features.api.ui.WeStartActivityApi
+import com.Johnny.wcx.features.api.ui.WeMainActivityBeautifyApi
 import com.Johnny.wcx.features.api.ui.WeConversationContextMenuApi
 import com.Johnny.wcx.features.core.ClickableFeature
 import com.Johnny.wcx.features.core.Feature
@@ -121,7 +125,7 @@ object ConversationAggregation : ClickableFeature(),
 
     private const val TAG = "AggregateChats"
     const val FOLDER_PREFIX = "wekit_folder_"
-    @Volatile private var mvvmRedirecting = false
+
     @Volatile private var mvvmSelectedWxid: String? = null
     @Volatile private var mvvmSelectedTs = 0L
     @Volatile private var mvvmPickedMember: String? = null
@@ -398,6 +402,9 @@ object ConversationAggregation : ClickableFeature(),
         hookMainUiRefresh()
         WeLogger.i(TAG, "onEnable: after hookMainUiRefresh")
         diagFile("onEnable: after hookMainUiRefresh")
+        hookColdStartResidualRecovery()
+        WeLogger.i(TAG, "onEnable: after hookColdStartResidualRecovery")
+        diagFile("onEnable: after hookColdStartResidualRecovery")
         hookOpenFolder()
         hookChattingUiFolderRedirect()
         WeLogger.i(TAG, "onEnable: after hookOpenFolder")
@@ -512,6 +519,88 @@ hookViewLongClickProbe()
             WeLogger.i(TAG, "released all folders on disable")
         }.onFailure {
             WeLogger.e(TAG, "failed to release folders on disable", it)
+        }
+    }
+
+    /**
+     * 冷启动残留回收。
+     *
+     * 归拢把成员会话的 parentRef 改写成 wekit_folder_*、并在 rconversation/rcontact/img_flag
+     * 里插入文件夹行 —— 这些都是**写进微信库的持久状态**，微信自己就认 parentRef，
+     * 所以模块在不在它都照样折叠成员。而唯一的清理入口 [releaseAllFolders] 原来只挂在
+     * `onDisable` 上：用户在 Xposed 里取消勾选本模块时，模块一行代码都不跑，
+     * 残留就永远留在库里 —— 表现为几百个会话从主页消失、只剩几个空壳文件夹。
+     *
+     * 这里把回收挂到 [WeMainActivityBeautifyApi.methodDoOnCreate]（每次冷启动必跑），
+     * 不再依赖 `onDisable`。与 `HideContacts.migrateLegacyHiddenParentRef` 同一思路。
+     */
+    private fun hookColdStartResidualRecovery() {
+        WeMainActivityBeautifyApi.methodDoOnCreate.hookAfter {
+            recoverResidualFolders()
+        }
+    }
+
+    /**
+     * 释放库里残留的归拢痕迹。
+     *
+     * 与 [releaseAllFolders] 的区别：后者是「用户主动关闭归拢」的正常路径，
+     * 这里只关心**库里是否还有残留** —— 有就清，没有就什么也不做。
+     * 所以本函数**不依赖 [isEnabled]**：正常启用的归拢，其文件夹行会被下次
+     * [syncFoldersToDatabase] 重建，清了也不影响。
+     *
+     * 注意不能只在首次启动跑一次：用户可能先回退旧版本模块又切回来，
+     * 所以每次冷启动都要查一次（代价是一条 SELECT COUNT，可忽略）。
+     */
+    private fun recoverResidualFolders() {
+        // DB 未就绪就等下次冷启动。这是唯一允许失败的路径：残留不会自己消失，
+        // 但此刻强行操作会拿到空结果或报错，反而危险。
+        if (!WeDatabaseApi.isReady) {
+            WeLogger.w(TAG, "残留回收: DB 未就绪，跳过（下次冷启动重试）")
+            return
+        }
+
+        runCatching {
+            val folderRows = mutableListOf<String>()
+            withQueryRewriteSuppressed {
+                WeDatabaseApi.rawQuery(
+                    "SELECT ${ConversationTable.USERNAME} FROM ${ConversationTable.NAME} WHERE ${ConversationTable.USERNAME} LIKE ?",
+                    arrayOf("$FOLDER_PREFIX%")
+                ).use { c ->
+                    while (c.moveToNext()) folderRows += c.getString(0)
+                }
+            }
+
+            if (folderRows.isEmpty()) return@runCatching
+
+            val foldedCount = withQueryRewriteSuppressed {
+                WeDatabaseApi.rawQuery(
+                    "SELECT COUNT(*) FROM ${ConversationTable.NAME} WHERE ${ConversationTable.PARENT_REF} LIKE ?",
+                    arrayOf("$FOLDER_PREFIX%")
+                ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+            }
+
+            if (foldedCount == 0) return@runCatching
+
+            WeLogger.w(
+                TAG,
+                "残留回收: 发现残留文件夹=${folderRows.size} 被折叠会话=$foldedCount，开始释放"
+            )
+
+            withQueryRewriteSuppressed {
+                if (!isFolderSchemaReady()) {
+                    WeLogger.e(TAG, "残留回收: schema 未就绪，放弃（下次冷启动重试）")
+                    return@withQueryRewriteSuppressed
+                }
+                WeDatabaseApi.transaction { clearStaleFolderMappings() }
+            }
+            membersByFolder = emptyMap()
+            folderByMember = emptyMap()
+            folderMembersCache.clear()
+
+            WeConversationApi.reloadConversations()
+            WeLogger.i(TAG, "残留回收: 已释放 $foldedCount 个会话，它们应已回到主页")
+        }.onFailure {
+            WeLogger.e(TAG, "残留回收失败（不影响其他功能）", it)
         }
     }
 
@@ -3002,76 +3091,79 @@ hookViewLongClickProbe()
                 val digits = rest.takeWhile { it.isDigit() }
                 return if (digits.isNotEmpty()) FOLDER_PREFIX + digits else raw
             }
-            fun memberPickedRedirect(l: Any, view: android.view.View, pos: Int, rawUser: String, orig: java.lang.reflect.Method, self: Any, args: Array<Any?>, adapter: Any) {
+            /**
+             * 内转发（MvvmContactListUI）folder 行被点后的处理。
+             *
+             * 做法：弹成员选择器；选定后（1）深扫转发页的活动对象图，
+             * 把「已选目标集合」里的 folder 元素换成该成员；（2）改写行对象字段。
+             *
+             * **不要重跑微信原始 onClick。** 对 folder 行而言它的语义是「打开这一行」：
+             * 日志实测重跑后微信跳到 ConvBoxServiceConversationUI（文件夹容器页），
+             * setResult 的 key 从 Select_Conv_User 变成 SendMsgUsernames。
+             * 转发页读的是前者，于是消息停在「未发送」。
+             *
+             * 顺序很重要：深扫必须赶在改写行对象之前，否则全图再找不到 folder id，
+             * `selcoll done rep=0`，已选状态就不会更新（表现为“选择界面还要再点一次文件夹”）。
+             */
+            fun memberPickedRedirect(l: Any, view: android.view.View, pos: Int, rawUser: String, replay: com.Johnny.wcx.utils.OriginalMethodInvoker, adapter: Any) {
                 val folder = folderById(normalizeFolderId(rawUser)) ?: return
-                val fldsAll = java.util.ArrayList<Pair<java.lang.reflect.Field, Any>>()
-                fun scanFolderFields(o: Any, out: java.util.ArrayList<Pair<java.lang.reflect.Field, Any>>, depth: Int) {
-                    if (depth > 3) return
-                    var c: Class<*>? = o.javaClass
+                // 行对象：微信的列表项模型。它的 String 字段里只有 username 相关字段持有 folder id，
+                // 改写它等价于「这一行就是那个成员」，与原生点该行完全一致。
+                val data = runCatching {
+                    val getData = adapter.javaClass.methods.firstOrNull { it.name == "getData" && it.parameterCount == 0 }
+                    if (getData != null) { getData.isAccessible = true; (getData.invoke(adapter) as? List<*>)?.getOrNull(pos) } else null
+                }.getOrNull()
+                if (data == null) { diagFile("mvvm redirect: 行对象为空，放弃"); return }
+
+                // 找出该行对象中值等于 folder id 的所有字段（通常是 username 与其派生字段）。
+                val flds = java.util.ArrayList<Pair<java.lang.reflect.Field, Any>>()
+                runCatching {
+                    var c: Class<*>? = data.javaClass
                     while (c != null && c != Any::class.java) {
                         for (f in c.declaredFields) {
                             runCatching {
                                 f.isAccessible = true
-                                val v = f.get(o)
-                                if (v is String) {
-                                    if (isFolderId(v)) out.add(Pair(f, o))
-                                } else if (v != null && depth < 3) {
-                                    val vc = v.javaClass.name
-                                    val interesting = (v !is Number && v !is Boolean && v !is CharSequence && v !is java.util.Collection<*> && v !is java.util.Map<*,*> && !vc.startsWith("java.") && !vc.startsWith("android.") && !vc.startsWith("kotlin."))
-                                    if (interesting) scanFolderFields(v, out, depth + 1)
+                                val v = f.get(data)
+                                if (v is String && isFolderId(v) && normalizeFolderId(v) == normalizeFolderId(rawUser)) {
+                                    flds.add(Pair(f, data))
                                 }
                             }
                         }
                         c = c.superclass
                     }
                 }
-                runCatching {
-                    val list2 = runCatching { adapter.javaClass.methods.firstOrNull { it.name == "getData" && it.parameterCount == 0 } }
-                        .getOrNull()?.invoke(adapter) as? List<*>
-                    val target = list2?.getOrNull(pos)
-                    if (target != null) scanFolderFields(target, fldsAll, 0)
-                }
-                diagFile("mvvm redirect deep fields=" + fldsAll.size + " " + fldsAll.joinToString(",") { it.first.name + "@" + it.second.javaClass.simpleName })
+                if (flds.isEmpty()) { diagFile("mvvm redirect: 未找到 folder 字段，放弃"); return }
+                diagFile("mvvm redirect fields=" + flds.size + " " + flds.joinToString(",") { it.first.name })
+
                 showFolderMemberPicker(view.context, folder) { selectedWxId ->
                     runCatching {
-                        val originals = fldsAll.map { runCatching { it.first.get(it.second) as? String }.getOrNull() }
-                        for (fp in fldsAll) fp.first.set(fp.second, selectedWxId)
-                        val back = runCatching { fldsAll.first().first.get(fldsAll.first().second) as? String }.getOrNull()
-                        diagFile("mvvm redirect fields=" + fldsAll.size + " set=" + selectedWxId + " readback=" + back)
-                        runCatching {
-                            val listP = runCatching { adapter.javaClass.methods.firstOrNull { it.name == "getData" && it.parameterCount == 0 } }.getOrNull()?.invoke(adapter) as? List<*>
-                            val sb = StringBuilder("mvvm probe rows=").append(listP?.size ?: -1)
-                            if (listP != null) {
-                                var cnt = 0
-                                for (rr in listP) {
-                                    if (rr == null) continue
-                                    if (cnt++ >= 30) break
-                                    sb.append("\\n[#").append(cnt).append("] ").append(rr.javaClass.simpleName).append(" {")
-                                    var c2: Class<*>? = rr.javaClass
-                                    var first = true
-                                    while (c2 != null && c2 != Any::class.java) {
-                                        for (f in c2.declaredFields) {
-                                            runCatching { f.isAccessible = true
-                                                val v = f.get(rr)
-                                                if (v is String && v.length < 80) { if (!first) sb.append(", "); first = false; sb.append(f.name).append("=").append(v) } }
-                                        }
-                                        c2 = c2.superclass
-                                    }
-                                    sb.append("}")
-                                }
-                            }
-                            diagFile(sb.toString().take(2500))
-                        }.onFailure { diagFile("mvvm probe err: " + it) }
+                        // 记录本次选择：微信点「发送」时 setResult 里的 folder id 仍要换成这个成员。
                         mvvmSelectedWxid = selectedWxId
                         mvvmPickedMember = selectedWxId
                         mvvmPendingFolderId = normalizeFolderId(rawUser)
                         mvvmSelectedTs = System.currentTimeMillis()
-                        mvvmRedirecting = true
-                        try { orig.invoke(self, *args) } catch (t: Throwable) { diagFile("mvvm invoke err: " + t) } finally {
-                            mvvmRedirecting = false
-                            for (i in fldsAll.indices) { runCatching { fldsAll[i].first.set(fldsAll[i].second, originals[i]) } }
-                        }
-                        // 替换转发页「已选目标集合」里的 folder 元素为所选成员(点发送时微信读的就是这份)
+
+                        // ① 先把行对象字段改写成所选成员（folder → 成员）。
+                        // 两个字段（d = "<id>-15-0"，f = "<id>"）都写裸 id。
+                        // 带 "-15-0" 后缀时转发页不跳转（实测 readback=...-15-0 停在原页）。
+                        for (fp in flds) fp.first.set(fp.second, selectedWxId)
+                        val back = runCatching { flds.first().first.get(flds.first().second) as? String }.getOrNull()
+                        diagFile("mvvm redirect set=" + selectedWxId + " readback=" + back)
+
+                        // ② 重跑微信原始 onClick —— 这是让微信「推进到发送界面」的引擎。
+                        // 实测去掉它后 MvvmContactListUI#startActivityForResult rep=1 完全消失，
+                        // 界面停在选择聊天页，永远不跳转。
+                        //
+                        // 必须先改写字段再 replay：第①步完成后，本调用里微信读到的
+                        // 已是成员 id，外转发的 handleMvvmFolderTap 也因 folderById=null
+                        // 而直接返回，不会再弹一次选择器（这就是当年“点两次”的真因）。
+                        replay()
+                        diagFile("mvvm redirect replay ok")
+
+                        // 先深扫转发页的「已选目标集合」，把 folder 元素换成所选成员。
+                        // 必须在改写行对象【之前】做：改写后全图再找不到 folder id，
+                        // 实测会得到 selcoll done rep=0（什么也没换到）。
+                        // 而这份集合正是列表单选状态与发送目标的真正依据。
                         var rep = 0
                         try {
                             val folderNorm = normalizeFolderId(rawUser)
@@ -3081,43 +3173,46 @@ hookViewLongClickProbe()
                                 if (c2 is android.app.Activity) { actv = c2; break }
                                 c2 = c2.baseContext
                             }
-                            val root = actv ?: return@runCatching
-                            val queue = java.util.ArrayDeque<Pair<Any, Int>>()
-                            val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
-                            queue.add(Pair(root, 0))
-                            var visited = 0
-                            while (queue.isNotEmpty() && visited < 5000) {
-                                val (cur, dep) = queue.poll()
-                                if (cur == null || !seen.add(cur)) continue
-                                visited++
-                                if (dep > 5) continue
-                                var cc: Class<*>? = cur.javaClass
-                                while (cc != null && cc != Any::class.java) {
-                                    for (f in cc.declaredFields) {
-                                        runCatching {
-                                            f.isAccessible = true
-                                            val v = f.get(cur) ?: return@runCatching
-                                            if (v is java.util.List<*>) {
-                                                for (i in 0 until v.size) {
-                                                    val e = v[i]
-                                                    if (e is String && isFolderId(e) && normalizeFolderId(e) == folderNorm) {
-                                                        runCatching { (v as java.util.List<Any>).set(i, selectedWxId); rep++; diagFile("mvvm selcoll list patch " + f.name + "@" + cc!!.name + " i=" + i) }
+                            val root = actv
+                            if (root != null) {
+                                val queue = java.util.ArrayDeque<Pair<Any, Int>>()
+                                val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
+                                queue.add(Pair(root, 0))
+                                var visited = 0
+                                while (queue.isNotEmpty() && visited < 5000) {
+                                    val (cur, dep) = queue.poll()
+                                    if (cur == null || !seen.add(cur)) continue
+                                    visited++
+                                    if (dep > 5) continue
+                                    var cc: Class<*>? = cur.javaClass
+                                    while (cc != null && cc != Any::class.java) {
+                                        for (f in cc.declaredFields) {
+                                            runCatching {
+                                                f.isAccessible = true
+                                                val v = f.get(cur) ?: return@runCatching
+                                                if (v is java.util.List<*>) {
+                                                    for (i in 0 until v.size) {
+                                                        val e = v[i]
+                                                        if (e is String && isFolderId(e) && normalizeFolderId(e) == folderNorm) {
+                                                            runCatching { (v as java.util.List<Any>).set(i, selectedWxId); rep++; diagFile("mvvm selcoll list patch " + f.name + "@" + cc!!.name + " i=" + i) }
+                                                        }
                                                     }
+                                                    if (v.size < 30) for (e in v) if (e != null && e !== cur) queue.add(Pair(e, dep + 1))
+                                                } else if (v is java.util.Set<*>) {
+                                                    val fv = v.firstOrNull { it is String && isFolderId(it) && normalizeFolderId(it) == folderNorm }
+                                                    if (fv != null) { runCatching { v.remove(fv); rep++; diagFile("mvvm selcoll set patch " + f.name + "@" + cc!!.name) } }
+                                                } else if (v is String && isFolderId(v) && normalizeFolderId(v) == folderNorm) {
+                                                    f.set(cur, selectedWxId); rep++; diagFile("mvvm selcoll field patch " + f.name + "@" + cc!!.name)
+                                                } else if (dep < 5 && !(v is Number || v is Boolean || v is CharSequence || v is Class<*> || v is java.util.Collection<*> || v is java.util.Map<*, *>) && (v.javaClass.name.startsWith("com.tencent.mm.") || v.javaClass.name.startsWith("wekit_") || v.javaClass.name.contains("uic") || v.javaClass.name.contains("mvvm") || v.javaClass.name.contains("ui."))) {
+                                                    queue.add(Pair(v, dep + 1))
                                                 }
-                                                if (v.size < 30) for (e in v) if (e != null && e !== cur) queue.add(Pair(e, dep + 1))
-                                            } else if (v is java.util.Set<*>) {
-                                                val fv = v.firstOrNull { it is String && isFolderId(it) && normalizeFolderId(it) == folderNorm }
-                                                if (fv != null) { runCatching { v.remove(fv); rep++; diagFile("mvvm selcoll set patch " + f.name + "@" + cc!!.name) } }
-                                            } else if (v is String && isFolderId(v) && normalizeFolderId(v) == folderNorm) {
-                                                f.set(cur, selectedWxId); rep++; diagFile("mvvm selcoll field patch " + f.name + "@" + cc!!.name)
-                                            } else if (dep < 5 && !(v is Number || v is Boolean || v is CharSequence || v is Class<*> || v is java.util.Collection<*> || v is java.util.Map<*,*>) && (v.javaClass.name.startsWith("com.tencent.mm.") || v.javaClass.name.startsWith("wekit_") || v.javaClass.name.contains("uic") || v.javaClass.name.contains("mvvm") || v.javaClass.name.contains("ui."))) {
-                                                queue.add(Pair(v, dep + 1))
                                             }
                                         }
+                                        cc = cc.superclass
                                     }
-                                    cc = cc.superclass
                                 }
                             }
+                            diagFile("mvvm selcoll done rep=" + rep)
                         } catch (t: Throwable) { diagFile("mvvm selcoll err: " + t) }
                     }.onFailure { e -> WeLogger.e(TAG, "mvvm folder redirect to member failed", e) }
                 }
@@ -3192,8 +3287,13 @@ hookViewLongClickProbe()
                                         })
                                     }
                                 }
+                                // 取消微信对 folder 行的原处理：它没有真实会话可转发，
+                                // 只会跳到文件夹容器页。转发到哪个成员由 memberPickedRedirect 决定。
+                                // 在改动任何字段之前捕获原始调用：captureOriginalMethod 会
+                                // 快照 thisObject 与 args，且它绕开 hook 不会递归重入本监听器。
+                                val replay = p.captureOriginalMethod()
                                 p.result = null
-                                memberPickedRedirect(l, view, posI, username, p.method as java.lang.reflect.Method, p.thisObject, p.args.copyOf(), adapter)
+                                memberPickedRedirect(l, view, posI, username, replay, adapter)
                             } catch (e: Throwable) { diagFile("mvvm folder tap err: " + e) }
                         }
                     })
@@ -3214,6 +3314,29 @@ hookViewLongClickProbe()
         val folderId = folderField.get()!! as String
 
         val folder = folderById(folderId) ?: return
+        // 用户刚在成员选择器里选过了，正在重跑原始点击。
+        // 此时不能再弹一次选择器（那正是用户看到的“又弹第二次”），
+        // 直接用已选成员改写本监听器读到的对象并推进。
+        //
+        // 日志实证：本函数的 param.args[1] 与 memberPickedRedirect 改写的
+        // adapter.getData()[pos] 是【两个不同对象】（dataHash 82621559 vs 260983278），
+        // 所以改写行对象影响不到这里，必须在本函数内改写才能生效。
+        val pending = mvvmPickedMember
+        if (pending != null) {
+            val originalMethod = param.captureOriginalMethod()
+            param.result = null
+            runCatching {
+                folderField.set(pending)
+                diagFile("mvvm folderTap: 用已选成员推进，不再弹选择器 sel=" + pending)
+                try {
+                    originalMethod()
+                } finally {
+                    folderField.set(folderId)
+                }
+            }.onFailure { WeLogger.e(TAG, "failed to forward folder tap to pending member $pending", it) }
+            return
+        }
+
         val originalMethod = param.captureOriginalMethod()
 
         // Cancel the tap on the folder row itself — it has no real chat thread.
@@ -3248,16 +3371,30 @@ hookViewLongClickProbe()
             return
         }
 
+        // 成员联系人放到后台线程查，弹窗立即出现。
+        //
+        // 旧实现在主线程同步执行「全表扫 rcontact + LEFT JOIN 头像表 + 事后过滤」，
+        // 几千行下来点击后要等很久才见到选择器。现在：先弹窗（loading），
+        // 数据回来再更新；查询本身也改成按 username 白名单的 IN 查询。
         val membersSet = members.toHashSet()
-        val contacts = runCatching {
-            withQueryRewriteSuppressed {
-                WeDatabaseApi.getContacts().filter { it.wxId in membersSet }
-            }
-        }.getOrDefault(emptyList())
-
         showComposeDialog(context) {
+            var contacts by remember { mutableStateOf<List<IWeContact>?>(null) }
+            LaunchedEffect(membersSet) {
+                val loaded = withContext(Dispatchers.IO) {
+                    runCatching {
+                        withQueryRewriteSuppressed {
+                            WeDatabaseApi.getContactsByUsernames(membersSet)
+                        }
+                    }.getOrDefault(emptyList())
+                }
+                contacts = loaded
+                // 诊断：确认头像 URL 是否真的取到了。
+                // 缺头像可能是 img_flag 里本来就没有记录（reserved2 为空），
+                // 也可能是查询没把该字段带出来 —— 两者修法完全不同，先用日志分清。
+            }
             FolderShareTargetSelector(
                 contacts = contacts,
+                loading = contacts == null,
                 onDismiss = onDismiss,
                 onSelect = { selectedWxId ->
                     onDismiss()
@@ -3272,7 +3409,8 @@ hookViewLongClickProbe()
     // button that fires the forward immediately (onItemclick does the same for convenience).
     @Composable
     private fun FolderShareTargetSelector(
-        contacts: List<IWeContact>,
+        contacts: List<IWeContact>?,
+        loading: Boolean,
         onDismiss: () -> Unit,
         onSelect: (String) -> Unit
     ) {
@@ -3280,7 +3418,7 @@ hookViewLongClickProbe()
         val chinaCollator = remember { Collator.getInstance(Locale.CHINA) }
 
         val filteredContacts = remember(searchQuery, contacts, chinaCollator) {
-            contacts.filter {
+            contacts.orEmpty().filter {
                 it.displayName.contains(searchQuery, ignoreCase = true) ||
                         it.wxId.contains(searchQuery, ignoreCase = true)
             }.sortedWith(
@@ -3290,7 +3428,7 @@ hookViewLongClickProbe()
         }
 
         BaseContactSelector(
-            title = "选择文件夹里的转发对象",
+            title = if (loading) "选择文件夹里的转发对象（加载中…）" else "选择文件夹里的转发对象",
             searchQuery = searchQuery,
             onSearchQueryChange = { searchQuery = it },
             filteredContacts = filteredContacts,
@@ -3302,6 +3440,16 @@ hookViewLongClickProbe()
             onConfirm = {},
             selectionKey = Unit,
             isSelected = { false },
+            // 头像兑底：数据库 URL 为空时，改用微信本地缓存的头像文件。
+            //
+            // img_flag.reserved2 只在微信展示过该账号后才有值，群聊归拢里大量
+            // 未展示过的群该列为空，表现为“部分行没头像”。微信本地其实已缓存了文件，
+            // 这里直接给本地文件路径，让 AsyncImage 读它。
+            avatarModelProvider = { contact ->
+                val url = contact.avatarUrl
+                if (!url.isNullOrBlank()) url
+                else WeDatabaseApi.getLocalAvatarFile(contact.wxId)
+            },
             trailingControl = { contact ->
                 TextButton(onClick = { onSelect(contact.wxId) }) { Text("选择") }
             },
@@ -3405,6 +3553,9 @@ hookViewLongClickProbe()
             // 字符串拼接 + 两次文件 IO 全部落在发起查询的那个线程上。
             // 归拢的 SQL 改写早已稳定，这里不再记录。
             onQuery(sql)?.let { args[0] = it }
+        }
+        methodSqliteWrapperRawQuery.hookAfter {
+            if (suppressQueryRewrite.get()!!) return@hookAfter
         }
     }
 

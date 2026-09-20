@@ -118,7 +118,7 @@ fun BaseContactSelector(
     isSelected: (IWeContact) -> Boolean,
     showConfirmButton: Boolean = true,
     dismissButtonText: String = "取消",
-    avatarModelProvider: ((IWeContact) -> Any)? = { it.avatarUrl },
+    avatarModelProvider: ((IWeContact) -> Any?)? = { it.avatarUrl },
     subtitleProvider: ((IWeContact) -> String)? = { it.wxId },
     leadingControl: @Composable (LazyItemScope.(IWeContact) -> Unit)? = null,
     trailingControl: @Composable (LazyItemScope.(IWeContact) -> Unit)? = null,
@@ -195,25 +195,26 @@ fun BaseContactSelector(
     var lastMessageTimes by remember { mutableStateOf<Map<String, Long>?>(null) }
     var isSortLoading by remember { mutableStateOf(false) }
 
-    // 默认按「新-旧」（最近消息时间）排序：首次进入自动加载时间数据，DB 未就绪时轮询重试，
-    // 加载完成前保持传入顺序（与手动切换共用 isSortLoading，避免重复查询）
+    // 默认按「新-旧」（最近活跃时间）排序：首次进入自动加载时间数据。
+    //
+    // 性能说明：改走 rconversation.conversationTime（每个会话一行），
+    // 不再对 message 表做 IN + GROUP BY。旧实现下这段查询是选择器
+    // 「先按传入顺序显示 → 时间回来后突然重排」的根因，重排又让整个列表
+    // 重新组合、头像重新加载，表现为「刷新时间有点长 + 头像缺失」。
     val currentFiltered = rememberUpdatedState(filteredContacts)
     LaunchedEffect(Unit) {
         if (sortMode == SortMode.LAST_MESSAGE_TIME && lastMessageTimes == null && !isSortLoading) {
             isSortLoading = true
             try {
                 var times: Map<String, Long>? = null
-                repeat(60) { // 最多等约 30 秒（微信数据库初始化完成前不放弃）
-                    times = withContext(Dispatchers.IO) {
-                        // 只查当前列表集合（IN 限定），比全表 GROUP BY message 快得多
-                        val list = currentFiltered.value
-                        if (WeDatabaseApi.isReady && list.isNotEmpty()) {
-                            WeDatabaseApi.getLastMessageTimesFor(list.map { it.wxId })
-                        } else {
-                            null
+                repeat(5) { // 数据库未就绪时最多等约 2.5 秒（正常开机后立即就绪）
+                    val list = currentFiltered.value
+                    if (WeDatabaseApi.isReady && list.isNotEmpty()) {
+                        times = withContext(Dispatchers.IO) {
+                            WeDatabaseApi.getConversationTimesFor(list.map { it.wxId })
                         }
+                        if (times != null) return@repeat
                     }
-                    if (times != null) return@repeat
                     delay(500)
                 }
                 if (times != null) lastMessageTimes = times
@@ -677,7 +678,10 @@ fun BaseContactSelector(
                                         }
 
                                         AsyncImage(
-                                            model = avatarModelProvider?.invoke(contact) ?: contact.avatarUrl,
+                                            // 空字符串同样是无效 model（会让 AsyncImage 显示空白），
+                                            // 一并归为 null，交给 Coil 的占位处理。
+                                            model = (avatarModelProvider?.invoke(contact) ?: contact.avatarUrl)
+                                                .takeIf { it !is String || it.isNotBlank() },
                                             contentDescription = null,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier
