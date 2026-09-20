@@ -35,11 +35,13 @@
   - 未命中集中在：`SplitGroupCall` 7 个（旧 MultiTalk / ILink 控制链整体迁移）、`PipVoip` 5 个（VoIP 控制迁向 Flutter `FlutterVoipPlugin` → `Lf73/t`）、`HideContacts` 3 / `Themes` 3 / API 层 15。
   - 局限：只能判「字符串是否存在」，**判不了语义是否等价**。命中不代表行为正确（日志串可能保留但所在方法已重构）。
 
-- **🐛 分裂群组通话 · 8.0.78 点击「确定」崩溃（锚点全失效且未带 allowFailure）**
+- **🐛 分裂群组通话 · 8.0.78 下两条链路均已失效（已修复为明确提示）**
   - 涉及文件：`features/items/contacts/SplitGroupCall.kt`
-  - 根因：该功能 **12 个** `dexClass()` / `dexMethod()` / `dexField()` 锚点**均未带 `allowFailure`**（实测 4+6+2，全文 0 处），在 8.0.78 下全部匹配失败并落入 placeholder；而 `startBatch()` 里的 `check(mode != VOIP || !classSubCoreMultiTalk.isPlaceholder)` 因此必然失败。该调用点位于 Compose `onClick` 内、**无异常捕获**，表现为点「确定」直接崩溃。
-  - 注：这不是加一个 `allowFailure = true` 就能算适配的 —— 旧 MultiTalk / ILink 控制链本身已迁移，需**重新定位 8.0.78 的 MultiTalk 控制链**（8.0.78 中可见 `voipmp/v2/multitalk`、`MultiTalkActionEvent` 等新结构）。
-  - 当前状态：已在 README「适配版本」章标记为已知缺陷，**修复前请勿使用**。
+  - 背景：该功能有两条独立协议栈 —— `VOIP`（假群通话，基于 MultiTalk / ILink）与 `WALKIE_TALKIE`（实时对讲机，基于 `TalkRoomServer`）。
+  - 根因（降级逻辑只盖了一半）：`availableModes` 原先只看 `classSubCoreMultiTalk.isPlaceholder`，失效时**只隐藏 VOIP、保留 WALKIE_TALKIE**；但后者依赖的 `enterTalkRoom %s scene %d` / `exitTalkRoom` 在 8.0.78 **同样已消失**。于是 UI 照常显示「发起假群实时对讲机并终止」并允许点确定，而每一次都失败。
+  - 后果：不是崩溃（`startBatch` 每轮包在 `runCatching` 里），而是更隐蔽的 **「功能 100% 无效但界面正常」**——toast 只报「成功 0 次，失败 N 次」，用户会以为是自己的操作问题。
+  - 修复：两个模式**各自独立探测**。新增 `walkieTalkieAvailable`，在 `resolveDex` 里用 `!methodEnterTalkRoom.isPlaceholder` 判定（**走 `isPlaceholder` 而不是读 `.data`** —— 锚点未命中时写入的是指向 `LauncherUI.getInstance()` 的占位描述符，`.data` 仍可能解析出一个「合法但错误」的 `MethodData`，据此判断必然误判为可用）；`availableModes` 改为按实际可用性 filter；两者都不可用时弹明确提示而非让用户白点。
+  - 待办：本次只修「说不说实话」，**并未恢复功能**。要真正恢复需重新定位 8.0.78 的对讲机与 MultiTalk 控制链（新版可见 `voipmp/v2/multitalk`、`MultiTalkActionEvent` 等结构）。
 
 - **🐛 对话归拢 · 选择器头像缺失与刷新慢（排序改走会话时间）**
   - 涉及文件：`ui/content/ContactSelectors.kt`、`features/api/core/WeDatabaseApi.kt`、`features/items/chat/ConversationAggregation.kt`
@@ -809,10 +811,10 @@ wcx/
 | **Themes** | 3 | 🟡 | 表情 Tab 的 `setSelection: %s` 已消失，需重新锁定 |
 | WeMessageApi / WeAppMsgApi 等 API 层 | 15 | 🟡 | 多为日志串变动，逐项复核 |
 
-> ⚠️ **已知缺陷**：`SplitGroupCall` 的锚点**均未带 `allowFailure`**，
-> 而 `startBatch()` 中的 `check(mode != VOIP || !classSubCoreMultiTalk.isPlaceholder)`
-> 在 8.0.78 上必然失败。该调用点在 Compose `onClick` 内、无异常捕获，
-> 表现为点「确定」即崩溃。修复前请勿使用分裂群组通话。
+> ⚠️ **8.0.78 下的已知失效**：`SplitGroupCall`（分裂群组通话）的两条链路
+> （VOIP 假群通话 / 实时对讲机）依赖的锚点在 8.0.78 均已迁移，功能不可用。
+> 现已修为**明确提示「当前微信版本不支持」**，不再让用户白点（详见下方“下游修改项”09-20）。
+> `PipVoip` 同属 VoIP 迁移影响范围。
 
 > 比对方法的局限：本表只能判定「字符串是否存在」，**判不了语义是否等价**。
 > 命中不代表行为正确（例如日志串保留但所在方法已重构）。

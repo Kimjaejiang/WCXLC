@@ -170,12 +170,29 @@ object SplitGroupCall : ClickableFeature(), IContactInfoProvider, IResolveDex {
         }
     }
 
+    /**
+     * 「实时对讲机」链路是否可用。由 [resolveDex] 探测后写入。
+     *
+     * 与 MultiTalk 是两套独立协议栈，8.0.78 起该链路的字符串锚点已整体迁移，
+     * 两者会分别失效，不能合并成一个开关。
+     */
+    private var walkieTalkieAvailable = false
+
     override fun resolveDex(dexKit: DexKitBridge) {
         val subCoreMultiTalkClasses = dexKit.findClass {
             matcher {
                 usingStrings("MicroMsg.SubCoreMultiTalk", "add , is running , forbid add")
             }
         }
+
+        // 「实时对讲机」链路与 MultiTalk 是两套独立协议栈，必须分别探测：
+        // 8.0.78 起 enterTalkRoom/exitTalkRoom 的日志串已消失，而旧版降级逻辑
+        // 只检查了 classSubCoreMultiTalk，导致对讲机锚点全失效时仍照常显示、
+        // 点下去 100% 失败（toast 只报「失败 N 次」），用户无从判断是环境不支持。
+        // 用 isPlaceholder 判定，而不是读 .data —— 锚点未命中时会写入
+        // 指向 LauncherUI.getInstance() 的占位描述符，.data 仍可能解析出
+        // 一个「合法但错误」的 MethodData，据此判断必然误判为可用。
+        walkieTalkieAvailable = !methodEnterTalkRoom.isPlaceholder
 
         when (subCoreMultiTalkClasses.size) {
             1 -> classSubCoreMultiTalk.setDescriptor(subCoreMultiTalkClasses.single())
@@ -371,11 +388,31 @@ object SplitGroupCall : ClickableFeature(), IContactInfoProvider, IResolveDex {
     private fun showSplitCallDialog(context: Activity, wxId: String) {
         showComposeDialog(context) {
             var repeatCount by remember { mutableStateOf("1") }
-            var mode by remember { mutableStateOf(OperationMode.WALKIE_TALKIE) }
-            val availableModes = if (classSubCoreMultiTalk.isPlaceholder) {
-                listOf(OperationMode.WALKIE_TALKIE)
-            } else {
-                OperationMode.entries
+            // 两个模式各自独立失效，按实际可用性列举，不用一个开关通吃
+            val availableModes = OperationMode.entries.filter { option ->
+                when (option) {
+                    OperationMode.VOIP -> !classSubCoreMultiTalk.isPlaceholder
+                    OperationMode.WALKIE_TALKIE -> walkieTalkieAvailable
+                }
+            }
+            var mode by remember { mutableStateOf(availableModes.first()) }
+
+            if (availableModes.isEmpty()) {
+                // 两条链路都不可用：明确告知，而不是让用户点下去白费力气
+                AlertDialogContent(
+                    title = { Text("分裂群组通话") },
+                    text = {
+                        Text(
+                            "当前微信版本不支持分裂群组通话。\n" +
+                                "该功能依赖的群通话与实时对讲机接口在当前版本中已变更，" +
+                                "等待适配后再开放。"
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onDismiss) { Text("知道了") }
+                    }
+                )
+                return@showComposeDialog
             }
 
             AlertDialogContent(
