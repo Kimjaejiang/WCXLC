@@ -30,6 +30,15 @@ sealed interface BaseDexDelegate {
     val key: String
     fun getDescriptorString(): String?
 
+    /**
+     * 该锚点是否已落空（未命中）。
+     *
+     * 所有查找失败路径都会汇到 setPlaceholderDescriptor()，因此这里返回 true 意味着
+     * 「这个锚点没找到」。供 FeatureHealth 统计「功能加载了但内部在空转」。
+     * 默认 false，由各委托按自己的占位符判据 override。
+     */
+    val isPlaceholder: Boolean get() = false
+
     /** 从缓存字符串恢复状态 */
     fun loadDescriptor(value: String)
 
@@ -81,7 +90,7 @@ class DexClassDelegate internal constructor(
         setDescriptor("com.tencent.mm.ui.LauncherUI")
     }
 
-    val isPlaceholder
+    override val isPlaceholder
         get() = descriptorString == "com.tencent.mm.ui.LauncherUI"
 
     override fun getDescriptorString(): String? = descriptorString
@@ -183,7 +192,7 @@ class DexFieldDelegate internal constructor(
         setDescriptor(PLACEHOLDER_DESCRIPTOR)
     }
 
-    val isPlaceholder
+    override val isPlaceholder
         get() = descriptorString == PLACEHOLDER_DESCRIPTOR
 
     override fun getDescriptorString(): String? = descriptorString
@@ -277,7 +286,7 @@ class DexMethodDelegate internal constructor(
 
     val method: Method
         get() {
-            if (descriptor != null && descriptor!!.name == "Lcom/tencent/mm/ui/LauncherUI;->()Lcom/tencent/mm/ui/LauncherUI;")
+            if (descriptor?.descriptor == PLACEHOLDER_DESCRIPTOR)
                 error("Method resolution has failed: $key")
             if (cachedMethod == null && descriptor != null)
                 cachedMethod = descriptor!!.getMethodInstance(ClassLoaders.HOST)
@@ -296,16 +305,15 @@ class DexMethodDelegate internal constructor(
     @Suppress("NOTHING_TO_INLINE")
     inline fun setDescriptor(m: MethodData) = setDescriptor(DexMethodDescriptor(m.className, m.methodName, m.methodSign))
 
-    val isPlaceholder
-        get() = descriptor != null &&
-                descriptor!!.name == "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"
+    override val isPlaceholder
+        get() = descriptor?.descriptor == PLACEHOLDER_DESCRIPTOR
 
     fun setDescriptor(className: String, methodName: String, methodSign: String) =
         setDescriptor(DexMethodDescriptor(className, methodName, methodSign))
 
     fun setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null) {
         WeLogger.w("DexMethodDelegate", "setting placeholder for $key")
-        setDescriptor(DexMethodDescriptor("Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"))
+        setDescriptor(DexMethodDescriptor(PLACEHOLDER_DESCRIPTOR))
     }
 
     override fun getDescriptorString(): String? = descriptor?.descriptor
@@ -369,6 +377,12 @@ class DexMethodDelegate internal constructor(
     }
 
     override fun getValue(thisRef: BaseFeature, property: KProperty<*>): DexMethodDelegate = this
+
+    companion object {
+        /** 锚点未命中时写入的哨兵描述符。isPlaceholder 与 setPlaceholderDescriptor 必须共用它。 */
+        const val PLACEHOLDER_DESCRIPTOR =
+            "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +421,7 @@ class DexConstructorDelegate internal constructor(
 
     fun setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null) {
         WeLogger.w("DexMethodDelegate", "setting placeholder for $key")
-        setDescriptor(DexMethodDescriptor("Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"))
+        setDescriptor(DexMethodDescriptor(DexMethodDelegate.PLACEHOLDER_DESCRIPTOR))
     }
 
     @Suppress("unused")
@@ -415,8 +429,8 @@ class DexConstructorDelegate internal constructor(
         setDescriptor(DexMethodDescriptor(className, "<init>", methodSign))
 
     override fun getDescriptorString(): String? = descriptor?.descriptor
-    val isPlaceholder
-        get() = descriptor?.descriptor?.endsWith("LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;") == true
+    override val isPlaceholder
+        get() = descriptor?.descriptor == DexMethodDelegate.PLACEHOLDER_DESCRIPTOR
 
 
     override fun loadDescriptor(value: String) {

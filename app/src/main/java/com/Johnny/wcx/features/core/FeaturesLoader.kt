@@ -36,7 +36,38 @@ object FeaturesLoader {
         categories = feature.categories,
         status = status,
         detail = detail,
+        // LOADED 与 DISABLED 都采集：
+        //   - LOADED  —— 功能已跑，锚点落空意味着它此刻就在空转；
+        //   - DISABLED —— 用户还没开，但锚点可能已经坏了。只报 LOADED 的话，
+        //     用户要等到「开了却发现用不了」才知道不兼容，错过了提前发现的机会。
+        // 其余状态（SKIPPED_* / FAILED）本身已是 problem，再叠锚点信息只会噪音。
+        missingAnchors = if (status == FeatureHealth.Status.LOADED ||
+            status == FeatureHealth.Status.DISABLED
+        ) {
+            collectMissingAnchors(feature)
+        } else {
+            emptyList()
+        },
     )
+
+    /**
+     * 收集一个功能里所有落空的 dex 锚点 key。
+     *
+     * 只在 [FeatureHealth.Status.LOADED] 时调用：此时 dexDelegates 已由 startup() 驱动完毕，
+     * isPlaceholder 反映的是本轮加载的最终结论。
+     *
+     * 读 isPlaceholder 是纯属性访问，不会触发 class 解析（不碰 .clazz），因此对未命中的
+     * 锚点调用是安全的 —— 这正是它和 getDescriptorString() 的区别。
+     */
+    private fun collectMissingAnchors(feature: BaseFeature): List<String> {
+        if (feature !is IResolveDex) return emptyList()
+        return runCatching {
+            feature.dexDelegates.filter { it.isPlaceholder }.map { it.key }.sorted()
+        }.getOrElse { e ->
+            WeLogger.w(TAG, "failed to collect anchors for ${feature.name}", e)
+            emptyList()
+        }
+    }
 
     fun loadFeatures() {
         val allFeatures = FeaturesProvider.ALL_HOOK_ITEMS

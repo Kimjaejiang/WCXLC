@@ -114,27 +114,49 @@ object PipVoip : SwitchFeature(), IResolveDex {
     private class GroupSession(
         val groupActivity: MultiTalkMainUI,
     ) : Session(groupActivity) {
+        // 8.0.78 起 MultiTalkUIViewModel 及其成员已不存在，这一组锚点会全部落空。
+        // 委托的 .field / .method 对占位符直接 error()（见 DexFieldDelegate.field），
+        // 所以这里必须先判 isPlaceholder —— 否则群视频通话一切画中画就抛异常。
+        // 锚点缺席时退化为「按默认值显示」，而不是崩掉整个界面。
+        private val multiTalkHooksAvailable: Boolean by lazy {
+            !fieldMultiTalkViewModel.isPlaceholder &&
+                    !fieldMultiTalkMicState.isPlaceholder &&
+                    !fieldMultiTalkCameraState.isPlaceholder &&
+                    !methodMultiTalkExit.isPlaceholder &&
+                    !methodMultiTalkMic.isPlaceholder &&
+                    !methodMultiTalkCamera.isPlaceholder
+        }
+
         override val micMuted: Boolean
             get() {
+                if (!multiTalkHooksAvailable) return false
                 val state = fieldMultiTalkMicState.field.get(viewModel)
                 return !(methodObservableValue.method.invoke(state) as Boolean)
             }
 
         override val videoEnabled: Boolean
             get() {
+                if (!multiTalkHooksAvailable) return true
                 val state = fieldMultiTalkCameraState.field.get(viewModel)
                 return methodObservableValue.method.invoke(state) as Boolean
             }
 
         override fun hangUp() {
+            if (!multiTalkHooksAvailable) {
+                // 挂钩不可用时至少要让用户可以退出，不能把用户困在界面里
+                groupActivity.finish()
+                return
+            }
             methodMultiTalkExit.method.invoke(groupActivity)
         }
 
         override fun toggleMic() {
+            if (!multiTalkHooksAvailable) return
             methodMultiTalkMic.method.invoke(viewModel, true)
         }
 
         override fun toggleVideo() {
+            if (!multiTalkHooksAvailable) return
             methodMultiTalkCamera.method.invoke(viewModel, null)
         }
 
@@ -483,7 +505,9 @@ object PipVoip : SwitchFeature(), IResolveDex {
             removeSession(thisObject as MultiTalkMainUI)
         }
 
-        methodMultiTalkMinimize.hookBefore {
+        // 8.0.78 起该锚点落空；hookBefore 会经 .method -> error() 抛出，
+        // 进而中断后续 hook 安装。缺席时直接跳过这一条。
+        if (!methodMultiTalkMinimize.isPlaceholder) methodMultiTalkMinimize.hookBefore {
             sessions.getValue(thisObject as MultiTalkMainUI).enterPip()
             try {
                 // 仅当原方法返回 void 时才设置 result = null

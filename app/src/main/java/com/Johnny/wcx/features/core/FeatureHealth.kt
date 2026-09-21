@@ -57,11 +57,36 @@ object FeatureHealth {
         val categories: List<String>,
         val status: Status,
         val detail: String? = null,
+        /**
+         * 未命中的 dex 锚点 key 列表（[Status.LOADED] 时才有意义）。
+         *
+         * 这是 [status] **之外**的信息：功能可以「加载成功」但内部锚点落空 ——
+         * 调用处通常有 runCatching 兜底，于是不抛异常、不报错、静默空转。
+         * 实测 PipVoip 的 MultiTalk 锚点全废时，健康检查照样报「全部正常」。
+         */
+        val missingAnchors: List<String> = emptyList(),
     ) {
         val isProblem: Boolean
             get() = status == Status.SKIPPED_INCOMPLETE_CACHE ||
                     status == Status.SKIPPED_CACHE_FAILED ||
                     status == Status.FAILED
+
+        /**
+         * 锚点有空缺，且功能本身没出故障（[Status.LOADED] 或 [Status.DISABLED]）。
+         *
+         * 不算 [isProblem] —— 没开的功能确实不算坏，已跑的功能也只是「部分子功能空转」。
+         * 但它值得单独提示：这两类都不会抛异常，只会在用户用到时静默失败。
+         */
+        val hasMissingAnchors: Boolean
+            get() = (status == Status.LOADED || status == Status.DISABLED) &&
+                    missingAnchors.isNotEmpty()
+
+        /**
+         * 锚点已坏、但功能还没被用户启用 —— 「一开就会坏」的隐患。
+         * 这类需要在报告里与「已启用却在空转」区分开，否则用户会以为当前已经受影响。
+         */
+        val hasMissingAnchorsWhileDisabled: Boolean
+            get() = status == Status.DISABLED && missingAnchors.isNotEmpty()
     }
 
     @Volatile
@@ -105,6 +130,9 @@ object FeatureHealth {
         loadCount += 1
 
         val problems = list.filter { it.isProblem }
+        // 加载成功但锚点落空的功能 —— 与 problems 分开统计，避免与「启动失败」混淆。
+        val anchorHoles = list.filter { it.hasMissingAnchors }
+
         if (problems.isEmpty()) {
             WeLogger.i(TAG, "健康检查: ${list.size} 个功能全部正常")
         } else {
@@ -113,6 +141,35 @@ object FeatureHealth {
                 "健康检查: ${list.size} 个功能中 ${problems.size} 个未生效 —— " +
                         problems.joinToString("; ") { "${it.name}(${it.status})" }
             )
+        }
+
+        // 单独打一行：这行回答的是「功能都加载了，但有多少锚点其实落空了」。
+        // 分两组打，避免把「当前就在空转」和「开了才会坏」混为一谈。
+        if (anchorHoles.isNotEmpty()) {
+            val live = anchorHoles.filter { !it.hasMissingAnchorsWhileDisabled }
+            val dormant = anchorHoles.filter { it.hasMissingAnchorsWhileDisabled }
+
+            if (live.isNotEmpty()) {
+                WeLogger.w(
+                    TAG,
+                    "锚点检查: ${live.size} 个功能共 ${live.sumOf { it.missingAnchors.size }} 个锚点未命中" +
+                            "（功能已启用，相关子功能可能静默空转）—— " +
+                            live.joinToString("; ") {
+                                "${it.name}(${it.missingAnchors.joinToString(",")})"
+                            }
+                )
+            }
+            if (dormant.isNotEmpty()) {
+                WeLogger.i(
+                    TAG,
+                    "锚点检查: 另有 ${dormant.size} 个未启用功能共 " +
+                            "${dormant.sumOf { it.missingAnchors.size }} 个锚点未命中" +
+                            "（当前无影响，启用后会失效）—— " +
+                            dormant.joinToString("; ") {
+                                "${it.name}(${it.missingAnchors.joinToString(",")})"
+                            }
+                )
+            }
         }
     }
 
@@ -139,8 +196,31 @@ object FeatureHealth {
         val offCount = list.count {
             it.status == Status.DISABLED || it.status == Status.SKIPPED_PROCESS
         }
+        val anchorHoles = list.filter { it.hasMissingAnchors }
         sb.appendLine("汇总: 正常 $okCount / 未生效 ${problems.size} / 未启用 $offCount / 共 ${list.size}")
         sb.appendLine()
+
+        if (anchorHoles.isNotEmpty()) {
+            val live = anchorHoles.filter { !it.hasMissingAnchorsWhileDisabled }
+            val dormant = anchorHoles.filter { it.hasMissingAnchorsWhileDisabled }
+
+            if (live.isNotEmpty()) {
+                sb.appendLine("── 锚点未命中 · 功能已启用（相关子功能可能静默空转）──")
+                sb.appendLine("共 ${live.size} 个功能 / ${live.sumOf { it.missingAnchors.size }} 个锚点")
+                live.sortedBy { it.name }.forEach {
+                    sb.appendLine("• ${it.name} — ${it.missingAnchors.joinToString(", ")}")
+                }
+                sb.appendLine()
+            }
+            if (dormant.isNotEmpty()) {
+                sb.appendLine("── 锚点未命中 · 功能未启用（当前无影响，启用后会失效）──")
+                sb.appendLine("共 ${dormant.size} 个功能 / ${dormant.sumOf { it.missingAnchors.size }} 个锚点")
+                dormant.sortedBy { it.name }.forEach {
+                    sb.appendLine("• ${it.name} — ${it.missingAnchors.joinToString(", ")}")
+                }
+                sb.appendLine()
+            }
+        }
 
         if (problems.isNotEmpty()) {
             sb.appendLine("── 未生效 ──")
@@ -150,8 +230,17 @@ object FeatureHealth {
 
         sb.appendLine("── 全部功能 ──")
         list.sortedWith(compareBy({ !it.isProblem }, { it.name })).forEach {
-            sb.appendLine("${if (it.isProblem) "✗" else "✓"} ${it.name} — ${it.status}")
+            val mark = when {
+                it.isProblem -> "✗"
+                it.hasMissingAnchorsWhileDisabled -> "◇"
+                it.hasMissingAnchors -> "△"
+                else -> "✓"
+            }
+            val suffix = if (it.hasMissingAnchors) " · 锚点缺 ${it.missingAnchors.size}" else ""
+            sb.appendLine("$mark ${it.name} — ${it.status}$suffix")
         }
+        sb.appendLine()
+        sb.appendLine("图例: ✓正常  △已启用但锚点落空  ◇未启用但锚点已坏  ✗未生效")
         return sb.toString().trimEnd()
     }
 }
