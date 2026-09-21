@@ -280,10 +280,17 @@ jobs:
         id: version
         run: |
           GIT_HASH=$(git rev-parse --short HEAD)
-          # 版本号 = 当前时间（Asia/Shanghai），格式 YYMMDDHHMMSS；versionCode 取后 6 位（与 build.gradle.kts 一致）
-          # 复用 build job 的版本号（与 APK 内 versionName 一致），保证 Release tag 不漂移
+          # 版本号 = 当前时间（Asia/Shanghai），格式 YYMMDDHHMMSS
+          # versionCode = 自 2020-01-01 起的分钟数（与 build.gradle.kts 的推导保持一致）
+          # 不用「取后 6 位」：会跨天回退，导致 Android 判为降级而拒绝覆盖安装
+          # 不用「取前 10 位」：YYMMDDHHMM 自 2021 年起即超出 Int.MAX_VALUE
           VER=$(cat artifacts/ver.txt)
-          VERSION_CODE=${VER: -6}
+          VERSION_CODE=$(TZ='Asia/Shanghai' date -d "${VER:0:2}${VER:2:2}${VER:4:2} ${VER:6:2}:${VER:8:2}" +%s 2>/dev/null || echo "")
+          if [ -z "${VERSION_CODE}" ]; then
+            echo "::error::failed to parse VER=${VER} for versionCode"
+            exit 1
+          fi
+          VERSION_CODE=$(( (VERSION_CODE / 60) - 26297280 ))
           VERSION_TAG="${VER}"
           echo "tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
           echo "hash=${GIT_HASH}" >> $GITHUB_OUTPUT

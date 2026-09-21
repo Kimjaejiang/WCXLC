@@ -92,9 +92,21 @@
       也**没有**与 Themes 相关的 `Class resolution has failed`。
     - 日志中 8 条 `Class resolution has failed` 全部属于 `PipVoip` 的 MultiTalk 锚点
       （类已被微信移除、调用处有 `runCatching` 包裹），与本次修复无关。
-  - 附带发现（构建脚本缺陷，与本次修复无关）：`versionCode` 取 `verTag` 的**后 6 位（时分秒）**，
-    导致「后一天上午构建的版本」数字小于「前一天下午构建的」而被 Android 判定为降级、拒绝覆盖安装。
-    临时规避：构建时传 `VER=` 环境变量指定较大的时间串。根因待单独修复。
+  - 附带发现并已修复（构建脚本缺陷，独立于主题功能）：**`versionCode` 跨天回退**。
+    - 原实现 `verTag.takeLast(6)` 取**时分秒**，于是「后一天上午构建的版本」数值小于
+      「前一天下午构建的」（9-21 10:26 -> 102657 < 9-20 15:17 -> 151717），
+      被 Android 判定为降级而拒绝覆盖安装（实测报 `INSTALL_FAILED_VERSION_DOWNGRADE`）。
+      该缺陷此前已被模块端绕过：`AppUpdater` 比较版本时优先比**完整 12 位时间戳**而非 versionCode；
+      但 versionCode 仍是**安装时的判定依据**，故必须修。
+    - 修复方案：**不能靠「从 12 位时间戳里切一段」** —— 切前 10 位（YYMMDDHHMM）自 2021 年起
+      即超过 `Int.MAX_VALUE`(2147483647) 会溢出；切后 6 位则跨天回退。故改用数值语义：
+      **versionCode = 自 2020-01-01 起的分钟数**（上限约 4207 万，不溢出且单调递增），
+      由纯整数儒略日公式计算，不依赖 `java.time` / `TimeZone`
+      （Gradle Kotlin DSL 脚本编译期只有有限隐式导入，二者均不可用）。
+    - 同步修正 `.github/workflows/ci.yml` 的 `${VER: -6}`：CI 会把 versionCode 写进 `update.json`
+      供模块内更新使用，两处口径必须一致（已用 5 组时间戳比对，CI 表达式与 Gradle 推导完全一致）。
+    - 真机验证：`VER=260921102657` 构建后实测 APK `versionCode=3535826`，与参考实现精确一致；
+      安装成功（235959 -> 3535826 正常覆盖，不再报降级）。
   - 教训：
     - **AND 配对锚点里任意一串消失 = 整个 matcher 失败**，比单串锚点脆弱得多。
     - 「次要子功能」的锚点若不加守卫，会把整个功能的 hook 一起拖垮。

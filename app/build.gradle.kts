@@ -40,9 +40,29 @@ android {
             c.get(Calendar.SECOND)
         )
     }
-    // 日期时间格式（YYMMDDHHMMSS 12 位纯数字）versionCode 取后 6 位（时分秒），防 int 溢出；
+    // versionCode 的推导见下。不能用「从 12 位时间戳里切一段」的写法：
+    //   - 取后 6 位（时分秒）：跨天回退 —— 9-21 10:26 得 102657 < 9-20 15:17 得 151717，
+    //     被 Android 判为降级（INSTALL_FAILED_VERSION_DOWNGRADE）而拒绝覆盖安装；
+    //   - 取前 10 位（YYMMDDHHMM）：从 2021 年起即超过 Int.MAX_VALUE(2147483647)，溢出。
+    // 故改用「自 2020-01-01 起的分钟数」这一数值语义（上限约 4207 万，不溢出且单调递增）。
     val verCode = if (verTag.matches(Regex("[0-9]{12,13}"))) {
-        verTag.takeLast(6).toInt()
+        val yy = verTag.substring(0, 2).toInt()
+        val mm = verTag.substring(2, 4).toInt()
+        val dd = verTag.substring(4, 6).toInt()
+        val hh = verTag.substring(6, 8).toInt()
+        val mi = verTag.substring(8, 10).toInt()
+        // 年份按 2000 起算（12 位主格式无世纪位）。越界时回退到 0，保证构建不因脏 VER 中断。
+        // 用整数儒略日公式求「自 2020-01-01 起的天数」，避免依赖 java.time / TimeZone
+        // （Gradle Kotlin DSL 脚本编译期只有有限隐式导入），也避免时区引入构建不确定性。
+        val days = runCatching {
+            val y = 2000 + yy
+            val a = (14 - mm) / 12
+            val y2 = y + 4800 - a
+            val m2 = mm + 12 * a - 3
+            val jdn = dd + (153 * m2 + 2) / 5 + 365 * y2 + y2 / 4 - y2 / 100 + y2 / 400 - 32045
+            jdn - 2458850L   // 2458850 = 2020-01-01 的儒略日（已用 date -u 换算与标准公式双向核对）
+        }.getOrDefault(0L)
+        (days * 1440L + hh * 60L + mi).toInt()
     } else if (verTag.matches(Regex("[vV][0-9]{8}"))) {
         verTag.removePrefix("v").removePrefix("V").toInt()
     } else {
