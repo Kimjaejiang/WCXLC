@@ -4,6 +4,7 @@ import com.tencent.mm.ui.LauncherUI
 import com.Johnny.wcx.constants.Preferences
 import com.Johnny.wcx.dexkit.abc.IResolveDex
 import com.Johnny.wcx.dexkit.cache.DexCacheManager
+import com.Johnny.wcx.dynamic.patch.PatchStore
 import com.Johnny.wcx.features.api.ui.WeSettingsInjector
 import com.Johnny.wcx.ui.content.DexResolver
 import com.Johnny.wcx.ui.utils.showComposeDialog
@@ -86,10 +87,27 @@ object FeaturesLoader {
         if (outdatedItems.isNotEmpty())
             WeLogger.i(TAG, "found ${validItems.size} valid items, ${outdatedItems.size} outdated items")
 
+        // 补丁要接在这一步，不能接在 loadDescriptorsFromCache 里 ——
+        // 那里只会收到「缓存文件已存在、只是键缺失」的 item；
+        // 「缓存文件根本不存在」（清数据/新版本首次启动）的功能在
+        // getOutdatedItems 就被分流进 outdatedItems，压根进不去那个函数。
+        // 而那恰恰是最需要补丁的场景：没有补丁就得全量解析。
+        val patchRescued = mutableSetOf<IResolveDex>()
+        for (item in outdatedItems) {
+            if (item is BaseFeature && tryApplyPatch(item, item.name)) {
+                patchRescued += item
+            }
+        }
+        val stillOutdated = outdatedItems.filterNot { patchRescued.contains(it) }
+
         // Load what we can from cache. Items with *some* missing keys are still partially loaded —
         // their valid delegates work immediately; only the item itself is queued for re-resolution.
+        //
+        // patchRescued 不能一起传进去：它们在磁盘上没有缓存文件，而这个函数
+        // 一查不到缓存就判 failedItems，会把刚补好的又打回「未生效」。
+        // 补丁已经确认填满了全部委托，直接算有效。
         val cacheFailedItems = loadDescriptorsFromCache(validItems)
-        val allBrokenItems = (outdatedItems + cacheFailedItems).distinct()
+        val allBrokenItems = (stillOutdated + cacheFailedItems).distinct()
 
         if (allBrokenItems.isNotEmpty())
             handleBrokenItems(allBrokenItems)
@@ -160,10 +178,17 @@ object FeaturesLoader {
         val failedItems = mutableListOf<IResolveDex>()
 
         for (item in items) {
-            val path = (item as BaseFeature).displayName
+            val base = item as BaseFeature
+            // displayName 是「分类/功能名」，只用于日志；
+            // 缓存文件名与补丁的 key 都用纯 name（见 DexCacheManager.getCacheFile），
+            // 两者混用会静默查不到 —— 之前 deleteCache(displayName) 就是因此永远删不掉文件。
+            val path = base.displayName
+            val name = base.name
             try {
                 val cache = DexCacheManager.loadItemCache(item)
                 if (cache == null) {
+                    // 走到这里说明该 item 既不在 outdatedItems、缓存也不存在 ——
+                    // 正常情况下不该发生（缓存缺失的都在 outdatedItems 里被补丁筛过一轮）。
                     WeLogger.w(TAG, "cache missing for $path")
                     failedItems += item
                     continue
@@ -175,18 +200,76 @@ object FeaturesLoader {
                     val total = item.dexDelegates.size
                     val loaded = total - missingKeys.size
                     WeLogger.w(TAG, "$path: loaded $loaded/$total delegates from cache, missing: $missingKeys")
+                    // 补丁不在这里兜底：`outdatedItems` 那道筛子已经把所有「缓存缺失」
+                    // 的 item 都过了一遍补丁。这里只可能是「缓存存在但内容残缺」，
+                    // 那属于解析结果本身的问题，补丁填不了，交给 DexKit 重解析。
                     failedItems += item
-                    // 已命中的委托此时已经可用；hook 仍然跳过（见 loadFeatures），
-                    // 等 DexKit 把缺失的部分补齐、cache 更新后下次启动即完整。
                 }
             } catch (e: Exception) {
                 WeLogger.e(TAG, "cache load failed for $path", e)
-                runCatching { DexCacheManager.deleteCache(path) }
+                runCatching { DexCacheManager.deleteCache(name) }
                 failedItems += item
             }
         }
 
         return failedItems
+    }
+
+    /**
+     * 尝试用云端补丁补齐 [item] 的委托。
+     *
+     * 补丁里的锚点映射已由 [PatchStore] 完成 methodHash + 微信版本校验，
+     * 这里只负责「填值 + 确认填全」。任一委托填值失败或最终仍缺 key，
+     * 都返回 false 让该 item 走原有 DexKit 解析 —— 补丁是应急，不是唯一来源。
+     *
+     * @return true 表示该 item 已被补丁补全，无需再走 DexKit。
+     */
+    private fun tryApplyPatch(
+        item: IResolveDex,
+        featureName: String
+    ): Boolean = runCatching {
+        val anchors = PatchStore.anchorsFor(featureName)
+        if (anchors == null) {
+            // 必须留痕：这里分两种情形，混淆会白白排查半天
+            if (PatchStore.current() != null) {
+                WeLogger.w(TAG, "补丁里没有功能[$featureName]，走解析")
+            } else {
+                WeLogger.d(TAG, "无补丁，[$featureName] 走解析")
+            }
+            return@runCatching false
+        }
+
+        // 逐委托填值；只填空缺的，不覆盖缓存里已恢复的结果
+        var applied = 0
+        for (delegate in item.dexDelegates) {
+            val value = anchors[delegate.key] ?: continue
+            if (value.isEmpty()) continue
+            try {
+                delegate.loadDescriptor(value)
+                applied++
+            } catch (e: Throwable) {
+                // 单个委托填值失败不该毁掉整个补丁 —— 记下来，让它走解析
+                WeLogger.w(TAG, "补丁填值失败：${delegate.key}=$value（$e）")
+            }
+        }
+
+        if (applied == 0) return@runCatching false
+
+        // 补全后仍缺 key → 补丁不完整，不能算命中
+        val remaining = item.dexDelegates.filter { delegate ->
+            val v = delegate.getDescriptorString()
+            v.isNullOrEmpty() || v == "null"
+        }
+        if (remaining.isNotEmpty()) {
+            WeLogger.w(TAG, "$featureName: 补丁只补了 $applied 个，仍缺 ${remaining.map { it.key }}，走解析")
+            return@runCatching false
+        }
+
+        WeLogger.i(TAG, "$featureName: 补丁命中，跳过 DexKit 解析（$applied 个委托）")
+        true
+    }.getOrElse {
+        WeLogger.w(TAG, "$featureName: 应用补丁异常，走解析（$it）")
+        false
     }
 
     private fun handleBrokenItems(brokenItems: List<IResolveDex>) {
