@@ -114,7 +114,20 @@ object PipVoip : SwitchFeature(), IResolveDex {
     private class GroupSession(
         val groupActivity: MultiTalkMainUI,
     ) : Session(groupActivity) {
-        // 8.0.78 起 MultiTalkUIViewModel 及其成员已不存在，这一组锚点会全部落空。
+        // 8.0.78 起这一组锚点全部落空 —— 这不是「锚点漂移」，是多通话被整体重写，
+        // 换 matcher 修不好。dexdump 扫全部 17 个 dex 实证，原锚点依赖的六项全被删除：
+        //   com.tencent.mm.plugin.multitalk.ui.MultiTalkMainUI   整包已删
+        //   MultiTalkUIViewModel                                类已删
+        //   onMiniMultiTalk / onExitMultiTalk                   串已删
+        //   "onMicClick, cur state: " / "onCameraClick, ..."    串已删
+        // 原 plugin.multitalk 包不复存在，多通话已重构为 MTR 引擎
+        // （现仅存 "MicroMsg.MTR.GLHandlerThread-" / "MicroMsg.MTR.MTRExecutor" 等日志标签）。
+        // 要让群通话画中画重新可用，需基于 MTR 架构重写，那是独立的一件事。
+        //
+        // 坑：类名/方法名会被复用，"onCameraClick"/"onMicClick" 在 8.0.78 仍搜得到，
+        // 但它们属于 plugin.finder.live.view（视频号直播），与多通话无关。
+        // 按字符串猜锚点会直接踩中同名不同物的坑，必须看行为。
+        //
         // 委托的 .field / .method 对占位符直接 error()（见 DexFieldDelegate.field），
         // 所以这里必须先判 isPlaceholder —— 否则群视频通话一切画中画就抛异常。
         // 锚点缺席时退化为「按默认值显示」，而不是崩掉整个界面。
