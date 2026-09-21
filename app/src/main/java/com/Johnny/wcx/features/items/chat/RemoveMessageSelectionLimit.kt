@@ -100,9 +100,21 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
     private val tempRemovedSelections = ThreadLocal<TemporarilyRemovedSelections?>()
 
     override fun onEnable() {
-        // 8.0.77: ChattingDataAdapterV3 已移除, 相关 matcher 降级 placeholder, 本功能禁用
-        if (WeMessageApi.classChattingDataAdapter.isPlaceholder) {
-            WeLogger.w("RemoveMessageSelectionLimit", "ChattingDataAdapterV3 not found, feature disabled")
+        // 这两个锚点才是本功能的实际依赖：少了它们，下面 methodGetSelectedMessageCount
+        // 的 hookBefore 与末尾 methodToggleMessageSelection 的 hookDirectly 会经
+        // .method -> error() 抛出。BaseFeature.enable 的 runCatching 会吞掉异常并把
+        // isActive 置回 false —— 表现是「开关打开了但功能没生效」，没有任何用户可见
+        // 提示，所以这里必须自己判、自己说明原因。
+        //
+        // 注意不要改回判 classChattingDataAdapter：它 8.0.78 下是命中的
+        // (com.tencent.mm.ui.chatting.adapter.k)，判它等于守卫恒不触发。
+        if (methodGetSelectedMessageCount.isPlaceholder ||
+            methodToggleMessageSelection.isPlaceholder
+        ) {
+            WeLogger.w(
+                "RemoveMessageSelectionLimit",
+                "消息多选相关锚点未匹配，本功能在当前微信版本不可用（不会生效）"
+            )
             return
         }
         listOf(
