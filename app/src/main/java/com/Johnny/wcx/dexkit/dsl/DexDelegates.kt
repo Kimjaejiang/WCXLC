@@ -39,6 +39,22 @@ sealed interface BaseDexDelegate {
      */
     val isPlaceholder: Boolean get() = false
 
+    /**
+     * 该锚点是被**刻意**置空的，不是「找不到」。
+     *
+     * 典型场景：同一条代码路径按微信版本二选一，未选中的那支会用
+     * setPlaceholderDescriptor() 主动作废自己的锚点。此时 isPlaceholder 为 true
+     * 但并非故障 —— 若照常计入 FeatureHealth 的未命中清单，会让报告长期挂着
+     * 一个永远不会被用到、也永远修不好的假问题，淹没真正的锚点失效。
+     *
+     * 注意：这只影响**上报口径**。isPlaceholder 仍为 true，
+     * 调用处该守的 isPlaceholder 判断一个都不能省（.field/.method/.clazz 对
+     * 占位符是直接 error() 的）。
+     */
+    var intentionallyAbsent: Boolean
+        get() = false
+        set(@Suppress("UNUSED_PARAMETER") value) {}
+
     /** 从缓存字符串恢复状态 */
     fun loadDescriptor(value: String)
 
@@ -87,6 +103,7 @@ class DexClassDelegate internal constructor(
 
     fun setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null) {
         WeLogger.w("DexClassDelegate", "setting placeholder for $key")
+        intentionallyAbsent = reason != null
         setDescriptor("com.tencent.mm.ui.LauncherUI")
     }
 
@@ -189,6 +206,7 @@ class DexFieldDelegate internal constructor(
 
     fun setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null) {
         WeLogger.w("DexFieldDelegate", "setting placeholder for $key")
+        intentionallyAbsent = reason != null
         setDescriptor(PLACEHOLDER_DESCRIPTOR)
     }
 
@@ -313,6 +331,7 @@ class DexMethodDelegate internal constructor(
 
     fun setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null) {
         WeLogger.w("DexMethodDelegate", "setting placeholder for $key")
+        intentionallyAbsent = reason != null
         setDescriptor(DexMethodDescriptor(PLACEHOLDER_DESCRIPTOR))
     }
 
@@ -421,6 +440,7 @@ class DexConstructorDelegate internal constructor(
 
     fun setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null) {
         WeLogger.w("DexMethodDelegate", "setting placeholder for $key")
+        intentionallyAbsent = reason != null
         setDescriptor(DexMethodDescriptor(DexMethodDelegate.PLACEHOLDER_DESCRIPTOR))
     }
 

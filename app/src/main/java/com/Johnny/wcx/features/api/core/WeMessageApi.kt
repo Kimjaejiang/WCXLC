@@ -511,7 +511,13 @@ object WeMessageApi : ApiFeature(), IResolveDex {
                 }
             }
 
-            ctorNetSceneUploadMsgImg.setPlaceholderDescriptor()
+            // 8.0.67+ 走上面的新上传栈，这个旧构造函数在本版本上永远不会被调用。
+            // 带 reason 置空，Health 不会把它当成「锚点失效」——否则报告里会长期
+            // 挂着一个修不好的假问题（8.0.78 里 NetSceneUploadMsgImg 已不在 modelimage 包），
+            // 把真正需要关注的落空锚点淹掉。
+            ctorNetSceneUploadMsgImg.setPlaceholderDescriptor(
+                reason = "8.0.67+ 使用 ImgUploadFeatureService，本构造函数不参与该版本"
+            )
         } else {
             methodImgUploadFeatureServiceSendImage.setPlaceholderDescriptor()
 

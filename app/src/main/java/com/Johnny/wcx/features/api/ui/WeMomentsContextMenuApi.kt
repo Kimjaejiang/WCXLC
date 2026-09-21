@@ -69,8 +69,15 @@ object WeMomentsContextMenuApi : ApiFeature(), IResolveDex {
             )
         }
     }
+    // 8.0.78: 不要再限制 searchPackages("com.tencent.mm.plugin.sns.ui.improve.item.click")。
+    // 该类被整体混淆搬到了 gk4 包（特征串持有者实证）：
+    //   BaseImproveClick$register$2                     -> gk4.c
+    //   BaseImproveClick$register$3                     -> gk4.d
+    //   ImproveMultiPhotoClick$register$1$1$1           -> gk4.n0
+    // 三个类都有 onMMMenuItemSelected(MenuItem,int)，特征串各自唯一（register$2
+    // 只出现在 gk4.c），所以去掉包限制不会互相误匹配。
+    // 注意特征串本身仍带着原包全路径，它才是身份锚点，包限制纯属多余。
     private val methodImproveOnItemSelectedRegister2 by dexMethod(allowFailure = true) {
-        searchPackages("com.tencent.mm.plugin.sns.ui.improve.item.click")
         matcher {
             paramCount(2)
             paramTypes("android.view.MenuItem", "int")
@@ -82,7 +89,6 @@ object WeMomentsContextMenuApi : ApiFeature(), IResolveDex {
         }
     }
     private val methodImproveOnItemSelectedRegister3 by dexMethod(allowFailure = true) {
-        searchPackages("com.tencent.mm.plugin.sns.ui.improve.item.click")
         matcher {
             paramCount(2)
             paramTypes("android.view.MenuItem", "int")
@@ -94,7 +100,6 @@ object WeMomentsContextMenuApi : ApiFeature(), IResolveDex {
         }
     }
     private val methodImproveMultiPhotoOnItemSelected by dexMethod(allowFailure = true) {
-        searchPackages("com.tencent.mm.plugin.sns.ui.improve.item.click")
         matcher {
             paramCount(2)
             paramTypes("android.view.MenuItem", "int")

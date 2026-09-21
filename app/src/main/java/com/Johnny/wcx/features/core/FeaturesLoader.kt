@@ -58,11 +58,18 @@ object FeaturesLoader {
      *
      * 读 isPlaceholder 是纯属性访问，不会触发 class 解析（不碰 .clazz），因此对未命中的
      * 锚点调用是安全的 —— 这正是它和 getDescriptorString() 的区别。
+     *
+     * 排除 intentionallyAbsent：那是「按版本刻意作废」，不是查找失败。
      */
     private fun collectMissingAnchors(feature: BaseFeature): List<String> {
         if (feature !is IResolveDex) return emptyList()
         return runCatching {
-            feature.dexDelegates.filter { it.isPlaceholder }.map { it.key }.sorted()
+            // 刻意置空的锚点（版本分支未选中的那一支）不算「未命中」：
+            // 它永远不会被这条代码路径用到，也修不好，计入只会长期淹没真正的失效。
+            feature.dexDelegates
+                .filter { it.isPlaceholder && !it.intentionallyAbsent }
+                .map { it.key }
+                .sorted()
         }.getOrElse { e ->
             WeLogger.w(TAG, "failed to collect anchors for ${feature.name}", e)
             emptyList()
