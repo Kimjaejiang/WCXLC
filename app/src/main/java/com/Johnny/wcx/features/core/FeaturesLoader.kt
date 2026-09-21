@@ -4,6 +4,9 @@ import com.tencent.mm.ui.LauncherUI
 import com.Johnny.wcx.constants.Preferences
 import com.Johnny.wcx.dexkit.abc.IResolveDex
 import com.Johnny.wcx.dexkit.cache.DexCacheManager
+import com.Johnny.wcx.features.adapt.AdaptExporter
+import kotlin.concurrent.thread
+import com.Johnny.wcx.dynamic.patch.PatchDownloader
 import com.Johnny.wcx.dynamic.patch.PatchStore
 import com.Johnny.wcx.features.api.ui.WeSettingsInjector
 import com.Johnny.wcx.ui.content.DexResolver
@@ -82,10 +85,31 @@ object FeaturesLoader {
         val allDexItems = allFeatures.filterIsInstance<IResolveDex>()
 
         val outdatedItems = DexCacheManager.getOutdatedItems(allDexItems)
-        val validItems = allDexItems - outdatedItems.toSet()
+        var validItems = allDexItems - outdatedItems.toSet()
 
         if (outdatedItems.isNotEmpty())
             WeLogger.i(TAG, "found ${validItems.size} valid items, ${outdatedItems.size} outdated items")
+
+        // 发现「有功能没适配」时，后台去仓库拉一次补丁。
+        //
+        // 为什么在这里拉：这是唯一能确定「真的需要补丁」的时刻。启动时就无脑拉
+        // 会让每次启动都发网络请求，而绝大多数启动都是「早就适配好了」。
+        //
+        // **必须开线程** —— 本函数跑在主线程（Application 初始化路径），
+        // 直接调 download() 会抛 NetworkOnMainThreadException（实测如此，
+        // 表现为「所有下载源均失败：null」）。
+        //
+        // 所以本次启动**不等它**：拉到与否影响的是「下次启动能不能走补丁」，
+        // 本次照样走全量解析。用「不等待」换掉「启动时可能被网络卡 15 秒」，
+        // 对用户更划算 —— 适配慢一次，但启动永远不卡。
+        if (outdatedItems.isNotEmpty()) {
+            thread(name = "wcx-patch-fetch", isDaemon = true) {
+                val fetched = runCatching { PatchDownloader.download() }
+                    .onFailure { WeLogger.w(TAG, "静默拉取补丁失败，走本地解析：${it.message}") }
+                    .getOrNull()
+                WeLogger.i(TAG, "静默拉取补丁结果：$fetched（下次启动生效）")
+            }
+        }
 
         // 补丁要接在这一步，不能接在 loadDescriptorsFromCache 里 ——
         // 那里只会收到「缓存文件已存在、只是键缺失」的 item；
@@ -159,6 +183,19 @@ object FeaturesLoader {
         }
         FeatureHealth.publish(healthEntries)
         WeLogger.i(TAG, "loading all features took $elapsed")
+
+        // 解析完后把锚点真值导出一份，随「全局备份」带出。
+        //
+        // 为什么在这里导出而不是做个按钮：补丁的真值（混淆后的类名+签名）
+        // 只有这个进程、这一刻拿得到，导出必须在解析完成之后、且在这个进程里。
+        // 写盘只有几十 KB，一次启动一份，不值得为它加交互。
+        //
+        // 只在主进程做：其他进程（appbrand/push 等）持有的功能子集不同，
+        // 导出会得到残缺的锚点表，覆盖掉主进程写好的那份。
+        if (TargetProcesses.isInMain) {
+            runCatching { AdaptExporter.export() }
+                .onFailure { WeLogger.w(TAG, "导出适配真值失败：${it.message}") }
+        }
 
         if (TargetProcesses.isInMain && Preferences.showStartupToast) {
             showToast("WCXLC 加载成功!")

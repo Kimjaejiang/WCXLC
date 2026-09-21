@@ -1,6 +1,8 @@
 package com.Johnny.wcx.features.adapt
 
 import com.Johnny.wcx.BuildConfig
+import com.Johnny.wcx.dexkit.abc.IResolveDex
+import com.Johnny.wcx.dexkit.cache.DexCacheManager
 import com.Johnny.wcx.dexkit.cache.GeneratedMethodHashes
 import com.Johnny.wcx.features.core.BaseFeature
 import com.Johnny.wcx.features.core.FeaturesProvider
@@ -67,13 +69,38 @@ object AdaptExporter {
 
         for (feature in features) {
             val base = feature as? BaseFeature ?: continue
+            val resolvable = feature as? IResolveDex ?: continue
+
+            // 两边都要看，合并成一张表：
+            //
+            // - **磁盘缓存**：上次完整解析的结果。启动时走缓存恢复的功能只有这里有。
+            // - **内存委托**：本次刚解析完的。缓存已被本次解析删除、
+            //   或还没回写的功能只有这里有。
+            //
+            // 只用缓存会漏掉「本次刚解析、缓存还没回写」的（实测漏了「强制平板模式」）；
+            // 只用内存会漏掉「本次未参与解析」的（实测 147 个只剩 13 个）。
+            // 而这份东西是要发给**所有用户**的，不能取决于导出时那台机器的启动状态。
+            //
+            // 冲突时内存优先（它更新），但内存里若是 placeholder（本次没找到），
+            // 就用缓存里的旧值 —— 写个空锚点进去比不写更糟。
+            val cached = runCatching { DexCacheManager.loadItemCache(resolvable) }
+                .onFailure { WeLogger.w(TAG, "读缓存失败 ${base.name}：${it.message}") }
+                .getOrNull()
 
             val anchors = LinkedHashMap<String, String>()
             for (delegate in base.dexDelegates) {
-                // 落空的不写 —— 否则用户端会把「找不到」当成「找到了」
-                if (delegate.isPlaceholder) continue
-                val descriptor = delegate.getDescriptorString()
-                if (descriptor.isNullOrEmpty()) continue
+                val fromMemory = delegate.getDescriptorString()
+                val fromCache = cached?.get(delegate.key) as? String
+
+                val descriptor = when {
+                    !fromMemory.isNullOrEmpty() && fromMemory != "null" && !delegate.isPlaceholder ->
+                        fromMemory
+
+                    !fromCache.isNullOrEmpty() && fromCache != "null" -> fromCache
+
+                    else -> null
+                } ?: continue
+
                 anchors[delegate.key] = descriptor
             }
             if (anchors.isEmpty()) continue
@@ -85,10 +112,8 @@ object AdaptExporter {
             val name = base.name
 
             if (featureCount > 0) entries.append(",\n")
-            entries.append("    {\n")
-            entries.append("      \"name\": ").append(quote(name)).append(",\n")
-            entries.append("      \"class\": ").append(quote(className)).append(",\n")
-            entries.append("      \"methodHash\": \"").append(hash).append("\",\n")
+            entries.append("    ").append(quote(name)).append(": {\n")
+            entries.append("      \"methodHash\": ").append(quote(hash)).append(",\n")
             entries.append("      \"anchors\": {")
             entries.append(
                 anchors.entries.joinToString(", ") { (k, v) ->
@@ -106,10 +131,14 @@ object AdaptExporter {
             append("{\n")
             append("  \"schema\": 1,\n")
             append("  \"moduleVersionCode\": ").append(moduleVer).append(",\n")
-            append("  \"wxVersionCode\": ").append(wxVer).append(",\n")
-            append("  \"features\": [\n")
+            // 必须是 wxVersionRange 而不是单个 wxVersionCode —— PatchStore 读的是前者，
+            // 写成单值会让整个补丁被 optJSONObject 丢弃且没有显式报错。
+            append("  \"wxVersionRange\": { \"min\": ").append(wxVer)
+                .append(", \"max\": ").append(wxVer).append(" },\n")
+            append("  \"createdAt\": ").append(System.currentTimeMillis()).append(",\n")
+            append("  \"features\": {\n")
             append(entries)
-            append("\n  ]\n}\n")
+            append("\n  }\n}\n")
         }
 
         val out = KnownPaths.moduleData.resolve(FILE_NAME).toFile()

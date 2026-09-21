@@ -18,6 +18,49 @@ fun getGitHash(): String {
     }.standardOutput.asText.get().trim()
 }
 
+// 版本号推导。定义在 android{} 之外 —— 补丁清单导出任务也要用同一个值，
+// 两处必须严格一致（versionCode 是补丁匹配模块版本的唯一依据）。
+val verTag = System.getenv("VER") ?: Calendar.getInstance().let { c ->
+    "%02d%02d%02d%02d%02d%02d".format(
+        c.get(Calendar.YEAR) % 100,
+        c.get(Calendar.MONTH) + 1,
+        c.get(Calendar.DAY_OF_MONTH),
+        c.get(Calendar.HOUR_OF_DAY),
+        c.get(Calendar.MINUTE),
+        c.get(Calendar.SECOND)
+    )
+}
+// versionCode 的推导见下。不能用「从 12 位时间戳里切一段」的写法：
+//   - 取后 6 位（时分秒）：跨天回退 —— 9-21 10:26 得 102657 < 9-20 15:17 得 151717，
+//     被 Android 判为降级（INSTALL_FAILED_VERSION_DOWNGRADE）而拒绝覆盖安装；
+//   - 取前 10 位（YYMMDDHHMM）：从 2021 年起即超过 Int.MAX_VALUE(2147483647)，溢出。
+// 故改用「自 2020-01-01 起的分钟数」这一数值语义（上限约 4207 万，不溢出且单调递增）。
+val verCode = if (verTag.matches(Regex("[0-9]{12,13}"))) {
+    val yy = verTag.substring(0, 2).toInt()
+    val mm = verTag.substring(2, 4).toInt()
+    val dd = verTag.substring(4, 6).toInt()
+    val hh = verTag.substring(6, 8).toInt()
+    val mi = verTag.substring(8, 10).toInt()
+    // 年份按 2000 起算（12 位主格式无世纪位）。越界时回退到 0，保证构建不因脏 VER 中断。
+    // 用整数儒略日公式求「自 2020-01-01 起的天数」，避免依赖 java.time / TimeZone
+    // （Gradle Kotlin DSL 脚本编译期只有有限隐式导入），也避免时区引入构建不确定性。
+    val days = runCatching {
+        val y = 2000 + yy
+        val a = (14 - mm) / 12
+        val y2 = y + 4800 - a
+        val m2 = mm + 12 * a - 3
+        val jdn = dd + (153 * m2 + 2) / 5 + 365 * y2 + y2 / 4 - y2 / 100 + y2 / 400 - 32045
+        jdn - 2458850L   // 2458850 = 2020-01-01 的儒略日（已用 date -u 换算与标准公式双向核对）
+    }.getOrDefault(0L)
+    (days * 1440L + hh * 60L + mi).toInt()
+} else if (verTag.matches(Regex("[vV][0-9]{8}"))) {
+    verTag.removePrefix("v").removePrefix("V").toInt()
+} else {
+    val verCodeParts = verTag.removePrefix("v").removePrefix("V").split(".")
+    verCodeParts.fold(0) { acc, part -> acc * 1000 + (part.toIntOrNull() ?: 0) } *
+        (if (verCodeParts.size == 1) 1000 else 1)
+}
+
 android {
     namespace = libs.versions.namespace.get()
     compileSdk {
@@ -30,46 +73,7 @@ android {
     val gitHash = getGitHash()
 
     // 版本号从环境变量 VER 读取（CI 用 tag 计算），本地构建默认日期时间格式（260825245500 = 26年08月25日24:55:00）
-    val verTag = System.getenv("VER") ?: Calendar.getInstance().let { c ->
-        "%02d%02d%02d%02d%02d%02d".format(
-            c.get(Calendar.YEAR) % 100,
-            c.get(Calendar.MONTH) + 1,
-            c.get(Calendar.DAY_OF_MONTH),
-            c.get(Calendar.HOUR_OF_DAY),
-            c.get(Calendar.MINUTE),
-            c.get(Calendar.SECOND)
-        )
-    }
-    // versionCode 的推导见下。不能用「从 12 位时间戳里切一段」的写法：
-    //   - 取后 6 位（时分秒）：跨天回退 —— 9-21 10:26 得 102657 < 9-20 15:17 得 151717，
-    //     被 Android 判为降级（INSTALL_FAILED_VERSION_DOWNGRADE）而拒绝覆盖安装；
-    //   - 取前 10 位（YYMMDDHHMM）：从 2021 年起即超过 Int.MAX_VALUE(2147483647)，溢出。
-    // 故改用「自 2020-01-01 起的分钟数」这一数值语义（上限约 4207 万，不溢出且单调递增）。
-    val verCode = if (verTag.matches(Regex("[0-9]{12,13}"))) {
-        val yy = verTag.substring(0, 2).toInt()
-        val mm = verTag.substring(2, 4).toInt()
-        val dd = verTag.substring(4, 6).toInt()
-        val hh = verTag.substring(6, 8).toInt()
-        val mi = verTag.substring(8, 10).toInt()
-        // 年份按 2000 起算（12 位主格式无世纪位）。越界时回退到 0，保证构建不因脏 VER 中断。
-        // 用整数儒略日公式求「自 2020-01-01 起的天数」，避免依赖 java.time / TimeZone
-        // （Gradle Kotlin DSL 脚本编译期只有有限隐式导入），也避免时区引入构建不确定性。
-        val days = runCatching {
-            val y = 2000 + yy
-            val a = (14 - mm) / 12
-            val y2 = y + 4800 - a
-            val m2 = mm + 12 * a - 3
-            val jdn = dd + (153 * m2 + 2) / 5 + 365 * y2 + y2 / 4 - y2 / 100 + y2 / 400 - 32045
-            jdn - 2458850L   // 2458850 = 2020-01-01 的儒略日（已用 date -u 换算与标准公式双向核对）
-        }.getOrDefault(0L)
-        (days * 1440L + hh * 60L + mi).toInt()
-    } else if (verTag.matches(Regex("[vV][0-9]{8}"))) {
-        verTag.removePrefix("v").removePrefix("V").toInt()
-    } else {
-        val verCodeParts = verTag.removePrefix("v").removePrefix("V").split(".")
-        verCodeParts.fold(0) { acc, part -> acc * 1000 + (part.toIntOrNull() ?: 0) } *
-            (if (verCodeParts.size == 1) 1000 else 1)
-    }
+
     defaultConfig {
         applicationId = libs.versions.namespace.get()
         minSdk = libs.versions.minSdk.get().toInt()
@@ -291,6 +295,27 @@ val generateMethodHashes = tasks.register<GenerateMethodHashesTask>("generateMet
     sourceDir.set(file("src/main/java"))
     outputDir.set(layout.buildDirectory.dir("generated/source/methodhashes"))
     namespace.set(libs.versions.namespace.get())
+}
+
+// 导出补丁清单：模块版本 + 各功能 methodHash + 锚点 key 列表。
+// 服务端签发补丁要靠它 —— methodHash 是编译期源码 md5，服务端算不出来。
+// 必须依赖 generateMethodHashes：直接读它的产物，保证与运行时校验构造上一致。
+val exportPatchManifest = tasks.register<ExportPatchManifestTask>("exportPatchManifest") {
+    description = "Export patch manifest (module version + method hashes + anchor keys)"
+    group = "wekit"
+    sourceDir.set(file("src/main/java"))
+    hashesFile.set(
+        layout.buildDirectory.file(
+            "generated/source/methodhashes/" +
+                libs.versions.namespace.get().replace(".", "/") +
+                "/dexkit/cache/GeneratedMethodHashes.kt"
+        )
+    )
+    moduleVersionCode.set(verCode.toLong())
+    moduleVersionName.set(verTag)
+    namespace.set(libs.versions.namespace.get())
+    outputFile.set(layout.buildDirectory.file("outputs/patch-manifest.json"))
+    dependsOn(generateMethodHashes)
 }
 
 val generateNewFeatures = tasks.register<GenerateNewFeaturesTask>("generateNewFeatures") {

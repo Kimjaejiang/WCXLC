@@ -79,10 +79,22 @@ object BackupManager {
      * （通知头像缓存，重下即可）、`logs/`、`crashes/`、`diag.log`
      * （诊断信息，备份它们只会让包变大且含隐私）。
      */
+    /**
+     * 各微信版本的适配补丁真值，由开发者导出后随备份带出。
+     *
+     * 收进备份是因为**它只有真机跑过 DexKit 才产生得出来**，丢了只能
+     * 重新装一台装了对应微信版本的机器再跑一遍。
+     *
+     * 恢复时不做特殊处理：即使备份里那份比当前旧，云端下发也会用新补丁
+     * 盖掉它；而真拉不到时它仍比什么都没有强。
+     */
+    private const val ADAPT_PATCH_NAME = "adapt-patch.json"
+
     private val USER_DATA_PATTERNS = listOf(
         Regex("^chat_folders.*\\.json$"),
         Regex("^real_names\\.json$"),
         Regex("^custom_avatars_map\\.json$"),
+        Regex("^$ADAPT_PATCH_NAME$"),
     )
 
     private val USER_DATA_DIRS = listOf("scripts_js", "avatars")

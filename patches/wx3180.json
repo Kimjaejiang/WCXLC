@@ -1,0 +1,600 @@
+{
+  "schema": 1,
+  "moduleVersionCode": 3538080,
+  "wxVersionRange": { "min": 3180, "max": 3180 },
+  "createdAt": 1789981907744,
+  "features": {
+    "@所有人": {
+      "methodHash": "c801bd74b9fd9ebdb37bf6428cec135a",
+      "anchors": {"MentionMembers:methodInsertMessage": "Lcom/tencent/mm/storage/f9;->Bb(Lcom/tencent/mm/storage/e9;Z)J", "MentionMembers:methodMergeMsgSourceNode": "Lb41/ma;->O(Lcom/tencent/mm/storage/e9;Ljava/lang/String;Z)V"}
+    },
+    "Eruda 调试面板": {
+      "methodHash": "077aa0ce81b214c3693ce8db1c8316b8",
+      "anchors": {"ErudaConsole:xwebOnPageFinished": "Lcom/tencent/mm/plugin/appbrand/page/q9;->q(Lcom/tencent/xweb/WebView;Ljava/lang/String;Landroid/graphics/Bitmap;)V", "ErudaConsole:androidOnPageFinished": "Lcom/tencent/mm/plugin/appbrand/page/ua;->onPageFinished(Landroid/webkit/WebView;Ljava/lang/String;)V"}
+    },
+    "上传透明头像": {
+      "methodHash": "2b1adbf4767646703e3651b1dd4f8300",
+      "anchors": {"UploadTransparentAvatars:classMediaTailor": "g93.f"}
+    },
+    "主页会话隐藏": {
+      "methodHash": "5f09faaeac5ba1d0796ee67043203c97",
+      "anchors": {"HideConversations:methodSqliteWrapperRawQuery": "Lkh5/b0;->f(Ljava/lang/String;[Ljava/lang/String;I)Landroid/database/Cursor;"}
+    },
+    "主页搜索隐藏": {
+      "methodHash": "a52199b49f6a95dbc974ebae5002125a",
+      "anchors": {"HideSearch:methodFtsSearchChatroomMemberTask": "Lcom/tencent/mm/plugin/fts/logic/s0;->r(Lu73/v;)V", "HideSearch:methodFtsSearchCommonChatroomUserTask": "Lcom/tencent/mm/plugin/fts/logic/j;->r(Lu73/v;)V"}
+    },
+    "伪装宿主版本": {
+      "methodHash": "ccf8165eb332319d902269ebf4851698",
+      "anchors": {"SpoofHostVersion:ctorCgiLaunchWxaAppFunc1122": "Lil1/d;-><init>(Ljava/lang/String;ZLpc5/ik7;Lpc5/jo7;Lpc5/lm7;Ljava/lang/String;ILcom/tencent/mm/plugin/appbrand/report/quality/QualitySession;Ljava/lang/String;Lcom/tencent/mm/plugin/appbrand/config/AppBrandLaunchFromNotifyReferrer;Ljava/lang/String;Lpc5/g70;IZLjava/lang/String;ZZ)V"}
+    },
+    "分组图标隐藏": {
+      "methodHash": "53e3b7626afc4343bd0ae53a814cec85",
+      "anchors": {"HideMomentsGroupIcon:methodSnsInfoToSnsStruct": "Lmh4/z0;->D0(Lcom/tencent/mm/plugin/sns/storage/SnsInfo;Lcom/tencent/mm/protocal/protobuf/SnsObject;Landroid/content/Context;Lcom/tencent/mm/plugin/sns/ui/et;ZLcom/tencent/mm/storage/d8;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/util/List;)Lcom/tencent/mm/plugin/sns/ui/rt;"}
+    },
+    "加入群聊自动免打扰": {
+      "methodHash": "5dfd06c5a466f2de0f5ca6fbe30c47fc",
+      "anchors": {"AutoDndAfterJoinGroup:methodSyncChatroomMembers": "Lb41/u1;->N(Ljava/lang/String;Ljava/lang/String;Lpc5/zz;IIILjava/lang/String;Lso/a;ZZI)Z"}
+    },
+    "单击不关闭视频播放器": {
+      "methodHash": "3e3a08e3ee829574c2b413b6b050c06e",
+      "anchors": {"NoCloseVideoPlayerOnClick:methodVideoOnTouchListenerOnTouch": "Lcom/tencent/mm/plugin/sns/ui/wo;->onTouch(Landroid/view/View;Landroid/view/MotionEvent;)Z"}
+    },
+    "去除菜单限制": {
+      "methodHash": "d49d925fd108b952ba715cae8450319a",
+      "anchors": {"RemoveMenuLimits:methodGetMenuItemVisibility1": "Lcom/tencent/mm/plugin/appbrand/menu/n0;->d(Landroid/content/Context;Lcom/tencent/mm/plugin/appbrand/page/m7;)Lcom/tencent/mm/plugin/appbrand/menu/y0;", "RemoveMenuLimits:methodGetMenuItemVisibility2": "Lcom/tencent/mm/plugin/appbrand/menu/i;->d(Lcom/tencent/mm/plugin/appbrand/page/m7;Landroid/content/Context;)Lcom/tencent/mm/plugin/appbrand/menu/y0;"}
+    },
+    "反安全消息": {
+      "methodHash": "3c0f8e4198672aad0b2511ef38c2f001",
+      "anchors": {"AntiSecMsg:methodRawSfnCheck": "Lb41/ma;->C(Lcom/tencent/mm/storage/e9;)Z", "AntiSecMsg:methodFullSecCheck": "Lb41/ma;->B(Lcom/tencent/mm/storage/e9;)Z"}
+    },
+    "发现页入口隐藏": {
+      "methodHash": "34054e1d4e268e3f109fb2124b46c696",
+      "anchors": {"HideDiscoverEntries:methodDiscoverUiOnCreate": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "HideDiscoverEntries:methodDiscoverUiOnResume": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "发现页朋友圈入口隐藏": {
+      "methodHash": "34054e1d4e268e3f109fb2124b46c696",
+      "anchors": {"HideDiscoverMoments:methodDiscoverUiOnCreate": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "HideDiscoverMoments:methodDiscoverUiOnResume": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "存储空间缓存隐藏": {
+      "methodHash": "0faed473a99afcc9b02f35da5e1c4589",
+      "anchors": {"HideStorageCache:methodCleanCacheListInstaller": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "存储空间聊天记录隐藏": {
+      "methodHash": "0faed473a99afcc9b02f35da5e1c4589",
+      "anchors": {"HideStorageRecords:methodCleanRecordListInstaller": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "常驻互动消息入口": {
+      "methodHash": "a4a5f5c4d9d06b703babc3efc8fb5343",
+      "anchors": {"AlwaysShowInteractionEntry:methodShowNotifyBar": "Lcom/tencent/mm/plugin/sns/ui/improve/component/header/s0;->invokeSuspend(Ljava/lang/Object;)Ljava/lang/Object;", "AlwaysShowInteractionEntry:methodHideNotifyBar": "Lcom/tencent/mm/plugin/sns/ui/improve/component/header/v0;->invokeSuspend(Ljava/lang/Object;)Ljava/lang/Object;", "AlwaysShowInteractionEntry:methodGetNotifyLayout": "Lcom/tencent/mm/plugin/sns/ui/improve/component/header/ImproveHeaderUIC;->access$getMsgNotifyLayout(Lcom/tencent/mm/plugin/sns/ui/improve/component/header/ImproveHeaderUIC;)Landroid/widget/LinearLayout;", "AlwaysShowInteractionEntry:methodGetNotifyContent": "Lcom/tencent/mm/plugin/sns/ui/improve/component/header/ImproveHeaderUIC;->access$getMsgNotifyContent(Lcom/tencent/mm/plugin/sns/ui/improve/component/header/ImproveHeaderUIC;)Landroid/widget/TextView;", "AlwaysShowInteractionEntry:methodGetNotifyImg": "Lcom/tencent/mm/plugin/sns/ui/improve/component/header/ImproveHeaderUIC;->access$getMsgNotifyImg(Lcom/tencent/mm/plugin/sns/ui/improve/component/header/ImproveHeaderUIC;)Landroid/widget/ImageView;", "AlwaysShowInteractionEntry:methodGotoNotifyMsgUI": "Lcom/tencent/mm/plugin/sns/ui/improve/component/header/ImproveHeaderUIC;->gotoNotifyMsgUI()V"}
+    },
+    "引用消息直达": {
+      "methodHash": "6a25dd53fce0d25d8961818320d66c6f",
+      "anchors": {"QuotedMessageDirectJump:methodClickEvent": "Lcom/tencent/mm/ui/chatting/viewitems/pc;->c(Lgk5/d;Lcom/tencent/mm/ui/chatting/viewitems/h0;Landroid/view/View;JLjava/lang/String;Lcom/tencent/mm/plugin/msgquote/model/MsgQuoteItem;Lcom/tencent/mm/ui/chatting/viewitems/oc;Lcom/tencent/mm/ui/chatting/viewitems/vr;)V", "QuotedMessageDirectJump:methodClickToPositionEvent": "Lcom/tencent/mm/ui/chatting/viewitems/pc;->e(Lgk5/d;Lcom/tencent/mm/ui/chatting/viewitems/b0;Lcom/tencent/mm/storage/e9;Landroid/view/View;JLjava/lang/String;Lcom/tencent/mm/plugin/msgquote/model/MsgQuoteItem;Lp00/q0;)V", "QuotedMessageDirectJump:methodGetQuoteMessageInfo": "Lcom/tencent/mm/ui/chatting/viewitems/pc;->b(ZLjava/lang/String;JLjava/lang/String;Lcom/tencent/mm/plugin/msgquote/model/MsgQuoteItem;Ljava/lang/String;)Lcom/tencent/mm/storage/e9;", "QuotedMessageDirectJump:classEnumQuoteJumpToPositionSource": "p00.q0", "QuotedMessageDirectJump:classChattingContext": "gk5.d", "QuotedMessageDirectJump:methodChattingContextGetTalker": "Lgk5/d;->x()Ljava/lang/String;"}
+    },
+    "强制启用 WebView 菜单": {
+      "methodHash": "246867f9e6d651e4ec969adb122b28dd",
+      "anchors": {"EnableWebViewFeatures:methodInitWebViewFeatures": "Lcom/tencent/mm/plugin/webview/ui/tools/WebViewUI;->q8(Z)V"}
+    },
+    "强制启用所有功能": {
+      "methodHash": "4784a52edc4445e0c2ee92dea4a0833a",
+      "anchors": {"ForceEnableAllTools:classAppPanelConfig": "com.tencent.mm.pluginsdk.ui.chat.a0", "ForceEnableAllTools:fieldAppPanelConfig": "Lcom/tencent/mm/pluginsdk/ui/chat/AppPanel;->C:Lcom/tencent/mm/pluginsdk/ui/chat/a0;", "ForceEnableAllTools:fieldFirstFlag": "Lcom/tencent/mm/pluginsdk/ui/chat/a0;->c:Lcom/tencent/mm/pluginsdk/ui/chat/z;", "ForceEnableAllTools:fieldFlagEnabled": "Lcom/tencent/mm/pluginsdk/ui/chat/z;->a:Z", "ForceEnableAllTools:methodRefreshAppPanel": "Lcom/tencent/mm/pluginsdk/ui/chat/AppPanel;->s()V"}
+    },
+    "强制平板模式": {
+      "methodHash": "771c7ef45ef130da4ff535d1997c4fe0",
+      "anchors": {"ForceTabletMode:methodIsTablet": "Lcom/tencent/mm/ui/g9;->a()Z", "ForceTabletMode:methodIsTablet2": "Lcom/tencent/mm/ui/gk;->d0()Z", "ForceTabletMode:methodOtherDeviceLoginButtonIsVisible": "Lva1/h0;->a(Landroid/view/View;Landroidx/lifecycle/y;)V"}
+    },
+    "快捷回底": {
+      "methodHash": "05f94a5286bb7bd12ca739db6e73cd95",
+      "anchors": {"QuickBackToBottom:classChattingContext": "gk5.d", "QuickBackToBottom:methodComponentInit": "Lcom/tencent/mm/ui/chatting/component/hh;->a()V", "QuickBackToBottom:methodGetMsgCount": "Lcom/tencent/mm/storage/f9;->I9(Ljava/lang/String;)I", "QuickBackToBottom:methodChattingContextGetTalker": "Lgk5/d;->x()Ljava/lang/String;", "QuickBackToBottom:methodLocationByMsgId": "Lcom/tencent/mm/ui/chatting/component/hh;->u0(Lcom/tencent/mm/ui/chatting/component/hh;I)V", "QuickBackToBottom:methodSetShowHistoryMsgTipId": "Lcom/tencent/mm/ui/chatting/adapter/k;->j1(I)V"}
+    },
+    "快捷清除引用": {
+      "methodHash": "027dae20d8c49c7fe231bde4896c69ee",
+      "anchors": {"QuickRemoveQuote:methodSupportAutoCompleteOnKey": "Lcom/tencent/mm/pluginsdk/ui/chat/fg;->onKey(Landroid/view/View;ILandroid/view/KeyEvent;)Z", "QuickRemoveQuote:methodShowMsgQuoteContainer": "Lcom/tencent/mm/pluginsdk/ui/chat/ChatFooter;->i2(ZZ)V"}
+    },
+    "恢复旧版「我」界面卡包": {
+      "methodHash": "8649ae6d6ba2c2830cdd68a227a3b519",
+      "anchors": {"UseLegacyWalletViewInMePage:methodGetOrderAndCardEntranceInfo": "Ly40/u;->dj()Ls30/c;", "UseLegacyWalletViewInMePage:methodMoreTabUIHandlePrefOnClick": "Lcom/tencent/mm/ui/MoreTabUI;->A0(Lcom/tencent/mm/ui/base/preference/q;Lcom/tencent/mm/ui/base/preference/Preference;Lcom/tencent/mm/ui/base/preference/m0;)Z"}
+    },
+    "拦截异常大小贴纸表情": {
+      "methodHash": "0fb1962f83bf68fa8aa4bde43add37fe",
+      "anchors": {"BlockAbnormalSizeStickers:ctorMmWxgfDrawable": "Lcom/tencent/mm/plugin/gif/u;-><init>([B)V"}
+    },
+    "朋友圈互动隐藏": {
+      "methodHash": "53e3b7626afc4343bd0ae53a814cec85",
+      "anchors": {"HideMomentsInteraction:methodSnsInfoToSnsStruct": "Lmh4/z0;->D0(Lcom/tencent/mm/plugin/sns/storage/SnsInfo;Lcom/tencent/mm/protocal/protobuf/SnsObject;Landroid/content/Context;Lcom/tencent/mm/plugin/sns/ui/et;ZLcom/tencent/mm/storage/d8;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/util/List;)Lcom/tencent/mm/plugin/sns/ui/rt;"}
+    },
+    "朋友圈评论防撤回": {
+      "methodHash": "0d7f2f076ec5a756827245af3ae7be9a",
+      "anchors": {"AntiMomentCommentsDelete:methodSnsSqliteDbExecSql1": "Lcom/tencent/mm/plugin/sns/storage/p2;->A(Ljava/lang/String;Ljava/lang/String;)Z", "AntiMomentCommentsDelete:methodSnsSqliteDbExecSql2": "Lcom/tencent/mm/plugin/sns/storage/p2;->H(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/Object;)Z", "AntiMomentCommentsDelete:methodSnsCommentStorageDeleteComment": "Lcom/tencent/mm/plugin/sns/storage/w1;->t1(JJI)Z", "AntiMomentCommentsDelete:methodSnsCommentStorageDeleteCommentBySnsId": "Lcom/tencent/mm/plugin/sns/storage/w1;->n1(J)Z", "AntiMomentCommentsDelete:methodSnsCommentSetCommentDelFlag": "Lcom/tencent/mm/plugin/sns/storage/v1;->p0()V", "AntiMomentCommentsDelete:methodSnsCommentConvertFromCursor": "Lcom/tencent/mm/plugin/sns/storage/v1;->convertFrom(Landroid/database/Cursor;)V"}
+    },
+    "朋友圈隐藏": {
+      "methodHash": "53e3b7626afc4343bd0ae53a814cec85",
+      "anchors": {"HideMoments:methodSnsSyncUpdateRedDotCache": "Lcom/tencent/mm/plugin/sns/model/f3;->H(Lcom/tencent/mm/plugin/sns/model/f3;Lcom/tencent/mm/protocal/protobuf/SnsObject;)V", "HideMoments:methodSnsInfoToSnsStruct": "Lmh4/z0;->D0(Lcom/tencent/mm/plugin/sns/storage/SnsInfo;Lcom/tencent/mm/protocal/protobuf/SnsObject;Landroid/content/Context;Lcom/tencent/mm/plugin/sns/ui/et;ZLcom/tencent/mm/storage/d8;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/util/List;)Lcom/tencent/mm/plugin/sns/ui/rt;"}
+    },
+    "标签内隐藏": {
+      "methodHash": "5f09faaeac5ba1d0796ee67043203c97",
+      "anchors": {"HideTagMembers:methodContactMvvmListPreprocess": "Lcom/tencent/mm/ui/contact/address/AddressLiveList;->h(Ljava/util/List;)Ljava/util/List;"}
+    },
+    "点击空白处查看详情": {
+      "methodHash": "4e928b4af59da75acd705cb965b414ae",
+      "anchors": {"OpenDetailsOnItemClick:classImproveTimelineItem": "gk4.f1", "OpenDetailsOnItemClick:methodItemClickListenerOnClick": "Lvv5/f1;->onClick(Landroid/view/View;)V", "OpenDetailsOnItemClick:methodGetLocalIdString": "Ljk4/p;->V0()Ljava/lang/String;"}
+    },
+    "状态页隐藏": {
+      "methodHash": "0faed473a99afcc9b02f35da5e1c4589",
+      "anchors": {"HideStatusPage:methodStatusListInstaller": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "环境伪装": {
+      "methodHash": "cc6916239c0d9eae6b633969f07e157b",
+      "anchors": {"SpoofEnvironment:methodIsVpnEnabled": "Llj0/n3;->dj()Z"}
+    },
+    "禁止上传正在输入状态": {
+      "methodHash": "eedcc91274d2dc530d6770fe58b22fa1",
+      "anchors": {"DisableTypingStatusUploading:classMmTypingSendReq": "com.tencent.mm.modelsimple.k1"}
+    },
+    "禁止微信检测 Xposed": {
+      "methodHash": "6381c1afa8956f9ab6d7e7b0b7f631f8",
+      "anchors": {"PreventXposedDetection:methodCheckStackTraceElements": "Lcom/tencent/mm/app/j3;->a([Ljava/lang/StackTraceElement;)Z"}
+    },
+    "禁止自动播放视频": {
+      "methodHash": "13aca8c64294a1150dc193414eff6c0c",
+      "anchors": {"DisableVideosAutoPlay:methodCheckAutoPlay": "Lvl4/e;->a(Lcom/tencent/mm/plugin/sns/ui/ao;)Z", "DisableVideosAutoPlay:methodImproveAutoPlayInvoke": "Lmk4/b;->invoke()Ljava/lang/Object;"}
+    },
+    "禁用 WebView 安全警告": {
+      "methodHash": "5e96e30f40fa9edcde9dd0806bc92ca3",
+      "anchors": {"DisableWebViewSafetyWarnings:methodGetIsInterceptEnabled": "Lq45/b;->c()Z", "DisableWebViewSafetyWarnings:methodGetIsUrlSafe": "Lq45/b;->b(Ljava/lang/String;)Z"}
+    },
+    "禁用「刚刚在看」提醒": {
+      "methodHash": "763f2a70f8464d7b0d16020552f310a8",
+      "anchors": {"DisableResumeWatchingToast:methodShowRecoveryToast": "Ll84/a;->invoke()Ljava/lang/Object;"}
+    },
+    "禁用「转发截图」提示": {
+      "methodHash": "3196a3975f6b759f1c0a4e1da6b32e2e",
+      "anchors": {"DisableShareScreenshotToast:methodDisplayToast": "Lcom/tencent/mm/ui/feature/api/screenshot/y0;->rj(Landroid/app/Activity;Lcom/tencent/mm/ui/screenshot/w;Landroid/view/View$OnClickListener;)V"}
+    },
+    "禁用存储空间不足检测": {
+      "methodHash": "9c7a0660d6c81daee20c618a76ce44d1",
+      "anchors": {"DisableLowAvailableStorageDetection:methodSplashActivitySplashFinished": "Lcom/tencent/mm/splash/SplashActivity;->W6()V", "DisableLowAvailableStorageDetection:classStaticValuesHolder": "qf5.d1"}
+    },
+    "禁用微信进程状态检测器": {
+      "methodHash": "763526961a8dcf5db61c5802d6c55c44",
+      "anchors": {"NerfBackgroundProcessChecker:methodPerformProcessCheck": "Lzv3/b;->run()V"}
+    },
+    "禁用拍一拍": {
+      "methodHash": "23713e2c0c7cbdbc65f4c3d181e9be0e",
+      "anchors": {"DisablePat:methodAvatarDoubleClick": "Lcom/tencent/mm/ui/chatting/f6;->a(Landroid/view/View;)Z"}
+    },
+    "禁用消息折叠": {
+      "methodHash": "8bff96c93759cdcb34d82228f655169d",
+      "anchors": {"DisableMessageCollapsing:methodFoldMsg": "Lcom/tencent/mm/ui/chatting/viewitems/b0;->r(ILjava/lang/CharSequence;Lcom/tencent/mm/ui/widget/MMNeat7extView;ZLcom/tencent/mm/storage/e9;Lcom/tencent/mm/ui/chatting/viewitems/j0;)V"}
+    },
+    "禁用置顶聊天折叠": {
+      "methodHash": "40ec6078a3be60cc0a642682325982d5",
+      "anchors": {"DisablePinnedChatsCollapsing:methodAddCollapseChatItem": "Lcom/tencent/mm/ui/conversation/t5;->N()V", "DisablePinnedChatsCollapsing:methodIfShouldAddCollapseChatItem": "Lcom/tencent/mm/ui/conversation/t5;->H(Z)Z"}
+    },
+    "离开对话/离开微信隐藏": {
+      "methodHash": "cd8fc840fe0cfd40681740802f6febf8",
+      "anchors": {"AutoRestoreOnLeave:methodLauncherFocusChanged": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "移除个性签名限制": {
+      "methodHash": "34c1ed1812801fae0c6c28c20783c2ef",
+      "anchors": {"RemoveSignatureLimits:methodTextWatcherAfterTextChanged": "Lcom/tencent/mm/plugin/setting/ui/setting/j1;->afterTextChanged(Landroid/text/Editable;)V", "RemoveSignatureLimits:methodConfirmButtonOnClickListenerOnClick": "Lcom/tencent/mm/plugin/setting/ui/setting/l1;->onMenuItemClick(Landroid/view/MenuItem;)Z"}
+    },
+    "移除二维码扫描限制": {
+      "methodHash": "23ba0e7bfeb16fe80622db965a04fdc2",
+      "anchors": {"RemoveQrCodeScanLimit:methodQBarString": "Lv74/v;->g(Landroid/app/Activity;Ljava/lang/String;IIILjava/lang/String;IILf74/d;Lcom/tencent/mm/plugin/scanner/view/s;Landroid/os/Bundle;ZIZLcom/tencent/qbar/ScanIdentifyReportInfo;Lpc5/kc0;)V"}
+    },
+    "移除分享签名校验": {
+      "methodHash": "602a7c70c5f1a0f7ec3c48ba5739c07d",
+      "anchors": {"RemoveExternalAppSharingSignatureVerify:methodSignCheck": "Lcom/tencent/mm/pluginsdk/model/app/i1;->b(Landroid/content/Context;Lcom/tencent/mm/pluginsdk/model/app/m;Ljava/lang/String;Lcom/tencent/mm/pluginsdk/model/app/j5;Lcom/tencent/mm/pluginsdk/model/app/h5;Z)Z"}
+    },
+    "移除嵌入广告": {
+      "methodHash": "92da4e7c1dea04e543623fc7cad12488",
+      "anchors": {"RemoveEmbeddedAds:ctorNetSceneJSOperateWxData": "Lnm1/g;-><init>(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIIILnm1/c;Ljava/lang/String;IZZLnm1/f;)V", "RemoveEmbeddedAds:methodBaseTransferRequestOnLoad": "Lix1/d;->b(Lcom/tencent/mm/plugin/brandservice/api/TransferResultInfo;)V"}
+    },
+    "移除开屏广告": {
+      "methodHash": "17f33b33de6223a2138f46d8beb72e2c",
+      "anchors": {"RemoveSplashAds:methodIsAdContact": "Llc1/j;->a(Lcom/tencent/mm/plugin/appbrand/config/AppBrandInitConfigWC;)Z", "RemoveSplashAds:methodAdDataCallback": "Lcom/tencent/mm/plugin/appbrand/jsapi/auth/q0;->a(IILjava/lang/String;Lcom/tencent/mm/modelbase/o;)V", "RemoveSplashAds:methodCheckCanShowAd": "Lcom/tencent/mm/plugin/appbrand/d7;->K2(Lcom/tencent/mm/plugin/appbrand/d7;)Z"}
+    },
+    "移除评论区广告": {
+      "methodHash": "81047c22ce2f877d5ef001f85d6172a7",
+      "anchors": {"RemoveCommentAds:methodBindAdComment": "Lah2/v;->h(Lvv5/s0;Lvv5/c;IIZLjava/util/List;)V", "RemoveCommentAds:methodBindOldComment": "Lcom/tencent/mm/plugin/finder/convert/w4;->X(Lvv5/s0;Llu2/b1;IIZLjava/util/List;)V"}
+    },
+    "移除通话时聊天限制": {
+      "methodHash": "e68e453d544c64a492a0fd88e679a133",
+      "anchors": {"RemoveLimitsDuringCalls:methodIsDuringCall": "Lpq/b;->H()Z", "RemoveLimitsDuringCalls:methodIsMultiTalking": "Lpq/b;->v(Landroid/content/Context;)Z", "RemoveLimitsDuringCalls:methodIsCameraUsing": "Lpq/b;->h(Landroid/content/Context;ZLandroid/content/DialogInterface$OnClickListener;)Z", "RemoveLimitsDuringCalls:methodIsCameraUsing2": "Lpq/b;->i(Landroid/content/Context;ZLandroid/os/Bundle;)Z", "RemoveLimitsDuringCalls:methodIsVoiceUsing": "Lpq/b;->C(Landroid/content/Context;)Z", "RemoveLimitsDuringCalls:methodIsVoiceUsing2": "Lpq/b;->D(Landroid/content/Context;Landroid/content/DialogInterface$OnClickListener;)Z", "RemoveLimitsDuringCalls:methodCheckAppBrandVoiceUsing": "Lpq/b;->e(Landroid/content/Context;)Z", "RemoveLimitsDuringCalls:methodCheckAppBrandVoiceUsing2": "Lpq/b;->f(Landroid/content/Context;Landroid/content/DialogInterface$OnClickListener;)Z"}
+    },
+    "红包页面详情": {
+      "methodHash": "acb86d0de40423bf9e7541af5f8d0061",
+      "anchors": {"DisplayRedPacketDetails:methodOnBindListView": "Lcom/tencent/mm/plugin/luckymoney/ui/t3;->h(Lvv5/s0;Lvv5/c;IIZLjava/util/List;)V", "DisplayRedPacketDetails:classNetSceneOpenLuckyMoney": "com.tencent.mm.plugin.luckymoney.model.h6", "DisplayRedPacketDetails:classNetSceneLuckyMoneyDetail": "com.tencent.mm.plugin.luckymoney.model.x5"}
+    },
+    "聊天输入栏增强": {
+      "methodHash": "1a55152a4c6243236c9a3b3f19e7f12b",
+      "anchors": {"ChatInputBarEnhancements:methodSendMessage": "Lcom/tencent/mm/pluginsdk/ui/chat/p2;->onClick(Landroid/view/View;)V"}
+    },
+    "自动启用合并发送媒体": {
+      "methodHash": "246f969ad806fb627353e1df052c77cd",
+      "anchors": {"AutoEnableSendAsMediaGroup:methodInitSendAsMediaGroupingViews": "Lcom/tencent/mm/plugin/gallery/ui/AlbumPreviewUI;->initView()V", "AutoEnableSendAsMediaGroup:methodUpdateSendAsMediaGroupViews": "Lcom/tencent/mm/plugin/gallery/ui/AlbumPreviewUI;->y8(I)V", "AutoEnableSendAsMediaGroup:sendAsMediaGroupField": "Lcom/tencent/mm/plugin/gallery/ui/AlbumPreviewUI;->i2:Z", "AutoEnableSendAsMediaGroup:sendAsMediaGroupCheckBoxField": "Lcom/tencent/mm/plugin/gallery/ui/AlbumPreviewUI;->k2:Landroid/widget/CheckBox;"}
+    },
+    "自动查看原图": {
+      "methodHash": "e1d91dfaef5716545987d7688fcb4e90",
+      "anchors": {"AutoViewOriginalMedia:methodSetImageHdImgBtnVisibility": "Lcom/tencent/mm/ui/chatting/gallery/ImageGalleryUI;->y9()V", "AutoViewOriginalMedia:methodCheckNeedShowOriginVideoBtn": "Lcom/tencent/mm/ui/chatting/gallery/ImageGalleryUI;->M9()V"}
+    },
+    "表情消息以图片打开": {
+      "methodHash": "efb1c85697820bbce919cd9198dc9cb7",
+      "anchors": {"ViewStickerAsImage:methodEmojiClickHandler": "Lcom/tencent/mm/ui/chatting/viewitems/ll;->b(Lcom/tencent/mm/storage/e9;)V", "ViewStickerAsImage:methodEmojiClickEntry": "Lcom/tencent/mm/ui/chatting/viewitems/ll;->a(Landroid/view/View;Lgk5/d;Lcom/tencent/mm/storage/e9;)V", "ViewStickerAsImage:methodEmojiResolverGetter": "Lcom/tencent/mm/feature/emoji/b0;->fj()Lb72/h;", "ViewStickerAsImage:methodResolveEmojiInfo": "Lb72/h;->M(Lcom/tencent/mm/storage/e9;)Lcom/tencent/mm/storage/emotion/EmojiInfo;", "ViewStickerAsImage:methodGetEmojiDecryptPath": "Lcom/tencent/mm/storage/emotion/EmojiInfo;->W()Ljava/lang/String;"}
+    },
+    "解除单个表情数量上限": {
+      "methodHash": "aa937343afe6d469be3b548e309844d3",
+      "anchors": {"RemoveCustomStickersLimit:methodGetCustomEmojiMaxSize": "Lqr/z;->a()I", "RemoveCustomStickersLimit:methodComputeEmojiStorageState": "Lqr/v;->a(Z)V", "RemoveCustomStickersLimit:classMmkv": "com.tencent.mm.sdk.platformtools.r4", "RemoveCustomStickersLimit:methodGetMmkv": "Lcom/tencent/mm/sdk/platformtools/r4;->N(Ljava/lang/String;ILcom/tencent/mmkv/MMKV;)Lcom/tencent/mm/sdk/platformtools/r4;", "RemoveCustomStickersLimit:classCgiBack": "com.tencent.mm.modelbase.f", "RemoveCustomStickersLimit:methodCreateCgiBack": "Lcom/tencent/mm/modelbase/f;->a(IILjava/lang/String;Lcom/tencent/mm/protobuf/f;Lcom/tencent/mm/modelbase/m1;Lcom/tencent/mm/modelbase/i;)Lcom/tencent/mm/modelbase/f;", "RemoveCustomStickersLimit:methodAddEmojiOnSceneEnd": "Lbs/f;->call(Ljava/lang/Object;)Ljava/lang/Object;", "RemoveCustomStickersLimit:methodNetSceneBackupEmojiOperateOnGYNetEnd": "Lc72/g;->onGYNetEnd(IIILjava/lang/String;Lcom/tencent/mm/network/y0;[B)V", "RemoveCustomStickersLimit:methodChattingUiEmoji": "Lcom/tencent/mm/ui/chatting/component/rb;->u0(Landroid/view/MenuItem;Lgk5/d;Lcom/tencent/mm/storage/e9;)Z", "RemoveCustomStickersLimit:methodConditionallyShowDialog": "Lcom/tencent/mm/feature/emoji/g4;->bj(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;IIZ)Z"}
+    },
+    "解除消息多选数量限制": {
+      "methodHash": "2c78e4ce44e6cc7834631c124f4cf2eb",
+      "anchors": {"RemoveMessageSelectionLimit:methodToggleMessageSelection": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "RemoveMessageSelectionLimit:methodGetSelectedMessageCount": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "RemoveMessageSelectionLimit:classChatItemQuickSelect": "com.tencent.mm.ui.chatting.component.a1", "RemoveMessageSelectionLimit:methodSetQuickSelectViewEnabled1": "Lcom/tencent/mm/ui/chatting/component/a1;->H0(Z)V", "RemoveMessageSelectionLimit:methodSetQuickSelectViewEnabled2": "Lcom/tencent/mm/ui/chatting/component/a1;->I0(Z)V"}
+    },
+    "解除风险文件拦截": {
+      "methodHash": "0539fc8d2492a2c668bffdeffc9f512d",
+      "anchors": {"BypassRiskFileBlocking:methodRiskFileFlag": "Ln95/s;->q()Ljava/lang/Integer;"}
+    },
+    "超级对话置顶": {
+      "methodHash": "3fad8aeec9324f73535dedcecef2514f",
+      "anchors": {"SuperConversationPinning:classConversation": "com.tencent.mm.storage.k4", "SuperConversationPinning:classMvvmConversationAdapter": "jo5.z"}
+    },
+    "跳过启动页面": {
+      "methodHash": "08f58e6e18f4516cbe651efa5faf0eb6",
+      "anchors": {"SkipSplash:methodShowSplash": "Lcom/tencent/mm/plugin/appbrand/AppBrandRuntime;->c2()V"}
+    },
+    "跳过激励广告": {
+      "methodHash": "d5529ca7acd5511db8ae78fe18406b27",
+      "anchors": {"SkipRewardedAds:ctorNetSceneJSOperateWxData": "Lnm1/g;-><init>(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIIILnm1/c;Ljava/lang/String;IZZLnm1/f;)V", "SkipRewardedAds:methodInjectLibScript": "Lcom/tencent/mm/plugin/appbrand/utils/d3;->h(Lcom/tencent/mm/plugin/appbrand/x9;Lcom/tencent/mm/plugin/appbrand/jsruntime/s;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Lcom/tencent/mm/plugin/appbrand/utils/h3;Lcom/tencent/mm/plugin/appbrand/utils/a3;)V", "SkipRewardedAds:methodPkgReaderH0": "Lcom/tencent/mm/plugin/appbrand/appcache/WxaCommLibRuntimeReader$PkgReader;->N0(Ljava/lang/String;)Landroid/content/res/AssetFileDescriptor;", "SkipRewardedAds:methodAssetReaderH0": "Lcom/tencent/mm/plugin/appbrand/appcache/AssetReader;->N0(Ljava/lang/String;)Landroid/content/res/AssetFileDescriptor;"}
+    },
+    "通知进化": {
+      "methodHash": "4711233e729f55ead0103d41c4c848b6",
+      "anchors": {"NotificationsEvolved:methodDealNotify": "Lcom/tencent/mm/booter/notification/x;->d(Lcom/tencent/mm/booter/notification/x;Ljava/lang/String;Ljava/lang/String;IIZ)V"}
+    },
+    "通讯录隐藏": {
+      "methodHash": "5f09faaeac5ba1d0796ee67043203c97",
+      "anchors": {"HideSecretContacts:methodAddressMvvmListPreprocessList": "Lcom/tencent/mm/ui/contact/address/AddressLiveList;->h(Ljava/util/List;)Ljava/util/List;"}
+    },
+    "阻止微信清理模块数据": {
+      "methodHash": "319cf2843551759ec2680628ee7b7041",
+      "anchors": {"PreventModuleDataDeletion:methodNativeFileSystemEntryDelete": "Lcom/tencent/mm/vfs/k4;->d(Ljava/lang/String;)Z"}
+    },
+    "隐藏其他设备横幅": {
+      "methodHash": "8ef940f71d95b0060533c5836a6d8a3c",
+      "anchors": {"HideOtherDevicesBanner:methodSetOtherOnlineBannerVisibility": "Lcom/tencent/mm/ui/conversation/banner/l0;->k(I)V"}
+    },
+    "隐藏对话列表分割线": {
+      "methodHash": "dd692eb8b3b28d624e7bdf4f5e28bf8b",
+      "anchors": {"HideConversationListDividers:methodConversationWithCacheAdapterGetView": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "HideConversationListDividers:methodMvvmConversationAdapterGetView": "Ljo5/y0;->getView(ILandroid/view/View;Landroid/view/ViewGroup;)Landroid/view/View;", "HideConversationListDividers:methodRecyclerOnBind": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "HideConversationListDividers:methodSupportRecyclerOnBind": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "HideConversationListDividers:methodAllListViewGetView": "La44/h;->getView(ILandroid/view/View;Landroid/view/ViewGroup;)Landroid/view/View;", "HideConversationListDividers:methodDispatchChildAttached": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "隐藏最近转发": {
+      "methodHash": "0faed473a99afcc9b02f35da5e1c4589",
+      "anchors": {"HideRecentForward:methodTransmitListInstaller": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "音视频通话使用画中画": {
+      "methodHash": "59adffdbe02a36f54477bdf195c00e8e",
+      "anchors": {"PipVoip:classVoipActivityProxy": "nw5.s", "PipVoip:methodVoipActivityProxyDealContentView": "Lnw5/s;->dealContentView(Landroid/view/View;)V", "PipVoip:classBaseVoipManager": "com.tencent.mm.plugin.voip.model.d0", "PipVoip:classFlutterVoipManager": "g73.m", "PipVoip:classVoipAudioManager": "my4.n0", "PipVoip:classFlutterVoipPlugin": "f73.t", "PipVoip:fieldVoipAudioManager": "Lcom/tencent/mm/plugin/voip/model/d0;->d:Lmy4/a0;", "PipVoip:methodVoipMinimize": "Lcom/tencent/mm/plugin/voip/model/d0;->m(Z)Z", "PipVoip:methodSetVoipMuted": "Lg73/m;->L0(Z)V", "PipVoip:methodVoipHangUp": "Lcom/tencent/mm/plugin/voip/model/d0;->u0(I)V", "PipVoip:fieldVoipMuted": "Lmy4/n0;->y:Z", "PipVoip:methodFlutterVoipMinimize": "Lf73/t;->b(ZZZLr96/l;)V", "PipVoip:fieldFlutterVoipActivity": "Lf73/t;->f:Landroid/app/Activity;", "PipVoip:fieldFlutterVoipManager": "Lf73/t;->m:Lg73/m;", "PipVoip:methodFlutterVoipAttachedToActivity": "Lf73/t;->onAttachedToActivity(Lio/flutter/embedding/engine/plugins/activity/ActivityPluginBinding;)V", "PipVoip:methodFlutterVoipReattachedToActivity": "Lf73/t;->onReattachedToActivityForConfigChanges(Lio/flutter/embedding/engine/plugins/activity/ActivityPluginBinding;)V", "PipVoip:methodFlutterCallbackInvoke": "Lr96/l;->invoke(Ljava/lang/Object;)Ljava/lang/Object;", "PipVoip:classMultiTalkViewModel": "com.tencent.mm.ui.LauncherUI", "PipVoip:fieldMultiTalkViewModel": "Lcom/tencent/mm/ui/LauncherUI;->INSTANCE:Lcom/tencent/mm/ui/LauncherUI;", "PipVoip:classObservableState": "androidx.lifecycle.g0", "PipVoip:methodMultiTalkMinimize": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "PipVoip:methodMultiTalkExit": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "PipVoip:methodMultiTalkMic": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "PipVoip:methodMultiTalkCamera": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "PipVoip:fieldMultiTalkMicState": "Lcom/tencent/mm/ui/LauncherUI;->INSTANCE:Lcom/tencent/mm/ui/LauncherUI;", "PipVoip:fieldMultiTalkCameraState": "Lcom/tencent/mm/ui/LauncherUI;->INSTANCE:Lcom/tencent/mm/ui/LauncherUI;", "PipVoip:methodObservableValue": "Landroidx/lifecycle/g0;->getValue()Ljava/lang/Object;"}
+    },
+    "DPI 修改": {
+      "methodHash": "fd0b9b28e218864a73c29aa966fda48d",
+      "anchors": {"CustomDpi:methodGetDisplayMetrics": "Lle5/f;->e()Landroid/util/DisplayMetrics;"}
+    },
+    "Markdown 渲染": {
+      "methodHash": "5283b2ed38a7a1c002bcc7316233e452",
+      "anchors": {"MarkdownRendering:classMsgInfoWrapper": "am5.d"}
+    },
+    "「我」页面精简": {
+      "methodHash": "326c29a66847d0b0bbc137a830fc055a",
+      "anchors": {"HideMeTabPageItems:methodOnViewCreated": "Lcom/tencent/mm/ui/MoreTabUI;->onViewCreated(Landroid/view/View;Landroid/os/Bundle;)V"}
+    },
+    "上传原图": {
+      "methodHash": "ee3afacf3e5f80ba936fd8da310f395c",
+      "anchors": {"NoCompressUploadedImages:methodCreatePic": "Lcom/tencent/mm/plugin/sns/storage/m2;->K1(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZII)Z", "NoCompressUploadedImages:methodConvertImg2WxamWithoutZip": "Lcom/tencent/mm/plugin/sns/storage/m2;->t1(Ljava/lang/String;Ljava/lang/String;)Z"}
+    },
+    "主题": {
+      "methodHash": "1eecf650f2dd086e310a9b08a8f43b47",
+      "anchors": {"Themes:methodChattingBackgroundComponentInitBg": "Lcom/tencent/mm/ui/chatting/component/v2;->y0()V", "Themes:methodChattingDataAdapterV3OnBindViewHolder": "Lcom/tencent/mm/ui/chatting/adapter/k;->E0(Lvv5/s0;I)V", "Themes:methodAppGridGetView": "Lcom/tencent/mm/pluginsdk/ui/chat/c;->getView(ILandroid/view/View;Landroid/view/ViewGroup;)Landroid/view/View;", "Themes:methodHistoryMsgTongueShow1": "Lcom/tencent/mm/ui/chatting/component/hh;->P0()V", "Themes:methodHistoryMsgTongueShow2": "Lcom/tencent/mm/ui/chatting/component/hh;->N0(Lcom/tencent/mm/plugin/msg/MsgIdTalker;Z)V", "Themes:methodHomeUiUpdateStatusBar": "Lcom/tencent/mm/ui/HomeUI;->v(I)V", "Themes:methodHomeUiSetActionBarColor": "Lcom/tencent/mm/ui/HomeUI;->q(I)V", "Themes:methodMoreTabUiOnTabCreate": "Lcom/tencent/mm/ui/MoreTabUI;->C0(Landroid/os/Bundle;)V", "Themes:methodMoreTabUiHandleTabSwitchInForStatus": "Lcom/tencent/mm/ui/MoreTabUI;->t1()V", "Themes:methodFMessageContactViewInitView": "Lcom/tencent/mm/ui/contact/d4;->a()V", "Themes:classEnterpriseBizViewItem": "com.tencent.mm.ui.contact.w3", "Themes:classEnterpriseDefaultViewItem": "com.tencent.mm.ui.contact.m8", "Themes:classAddressItemConvert": "eo5.f", "Themes:classMmPopupWindow": "kj5.f5", "Themes:classSmileyTabAdapter": "sr.m", "Themes:classBaseSettingConvert": "r94.g"}
+    },
+    "二维码扫描记录": {
+      "methodHash": "61a2bbce495cd1f02056fb633ee4754e",
+      "anchors": {"QrCodeRecord:methodQBarString": "Lv74/v;->g(Landroid/app/Activity;Ljava/lang/String;IIILjava/lang/String;IILf74/d;Lcom/tencent/mm/plugin/scanner/view/s;Landroid/os/Bundle;ZIZLcom/tencent/qbar/ScanIdentifyReportInfo;Lpc5/kc0;)V"}
+    },
+    "伪装语音时长": {
+      "methodHash": "110c79400e91e6ae17ec9c6b53992294",
+      "anchors": {"FakeVoiceDuration:methodVoiceRecorderGetLength": "Lyl/x0;->c()J"}
+    },
+    "修改显示余额": {
+      "methodHash": "1c1375f3751be70a9c078d339ec0544d",
+      "anchors": {"ModifyWalletBalanceDisplay:methodWcPayMoneyLoadingViewSetMoneyCore": "Lcom/tencent/mm/plugin/wallet_core/ui/view/WcPayMoneyLoadingView;->f(Ljava/lang/String;ZZZ)V"}
+    },
+    "修改运动步数": {
+      "methodHash": "393e10b2372cc28ec430c824b9583b9b",
+      "anchors": {"ModifySportsStepCount:methodGetSteps": "Lcom/tencent/mm/plugin/sport/model/d;->a()J", "ModifySportsStepCount:methodUploadSteps": "Lcom/tencent/mm/plugin/sport/model/d;->d(J)Z"}
+    },
+    "分裂群组通话": {
+      "methodHash": "2c72cfb3576b8a7feedd4f637d245470",
+      "anchors": {"SplitGroupCall:classSubCoreMultiTalk": "com.tencent.mm.ui.LauncherUI", "SplitGroupCall:methodExitMultiTalk": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "SplitGroupCall:classILinkService": "com.tencent.mm.ui.LauncherUI", "SplitGroupCall:classILinkMember": "com.tencent.mm.ui.LauncherUI", "SplitGroupCall:classInviteTask": "com.tencent.mm.ui.LauncherUI", "SplitGroupCall:methodGetMultiTalkManager": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "SplitGroupCall:methodSetStatus": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "SplitGroupCall:methodSetMtSdkMode": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "SplitGroupCall:methodSetName": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "SplitGroupCall:methodPostTask": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "SplitGroupCall:ctorInviteTask": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "SplitGroupCall:ctorHangupTask": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "SplitGroupCall:fieldILinkInstance": "Lcom/tencent/mm/ui/LauncherUI;->INSTANCE:Lcom/tencent/mm/ui/LauncherUI;", "SplitGroupCall:fieldRoomId": "Lcom/tencent/mm/ui/LauncherUI;->INSTANCE:Lcom/tencent/mm/ui/LauncherUI;", "SplitGroupCall:methodEnterTalkRoom": "Lqo4/f0;->h(Ljava/lang/String;I)V", "SplitGroupCall:methodExitTalkRoom": "Lqo4/f0;->i()V", "SplitGroupCall:methodGetTalkRoomServer": "Lqo4/l;->ej()Lqo4/f0;", "SplitGroupCall:fieldCurrentTalkRoom": "Lqo4/f0;->h:Ljava/lang/String;"}
+    },
+    "启动微信内部 URL": {
+      "methodHash": "51debe627b1fed5e090d5de21fe704cf",
+      "anchors": {"LaunchInternalUrls:methodOpenUrl": "Lcom/tencent/mm/app/plugin/j;->d(Landroid/content/Context;Ljava/lang/String;[Ljava/lang/Object;)Z"}
+    },
+    "圆角头像": {
+      "methodHash": "62d8e7bce0fd55192e60c7ec2bafcd72",
+      "anchors": {"RoundAvatars:methodLoadAvatar": "Lcom/tencent/mm/pluginsdk/ui/u;->b(Landroid/widget/ImageView;Ljava/lang/String;FZ)V", "RoundAvatars:ctorAvatarCreate": "Lds1/e;-><init>(Lcom/tencent/mm/sdk/coroutines/LifecycleScope;Ljava/lang/String;FZLjava/lang/String;ILkotlin/jvm/internal/i;)V", "RoundAvatars:methodAvatarModify": "Lds1/e;->c(Lds1/e;Lcom/tencent/mm/sdk/coroutines/LifecycleScope;Ljava/lang/String;FZLjava/lang/String;ILjava/lang/Object;)V"}
+    },
+    "复制调试信息": {
+      "methodHash": "694c844ac1beb9a35824ada1f1196276",
+      "anchors": {"CopyWeChatDebugInfo:methodOnClick": "Lcom/tencent/mm/plugin/setting/ui/setting/b5;->onClick(Landroid/view/View;)V"}
+    },
+    "安全消息发送": {
+      "methodHash": "76420990a9872d8abda7583832cec83e",
+      "anchors": {"SendSecMsg:methodInsertMessage": "Lcom/tencent/mm/storage/f9;->Bb(Lcom/tencent/mm/storage/e9;Z)J", "SendSecMsg:methodMergeSecNode": "Lb41/ma;->P(Lcom/tencent/mm/storage/e9;Ljava/lang/String;Z)V"}
+    },
+    "对话分组": {
+      "methodHash": "48a51e2f90012273c9ea7ed7947a84ca",
+      "anchors": {"ConversationGrouping:methodOnTabCreate": "Lcom/tencent/mm/ui/conversation/MainUI;->w0(Landroid/os/Bundle;)V", "ConversationGrouping:methodSqliteWrapperRawQuery": "Lkh5/b0;->f(Ljava/lang/String;[Ljava/lang/String;I)Landroid/database/Cursor;"}
+    },
+    "对话归拢": {
+      "methodHash": "f6c7dddd3903b402c216a3b1a0200a0b",
+      "anchors": {"ConversationAggregation:methodSqliteWrapperRawQuery": "Lkh5/b0;->f(Ljava/lang/String;[Ljava/lang/String;I)Landroid/database/Cursor;", "ConversationAggregation:methodConversationStorageQueryByParent": "Lcom/tencent/mm/storage/l4;->s(ILjava/util/List;Ljava/lang/String;I)Landroid/database/Cursor;", "ConversationAggregation:methodSelectConversationDoClickUser": "Lcom/tencent/mm/ui/transmit/SelectConversationUI;->W7(Ljava/lang/String;)V", "ConversationAggregation:methodMvvmMainListItemClick": "Lsr5/u2;->k(Landroid/view/View;Lvv5/c;I)V", "ConversationAggregation:methodMvvmSearchItemClick": "Lsr5/w4;->k(Landroid/view/View;Lvv5/c;I)V", "ConversationAggregation:methodConversationStorageUpdateUnreadByTalker": "Lcom/tencent/mm/storage/l4;->b0(Ljava/lang/String;)Z", "ConversationAggregation:methodShowPopupMenu": "Leu5/s0;->g(Landroid/view/View;IJLandroid/view/View$OnCreateContextMenuListener;Lkj5/v4;II)V", "ConversationAggregation:methodMvvmConversationAdapterGetView": "Ljo5/y0;->getView(ILandroid/view/View;Landroid/view/ViewGroup;)Landroid/view/View;", "ConversationAggregation:methodConversationWithCacheAdapterGetView": "Lcom/tencent/mm/ui/conversation/banner/f;->getView(ILandroid/view/View;Landroid/view/ViewGroup;)Landroid/view/View;", "ConversationAggregation:methodTextViewSetText": "Lbk1/h;->setText(Ljava/lang/CharSequence;)V"}
+    },
+    "对话框窗口级背景模糊": {
+      "methodHash": "fa3b5cd299ad31d2befd06f26839c62b",
+      "anchors": {"ApplyDialogBackgroundBlur:classMmAlertDialog": "com.tencent.mm.ui.widget.dialog.j0", "ApplyDialogBackgroundBlur:classMmProgressDialog": "com.tencent.mm.ui.widget.dialog.u3", "ApplyDialogBackgroundBlur:classMmQuickDialog": "com.tencent.mm.ui.widget.dialog.f4"}
+    },
+    "屏蔽铃声": {
+      "methodHash": "50c8cf8602262cda93d4ed386cb85397",
+      "anchors": {"BlockVoipRingtone:methodStartRing": "Lay5/e;->a(Ljava/lang/String;ZZJZ)V", "BlockVoipRingtone:methodSceneSetting": "Lx44/u;->dj(Lx44/i;Landroid/os/Bundle;)Z", "BlockVoipRingtone:methodIncomingRing": "Lcom/tencent/mm/plugin/voipmp/platform/ZIDL_DVO6HrxwB;->ZIDL_HBV(J)V", "BlockVoipRingtone:methodPlaySoundByLog": "Lay5/f;->run()V", "BlockVoipRingtone:methodPlaySoundByName": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "左划对话菜单": {
+      "methodHash": "d9daeb7d291c1236fb170f57f5fa12a2",
+      "anchors": {"SwipeConversationOperations:classConversationAdapter": "com.tencent.mm.ui.LauncherUI", "SwipeConversationOperations:classMvvmConversationAdapter": "jo5.y0"}
+    },
+    "应用全局背景": {
+      "methodHash": "f51846839785f3240893addc0e1f13a5",
+      "anchors": {"ApplyGlobalBackground:methodInitImageView": "Lcom/tencent/mm/ui/base/MultiTouchImageView;->t()V"}
+    },
+    "底部详细信息": {
+      "methodHash": "e00a0c43513a42e92a948d8ac192da44",
+      "anchors": {"DisplayDetails:classImproveSnsInfo": "jk4.p", "DisplayDetails:classImproveInteractionLayout": "com.tencent.mm.plugin.sns.ui.improve.view.ImproveInteractionLayout", "DisplayDetails:fieldInteractionSnsInfo": "Lcom/tencent/mm/plugin/sns/ui/improve/view/ImproveInteractionLayout;->m:Ljk4/p;", "DisplayDetails:fieldSnsId": "Lim/t6;->field_snsId:J", "DisplayDetails:fieldUserName": "Lim/t6;->field_userName:Ljava/lang/String;", "DisplayDetails:fieldCreateTime": "Lim/t6;->field_createTime:I", "DisplayDetails:fieldType": "Lim/t6;->field_type:I", "DisplayDetails:methodGetTimeString": "Ljk4/p;->f1()Ljava/lang/String;"}
+    },
+    "悬浮标题栏": {
+      "methodHash": "ff8a92d4acc8e290b19bab48e62ebe44",
+      "anchors": {"FloatingChatHeader:methodTipsExpandAnimationUpdate": "Lcom/tencent/mm/ui/tipsbar/g;->onAnimationUpdate(Landroid/animation/ValueAnimator;)V", "FloatingChatHeader:methodTipsFoldAnimationUpdate": "Lcom/tencent/mm/ui/tipsbar/j;->onAnimationUpdate(Landroid/animation/ValueAnimator;)V"}
+    },
+    "悬浮输入框": {
+      "methodHash": "6258b76ced6970b5a5e015c9cacbee0b",
+      "anchors": {"FloatingChatFooter:methodRefreshBottomHeight": "Lcom/tencent/mm/pluginsdk/ui/chat/ChatFooter;->C1(I)V"}
+    },
+    "捡漏历史红包": {
+      "methodHash": "ce8a08c91728663407b84af1904c76c2",
+      "anchors": {"OpenHistoryRedPackets:classReceiveLuckyMoney": "com.tencent.mm.plugin.luckymoney.model.n6", "OpenHistoryRedPackets:classOpenLuckyMoney": "com.tencent.mm.plugin.luckymoney.model.h6", "OpenHistoryRedPackets:methodReceiveOnGYNetEnd": "Lcom/tencent/mm/plugin/luckymoney/model/n6;->onGYNetEnd(ILjava/lang/String;Lorg/json/JSONObject;)V", "OpenHistoryRedPackets:methodOpenOnGYNetEnd": "Lcom/tencent/mm/plugin/luckymoney/model/h6;->onGYNetEnd(ILjava/lang/String;Lorg/json/JSONObject;)V"}
+    },
+    "显示群成员身份": {
+      "methodHash": "4cf01fe613380a77725fb0a25694b10f",
+      "anchors": {"DisplayGroupMemberRoles:methodGetChatroomData": "Lcom/tencent/mm/storage/z2;->q0(Ljava/lang/String;)Lso/b;"}
+    },
+    "消息进入动画": {
+      "methodHash": "0216021a585961a350a9eee55959a23f",
+      "anchors": {"MessageEntranceAnimation:methodChattingAdapterOnBindViewHolder": "Lcom/tencent/mm/ui/chatting/adapter/k;->E0(Lvv5/s0;I)V", "MessageEntranceAnimation:methodChattingAdapterGetItem": "Lcom/tencent/mm/ui/chatting/adapter/k;->getItem(I)Ljava/lang/Object;"}
+    },
+    "滑动消息快捷操作": {
+      "methodHash": "a4efe0f785c9d7215f6ae1ee754db78c",
+      "anchors": {"SwipeMessageOperations:classChattingItemContainer": "com.tencent.mm.ui.chatting.viewitems.jh", "SwipeMessageOperations:classChattingUiFootComponent": "com.tencent.mm.ui.chatting.component.xc", "SwipeMessageOperations:methodGetMsgInfo": "Lcom/tencent/mm/ui/chatting/viewitems/ps;->b(Lcom/tencent/mm/ui/chatting/adapter/q;Lgk5/d;)Lcom/tencent/mm/storage/e9;"}
+    },
+    "灰度测试管理器": {
+      "methodHash": "59903afdb26585e7022ebc87be44a089",
+      "anchors": {"FeatureFlagManager:classFeatureFlagBase": "od5.e", "FeatureFlagManager:methodRepairerConfigApiGet": "Lou5/n1;->b(Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;"}
+    },
+    "移除消息菜单项": {
+      "methodHash": "37bf1f194e7892b6cc458033baeca7f7",
+      "anchors": {"RemoveChatMessageContextMenuItems:methodCreateMenu": "Lcom/tencent/mm/ui/chatting/viewitems/o0;->a(Lkj5/i4;Landroid/view/View;Landroid/view/ContextMenu$ContextMenuInfo;)V"}
+    },
+    "美化首页底部导航栏": {
+      "methodHash": "92ed716633bd58b75645a3f0a39501ac",
+      "anchors": {"ReplaceNavigationBar:methodUpdateTabUnread": "Lcom/tencent/mm/ui/LauncherUIBottomTabView;->k(I)V", "ReplaceNavigationBar:methodUpdateFriendTabUnread": "Lcom/tencent/mm/ui/LauncherUIBottomTabView;->j(I)V", "ReplaceNavigationBar:methodShowFriendPoint": "Lcom/tencent/mm/ui/LauncherUIBottomTabView;->f(Z)V", "ReplaceNavigationBar:methodUpdateContactTabUnread": "Lcom/tencent/mm/ui/LauncherUIBottomTabView;->i(I)V"}
+    },
+    "群成员变动提醒": {
+      "methodHash": "8b04214342edc29538863e343d62b881",
+      "anchors": {"MonitorGroupMemberOperations:methodHandleSpanClick": "Lcom/tencent/mm/app/plugin/URISpanHandlerSet$LuckyMoneyUriSpanHandler;->d(Landroid/view/View;Lpb5/n3;Lcom/tencent/mm/pluginsdk/ui/span/z;)Z"}
+    },
+    "聊天工具栏": {
+      "methodHash": "893f19e8b5cd623e815716b54055749f",
+      "anchors": {"ChatToolbar:methodAppPanelInitAppGrid": "Lcom/tencent/mm/pluginsdk/ui/chat/AppPanel;->r(Lcom/tencent/mm/pluginsdk/ui/chat/AppPanel;)V", "ChatToolbar:methodAppPanelOnMeasure": "Lcom/tencent/mm/pluginsdk/ui/chat/g;->a(II)V"}
+    },
+    "脚本引擎 (Java)": {
+      "methodHash": "92c379612a1447ec171de53ee5aa029c",
+      "anchors": {"JavaScriptingHook:methodPayMsg": "Lcom/tencent/mm/plugin/collect/ui/WalletCollectQrCodeUI;->y0(Lv12/g2;)V"}
+    },
+    "自动刷新": {
+      "methodHash": "5934fddc90ef8baf84eee32b87be7074",
+      "anchors": {"AutoRefresh:methodGetSnsCore": "Lcom/tencent/mm/plugin/sns/model/p4;->jj()Lcom/tencent/mm/plugin/sns/model/p4;", "AutoRefresh:methodDoFpList": "Lcom/tencent/mm/plugin/sns/model/h6;->e(ILjava/lang/String;ZZI)V"}
+    },
+    "自动同意好友申请": {
+      "methodHash": "69e36ed11e2b1b007dd117cc2b5c87ea",
+      "anchors": {"AutoAcceptFriendRequests:methodVerifyAccept": "Lcom/tencent/mm/pluginsdk/model/p3;-><init>(ILjava/lang/String;Ljava/lang/String;ILjava/lang/String;ILjava/util/List;Lpc5/te5;)V", "AutoAcceptFriendRequests:ctorVerifyUserAccept": "Lcom/tencent/mm/pluginsdk/model/p3;-><init>(ILjava/lang/String;Ljava/lang/String;ILjava/lang/String;ILjava/util/List;Lpc5/te5;)V", "AutoAcceptFriendRequests:methodVerifyOkClick": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "自动抢红包": {
+      "methodHash": "ce8a08c91728663407b84af1904c76c2",
+      "anchors": {"AutoOpenRedPackets:classReceiveLuckyMoney": "com.tencent.mm.plugin.luckymoney.model.n6", "AutoOpenRedPackets:classOpenLuckyMoney": "com.tencent.mm.plugin.luckymoney.model.h6", "AutoOpenRedPackets:methodReceiveOnGYNetEnd": "Lcom/tencent/mm/plugin/luckymoney/model/n6;->onGYNetEnd(ILjava/lang/String;Lorg/json/JSONObject;)V", "AutoOpenRedPackets:methodOpenOnGYNetEnd": "Lcom/tencent/mm/plugin/luckymoney/model/h6;->onGYNetEnd(ILjava/lang/String;Lorg/json/JSONObject;)V"}
+    },
+    "自动添加附近的人": {
+      "methodHash": "f1e9b1fcbc4749d80d933df2d5ae6139",
+      "anchors": {"AutoAddNearbyFriends:methodCreateMenu": "Lgw2/z;->onCreateMMMenu(Lkj5/i4;)V", "AutoAddNearbyFriends:methodMenuOnClick": "Lgw2/a0;->onMMMenuItemSelected(Landroid/view/MenuItem;I)V"}
+    },
+    "自定义好友本地头像": {
+      "methodHash": "0d9de9f418906c9e2b00c5e094092fab",
+      "anchors": {"CustomLocalFriendAvatars:methodMvvmLoadAvatar1": "Lcs1/s;->dj(Landroid/widget/ImageView;Ljava/lang/String;Ljava/lang/String;F)V", "CustomLocalFriendAvatars:methodMvvmLoadAvatar2": "Lcs1/s;->ej(Landroid/widget/ImageView;Ljava/lang/String;)V", "CustomLocalFriendAvatars:classAvatarDrawable": "com.tencent.mm.pluginsdk.ui.u", "CustomLocalFriendAvatars:methodFeatureAvatarSimple1": "Lcom/tencent/mm/pluginsdk/ui/u;->b(Landroid/widget/ImageView;Ljava/lang/String;FZ)V", "CustomLocalFriendAvatars:methodPluginsdkLoadAvatar": "Lcom/tencent/mm/pluginsdk/ui/u;->a(Landroid/widget/ImageView;Ljava/lang/String;)V", "CustomLocalFriendAvatars:methodHdGallerySetUsername": "Lcom/tencent/mm/plugin/setting/ui/setting/view/GetHdHeadImageGalleryView;->setUsername(Ljava/lang/String;)V", "CustomLocalFriendAvatars:methodRoundBitmap": "Lcom/tencent/mm/sdk/platformtools/x;->r0(Landroid/graphics/Bitmap;ZF)Landroid/graphics/Bitmap;", "CustomLocalFriendAvatars:methodConversationAvatar": "Lcom/tencent/mm/pluginsdk/ui/u;->b(Landroid/widget/ImageView;Ljava/lang/String;FZ)V"}
+    },
+    "自定义尾巴": {
+      "methodHash": "be34efe4d3d2097cf545bf01fba22c33",
+      "anchors": {"CustomSourceApp:methodCommitSnsInfo": "Lcom/tencent/mm/plugin/sns/model/j8;->i()I", "CustomSourceApp:methodSetSdkAppId": "Lcom/tencent/mm/plugin/sns/model/j8;->L(Ljava/lang/String;)Lcom/tencent/mm/plugin/sns/model/j8;", "CustomSourceApp:methodSetSdkAppName": "Lcom/tencent/mm/plugin/sns/model/j8;->K(Ljava/lang/String;)Lcom/tencent/mm/plugin/sns/model/j8;", "CustomSourceApp:methodSnsUploadUIInitView": "Lcom/tencent/mm/plugin/sns/ui/SnsUploadUI;->x7(Landroid/os/Bundle;)V"}
+    },
+    "自定义底部详细信息": {
+      "methodHash": "08aa57de5f1227db91f0a043611d587a",
+      "anchors": {"CustomDetails:classSnsCommentNotifyUI": "com.tencent.mm.plugin.sns.ui.SnsCommentUI", "CustomDetails:methodSnsCommentNotifyOnCreate": "Lcom/tencent/mm/plugin/sns/ui/SnsCommentUI;->onCreate(Landroid/os/Bundle;)V"}
+    },
+    "自定义输入框占位符文本": {
+      "methodHash": "ebdbf02cf13973e40af3dd20a7a7e446",
+      "anchors": {"CustomChatInputBarPlaceholderText:methodChatFooterCanSend": "Lcom/tencent/mm/pluginsdk/ui/chat/ChatFooter;->L(Z)V"}
+    },
+    "虚拟定位": {
+      "methodHash": "33a768c91b5efecea6dfe6597cdf28e4",
+      "anchors": {"FakeLocation:methodListener": "Lh51/t;->onLocationChanged(Lcom/tencent/map/geolocation/sapp/TencentLocation;ILjava/lang/String;)V", "FakeLocation:methodListenerWgs84": "Lh51/u;->onLocationChanged(Lcom/tencent/map/geolocation/sapp/TencentLocation;ILjava/lang/String;)V", "FakeLocation:methodDefaultManager": "Lmf/c;->onLocationChanged(Lcom/tencent/map/geolocation/sapp/TencentLocation;ILjava/lang/String;)V"}
+    },
+    "虚拟视频通话": {
+      "methodHash": "54fbbd0f76f3b4b6c2c6d2386951055b",
+      "anchors": {"VirtualVoipVideo:methodLaunchVoipPage": "Lsw5/a2;->invokeSuspend(Ljava/lang/Object;)Ljava/lang/Object;", "VirtualVoipVideo:methodStartCamera": "Lmx5/g0;->invokeSuspend(Ljava/lang/Object;)Ljava/lang/Object;"}
+    },
+    "表情游戏控制": {
+      "methodHash": "6200e7de932f018099f4537c260ab1e5",
+      "anchors": {"EmojiGameControl:methodRandom": "Lcom/tencent/mm/sdk/platformtools/y8;->Q(II)I", "EmojiGameControl:methodPanelClick": "Lvr/p;->a(Landroid/view/View;Landroid/content/Context;ILsr/u0;)V"}
+    },
+    "语音消息播放逻辑优化": {
+      "methodHash": "a450407bf4be6cbe92db2e76861bc191",
+      "anchors": {"VoiceMessagePlaybackOptimization:classAutoPlay": "com.tencent.mm.ui.chatting.x0", "VoiceMessagePlaybackOptimization:methodSensorCallback": "Lcom/tencent/mm/ui/chatting/x0;->t1(Z)V", "VoiceMessagePlaybackOptimization:methodSwitchTask": "Lcom/tencent/mm/ui/chatting/e1;->onTimerExpired()Z", "VoiceMessagePlaybackOptimization:methodSetSpeakerOn": "Lcom/tencent/mm/ui/chatting/x0;->G(Z)V", "VoiceMessagePlaybackOptimization:methodSwitchSpeaker": "Lcom/tencent/mm/ui/chatting/x0;->K()V"}
+    },
+    "贴纸包同步（已移除）": {
+      "methodHash": "69ab1a4db73f9ee85a749cf66fc3a28d",
+      "anchors": {"StickersSync:methodGetEmojiGroupInfo": "Lgh5/d;->X1(I)Ljava/util/ArrayList;", "StickersSync:methodAddAllGroupItems": "Lvr/q;->a(Lsr/k0;)V", "StickersSync:ctorGroupItemInfo": "Lsr/g;-><init>(Lcom/tencent/mm/api/IEmojiInfo;ILjava/lang/String;I)V", "StickersSync:ctorResourceLoadOptions": "Lns0/a;-><init>(Ljava/lang/String;)V", "StickersSync:methodDownloadImage": "Lfs0/b;->a(Ljava/lang/String;)Lms0/d;"}
+    },
+    "资料卡居中": {
+      "methodHash": "8022221e8f96ce08ac10f4abd2b39314",
+      "anchors": {"CenterProfileCard:methodBindAccountInfo": "Lcom/tencent/mm/pluginsdk/ui/preference/AccountInfoPreference;->B(Landroid/view/View;)V"}
+    },
+    "重定向文件下载路径": {
+      "methodHash": "2691bf1522325d944236017ba203bb5c",
+      "anchors": {"RedirectDownloadPath:methodDownloadFile": "Lcom/tencent/mm/vfs/t7;->b(Ljava/lang/String;)Ljava/lang/String;", "RedirectDownloadPath:methodInitDownloadAttach": "Lcom/tencent/mm/pluginsdk/model/app/k0;->s(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", "RedirectDownloadPath:methodInsertDownloadAttach": "Lcom/tencent/mm/pluginsdk/model/app/k0;->t(Ljava/lang/String;JLjava/lang/String;ILjava/lang/String;Ljava/lang/String;JILjava/lang/String;I)Ljava/lang/String;"}
+    },
+    "隐藏联系人": {
+      "methodHash": "ef4cb400bef5f048b2aebe495fb2bb12",
+      "anchors": {"HideContacts:methodSqliteWrapperRawQuery": "Lkh5/b0;->f(Ljava/lang/String;[Ljava/lang/String;I)Landroid/database/Cursor;", "HideContacts:methodAddressMvvmListPreprocessList": "Lcom/tencent/mm/ui/contact/address/AddressLiveList;->h(Ljava/util/List;)Ljava/util/List;", "HideContacts:methodAtSomeoneMvvmListPreprocessList": "Lcom/tencent/mm/ui/chatting/atsomeone/AtSomeoneLiveList;->h(Ljava/util/List;)Ljava/util/List;", "HideContacts:methodSeeRoomMemberSetMemberList": "Lcom/tencent/mm/chatroom/ui/cc;->d(Ljava/util/List;)V", "HideContacts:methodSelectMemberUiGetMemberList": "Lcom/tencent/mm/chatroom/ui/SelectMemberUI;->l7()Ljava/util/List;", "HideContacts:methodFavoriteAdapterSetDataList": "Lcom/tencent/mm/plugin/fav/ui/adapter/c;->r(Ljava/util/List;)V", "HideContacts:methodFinderLikeDrawerRefresh": "Lcom/tencent/mm/plugin/finder/feed/nd;->call(Ljava/lang/Object;)Ljava/lang/Object;", "HideContacts:methodFinderLikeDrawerLoadMore": "Lcom/tencent/mm/plugin/finder/feed/cd;->call(Ljava/lang/Object;)Ljava/lang/Object;", "HideContacts:methodFtsSearchChatroomMemberTask": "Lcom/tencent/mm/plugin/fts/logic/s0;->r(Lu73/v;)V", "HideContacts:methodFtsSearchCommonChatroomUserTask": "Lcom/tencent/mm/plugin/fts/logic/j;->r(Lu73/v;)V", "HideContacts:methodNormalContactCount": "Lcom/tencent/mm/storage/j4;->O(Z[Ljava/lang/String;[Ljava/lang/String;)I", "HideContacts:methodPatMsgInsert": "Lnv3/l;->nj(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IJ)Landroid/util/Pair;", "HideContacts:methodSnsInfoToSnsStruct": "Lmh4/z0;->D0(Lcom/tencent/mm/plugin/sns/storage/SnsInfo;Lcom/tencent/mm/protocal/protobuf/SnsObject;Landroid/content/Context;Lcom/tencent/mm/plugin/sns/ui/et;ZLcom/tencent/mm/storage/d8;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/util/List;)Lcom/tencent/mm/plugin/sns/ui/rt;", "HideContacts:methodSnsSyncUpdateRedDotCache": "Lcom/tencent/mm/plugin/sns/model/f3;->H(Lcom/tencent/mm/plugin/sns/model/f3;Lcom/tencent/mm/protocal/protobuf/SnsObject;)V", "HideContacts:methodVoipMpLaunchIncomingCard": "Lcom/tencent/mm/plugin/voipmp/platform/ZIDL_ibmKH7hbMB;->ZIDL_FBV(JIIJJ[B[[BZZ)V", "HideContacts:methodVoipMpLaunchBanner": "Lsw5/f3;->Kg(Landroid/content/Context;ILvy4/t;JJLjava/lang/String;Ljava/util/ArrayList;Z)V", "HideContacts:methodVoipMpReject": "Lsw5/f3;->Va()V", "HideContacts:methodVoipMpStartRing": "Lay5/e;->a(Ljava/lang/String;ZZJZ)V", "HideContacts:methodVoipMpStartFgs": "Lkx5/b;->d(Ljava/lang/String;ZZZ)V", "HideContacts:methodVoipMpInsertMsg": "Lcom/tencent/mm/plugin/voipmp/platform/ZIDL_DVO6HrxwB;->ZIDL_DCV(J[BZIIJJIII)V", "HideContacts:methodMultiTalkOnInvite": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "HideContacts:methodExitMultiTalk": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "HideContacts:methodVoipShowFloatingCard": "Lby4/y;->p(Landroid/content/Context;Landroid/content/Intent;JIZLjava/lang/String;ZI)V", "HideContacts:methodVoipShowFinishCard": "Lby4/y;->r(Landroid/content/Context;Ljava/lang/String;)V", "HideContacts:methodVoipAcceptIncomingCall": "Lcom/tencent/mm/plugin/voip/model/n;->p(Lpc5/xa7;)Z", "HideContacts:methodVoipStartAcceptVoip": "Lcom/tencent/mm/plugin/voip/model/c0;->C(Lpc5/xa7;)V", "HideContacts:methodVoipServiceExSetInviteContent": "Lcom/tencent/mm/plugin/voip/model/d3;->p(Lpc5/xa7;)Z", "HideContacts:methodVoipServiceExReject": "Lcom/tencent/mm/plugin/voip/model/d3;->m()I", "HideContacts:methodVoipBubbleHandle": "Lcom/tencent/mm/plugin/voip/model/j0;->j(Ljava/lang/String;Lpc5/k4;)Lcom/tencent/mm/modelbase/q0;", "HideContacts:methodVoipLegacyInsertMsg": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"}
+    },
+    "AppMsg 发送服务": {
+      "methodHash": "6817744fed17ec695faece3da1d40f38",
+      "anchors": {"WeAppMsgApi:methodParseXml": "Ldx0/r;->v(Ljava/lang/String;)Ldx0/r;", "WeAppMsgApi:methodSendAppMsg": "Lcom/tencent/mm/pluginsdk/model/app/k0;->I(Ldx0/r;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)Landroid/util/Pair;"}
+    },
+    "NetScene 服务": {
+      "methodHash": "0fc552d01d4cc7a68267bbc90862efa5",
+      "anchors": {"WeNetSceneApi:classMmKernel": "gp0.j1", "WeNetSceneApi:methodAddNetSceneToQueue": "Lcom/tencent/mm/modelbase/r1;->h(Lcom/tencent/mm/modelbase/m1;I)Z"}
+    },
+    "WebView 追踪服务": {
+      "methodHash": "077aa0ce81b214c3693ce8db1c8316b8",
+      "anchors": {"WeWebViewApi:xwebOnPageFinished": "Lcom/tencent/mm/plugin/appbrand/page/q9;->q(Lcom/tencent/xweb/WebView;Ljava/lang/String;Landroid/graphics/Bitmap;)V", "WeWebViewApi:androidOnPageFinished": "Lcom/tencent/mm/plugin/appbrand/page/ua;->onPageFinished(Landroid/webkit/WebView;Ljava/lang/String;)V"}
+    },
+    "XML 解析钩子服务": {
+      "methodHash": "0c93f3ac133918255cbe466a8d362677",
+      "anchors": {"WeXmlParserApi:methodXmlParser": "Lcom/tencent/mm/sdk/platformtools/fa;->d(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/util/Map;"}
+    },
+    "会话列表 View 绑定监听服务": {
+      "methodHash": "18d046a8b5a5cdd2b4e3f8246094b83e",
+      "anchors": {"WeConversationListViewApi:methodLegacyGetView": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "WeConversationListViewApi:methodMvvmGetView": "Ljo5/y0;->getView(ILandroid/view/View;Landroid/view/ViewGroup;)Landroid/view/View;"}
+    },
+    "对话服务": {
+      "methodHash": "3a65b37ca42cc7769062442657d9e9ed",
+      "anchors": {"WeConversationApi:classConversationStorage": "com.tencent.mm.storage.l4", "WeConversationApi:methodUpdateUnreadByTalker": "Lcom/tencent/mm/storage/l4;->b0(Ljava/lang/String;)Z", "WeConversationApi:methodDelChatContact": "Lcom/tencent/mm/storage/l4;->k(Ljava/lang/String;)V", "WeConversationApi:methodHiddenConvParent": "Lcom/tencent/mm/storage/l4;->Q([Ljava/lang/String;Ljava/lang/String;ZZ)V", "WeConversationApi:methodChatroomStorageGetMemberCount": "Lcom/tencent/mm/storage/a3;->y1(Ljava/lang/String;)I", "WeConversationApi:classChatroomMember": "com.tencent.mm.storage.z2", "WeConversationApi:methodSetDnd": "Lb41/d2;->s0(Lcom/tencent/mm/storage/y3;Z)V", "WeConversationApi:methodSetNoDnd": "Lb41/d2;->C0(Lcom/tencent/mm/storage/y3;Z)V", "WeConversationApi:methodIsPlacedTop": "Lcom/tencent/mm/storage/l4;->K(Ljava/lang/String;)Z", "WeConversationApi:methodSetPlacedTop": "Lcom/tencent/mm/storage/l4;->S(Ljava/lang/String;)Z", "WeConversationApi:methodUnSetPlacedTop": "Lcom/tencent/mm/storage/l4;->V(Ljava/lang/String;)Z", "WeConversationApi:methodBuildModContactOplog": "Lb41/d2;->n(Lcom/tencent/mm/storage/y3;)Lpc5/yt4;", "WeConversationApi:methodNotifyConversationChanged": "Lqf5/a1;->b(ILqf5/a1;Ljava/lang/Object;)V", "WeConversationApi:methodGetConversationByTalker": "Lcom/tencent/mm/storage/l4;->p(Ljava/lang/String;)Lcom/tencent/mm/storage/k4;", "WeConversationApi:methodDoDeleteConversation": "Lcom/tencent/mm/ui/conversation/u1;->d(Landroid/content/Context;Ljava/lang/String;Lcom/tencent/mm/storage/k4;Lcom/tencent/mm/pointers/PBool;Landroid/app/ProgressDialog;Z)V"}
+    },
+    "对话框 API": {
+      "methodHash": "f40d5f6b1ebd9f3a4976e70bd5966c63",
+      "anchors": {"WeAlertDialogApi:classMmAlert": "kj5.e1"}
+    },
+    "对话菜单增强扩展": {
+      "methodHash": "7079625f84bf1ffed46de360c10527f5",
+      "anchors": {"WeConversationContextMenuApi:methodOnCreateMenu": "Lcom/tencent/mm/ui/conversation/s3;->onCreateContextMenu(Landroid/view/ContextMenu;Landroid/view/View;Landroid/view/ContextMenu$ContextMenuInfo;)V", "WeConversationContextMenuApi:methodOnItemSelected": "Lcom/tencent/mm/ui/conversation/q3;->onMMMenuItemSelected(Landroid/view/MenuItem;I)V"}
+    },
+    "微信主屏幕美化服务": {
+      "methodHash": "7afcce48557332d288211d9d28ddd14c",
+      "anchors": {"WeMainActivityBeautifyApi:methodDoOnCreate": "Lcom/tencent/mm/ui/MainTabUI;->d()V"}
+    },
+    "微信服务管理服务": {
+      "methodHash": "7481aed203b5f6762bfe5725602237e7",
+      "anchors": {"WeServiceApi:methodServiceManagerGetService": "Lph5/n0;->c(Ljava/lang/Class;)Lph5/m;", "WeServiceApi:classEmojiFeatureService": "com.tencent.mm.feature.emoji.b0", "WeServiceApi:classStorageFeatureService": "com.tencent.mm.plugin.messenger.foundation.h2", "WeServiceApi:classChatroomService": "p02.a", "WeServiceApi:methodChatroomStorageGetMemberCount": "Lcom/tencent/mm/storage/a3;->y1(Ljava/lang/String;)I", "WeServiceApi:classImageInfoStorage": "l51.l0", "WeServiceApi:methodDownloadImageServiceDownloadImage": "Ll51/j;->b(JLcom/tencent/mm/plugin/msg/MsgIdTalker;ILjava/lang/Object;ILw90/w;IZ)I", "WeServiceApi:classImageFeatureService": "l51.b1", "WeServiceApi:methodApiManagerGetApi": "Lcom/tencent/mm/ui/chatting/manager/c;->a(Ljava/lang/Class;)Leo/e;", "WeServiceApi:methodMmKernelGetServiceImpl": "Lgp0/j1;->v(Ljava/lang/Class;)Llp0/a;", "WeServiceApi:methodVideoPathFeatureServiceRestoreMp4Path": "Lqi0/d;->kj(Ljava/lang/String;)Ljava/lang/String;", "WeServiceApi:classVideoService": "s61.o2", "WeServiceApi:classEmojiMgrImpl": "b72.h", "WeServiceApi:classEmojiInfoStorage": "gh5.l", "WeServiceApi:classEmojiStorageMgr": "com.tencent.mm.storage.m5", "WeServiceApi:methodSaveEmojiThumb": "Lcom/tencent/mm/storage/emotion/EmojiInfo;->l0(Landroid/content/Context;Z)Landroid/graphics/Bitmap;"}
+    },
+    "微信状态服务": {
+      "methodHash": "d8c0f5a1ba090b8d420e0f166e925cff",
+      "anchors": {"WeTextStatusApi:classTextStatusService": "np4.m0", "WeTextStatusApi:classTextStatusRecord": "er4.a", "WeTextStatusApi:methodTextStatusStorageAccessor": "Lnp4/m0;->G()Lfq4/a;", "WeTextStatusApi:methodLatestStatusByUsername": "Lfq4/c;->b(Ljava/lang/String;)Lzq4/h;", "WeTextStatusApi:methodTextStatusTopicInfo": "Lsh0/j0;->a(Lsh0/j0;ZILjava/lang/Object;)Lcr4/o0;", "WeTextStatusApi:methodSetTextStatusIcon": "Lor4/q;->V(Lor4/q;Landroid/widget/ImageView;Ljava/lang/String;Lop4/d;Lop4/b;Lzq4/h;ZZILjava/lang/Object;)V", "WeTextStatusApi:methodTextStatusIconHelperAccessor": "Lor4/t;->a()Lor4/q;", "WeTextStatusApi:methodTextStatusDescription": "Lor4/q;->m(Lcr4/o0;)Ljava/lang/String;", "WeTextStatusApi:methodCurrentStatusActions": "Lpq4/i1;->j(Landroid/content/Context;Lzq4/h;)V"}
+    },
+    "授权与登录服务": {
+      "methodHash": "48fd5ee8787174277a2d166fa0d9767a",
+      "anchors": {"WeAuthApi:classNetSceneJSLogin": "bo0.c"}
+    },
+    "支付服务": {
+      "methodHash": "ab977c56584a3c96462b4c081a3c0fd7",
+      "anchors": {"WePaymentApi:ctorNetSceneTransferOperation": "Lcom/tencent/mm/plugin/remittance/model/n0;-><init>(Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/util/Map;JLjava/lang/String;Ljava/lang/String;)V"}
+    },
+    "数据包拦截与篡改服务": {
+      "methodHash": "52295607a3b540e3214e45ea58825abd",
+      "anchors": {"WePacketDispatcher:classOnGYNetEnd": "com.tencent.mm.network.l0"}
+    },
+    "数据库服务": {
+      "methodHash": "54bcb6329327f90d99bab410f3564f79",
+      "anchors": {"WeDatabaseApi:classMmKernel": "gp0.j1", "WeDatabaseApi:methodGetStorage": "Lgp0/j1;->x()Lgp0/b0;", "WeDatabaseApi:classCoreStorage": "gp0.b0", "WeDatabaseApi:classConfigStorage": "com.tencent.mm.storage.q3", "WeDatabaseApi:classSqliteDbWrapper": "kh5.b0"}
+    },
+    "朋友圈服务": {
+      "methodHash": "a25a353c7bbd45d065e2e3a2052f41be",
+      "anchors": {"WeMomentsApi:classSnsService": "com.tencent.mm.plugin.sns.model.h6", "WeMomentsApi:classImproveSnsInfo": "jk4.p", "WeMomentsApi:classImproveInteractionLayout": "com.tencent.mm.plugin.sns.ui.improve.view.ImproveInteractionLayout", "WeMomentsApi:fieldInteractionSnsInfo": "Lcom/tencent/mm/plugin/sns/ui/improve/view/ImproveInteractionLayout;->m:Ljk4/p;", "WeMomentsApi:methodSendLike": "Lcom/tencent/mm/plugin/sns/model/h6;->n(Lcom/tencent/mm/plugin/sns/storage/SnsInfo;ILlj4/a;I)Lpc5/uf6;", "WeMomentsApi:methodCancelLike": "Lcom/tencent/mm/plugin/sns/model/h6;->a(Ljava/lang/String;)V", "WeMomentsApi:methodGetSnsInfoByLocalId": "Lcom/tencent/mm/plugin/sns/storage/f2;->p2(I)Lcom/tencent/mm/plugin/sns/storage/SnsInfo;", "WeMomentsApi:methodGetSnsInfoStorage": "Lcom/tencent/mm/plugin/sns/model/p4;->Jj()Lcom/tencent/mm/plugin/sns/storage/f2;", "WeMomentsApi:methodGetSnsInfoBySnsId": "Lcom/tencent/mm/plugin/sns/storage/f2;->L1(J)Lcom/tencent/mm/plugin/sns/storage/SnsInfo;", "WeMomentsApi:classUploadPackHelper": "com.tencent.mm.plugin.sns.model.j8", "WeMomentsApi:classSnsMediaObj": "com.tencent.mm.plugin.sns.storage.m2", "WeMomentsApi:ctorUploadPackHelper": "Lcom/tencent/mm/plugin/sns/model/j8;-><init>(ILandroid/content/Context;)V", "WeMomentsApi:methodCommit": "Lcom/tencent/mm/plugin/sns/model/j8;->i()I", "WeMomentsApi:methodSetContentDes": "Lcom/tencent/mm/plugin/sns/model/j8;->v(Ljava/lang/String;)Lcom/tencent/mm/plugin/sns/model/j8;", "WeMomentsApi:methodSetSdkId": "Lcom/tencent/mm/plugin/sns/model/j8;->L(Ljava/lang/String;)Lcom/tencent/mm/plugin/sns/model/j8;", "WeMomentsApi:methodSetSdkAppName": "Lcom/tencent/mm/plugin/sns/model/j8;->K(Ljava/lang/String;)Lcom/tencent/mm/plugin/sns/model/j8;", "WeMomentsApi:methodSetUploadList": "Lcom/tencent/mm/plugin/sns/model/j8;->Y(Ljava/util/List;)V", "WeMomentsApi:methodAddImageMediaObjByPath": "Lcom/tencent/mm/plugin/sns/model/j8;->a(Ljava/lang/String;Ljava/lang/String;)Z", "WeMomentsApi:methodAddSightObjectByPath": "Lcom/tencent/mm/plugin/sns/model/j8;->f(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z", "WeMomentsApi:classSnsUploadElement": "mh4.w0", "WeMomentsApi:ctorSnsUploadElement": "Lmh4/w0;-><init>(Ljava/lang/String;I)V", "WeMomentsApi:classSnsUtil": "mh4.z0", "WeMomentsApi:methodGetSnsBigName": "Lmh4/z0;->J(Lpc5/jp4;)Ljava/lang/String;", "WeMomentsApi:methodGetSnsThumbName": "Lmh4/z0;->U(Lpc5/jp4;)Ljava/lang/String;", "WeMomentsApi:classSnsPathHelper": "com.tencent.mm.plugin.sns.model.j6", "WeMomentsApi:methodGetMediaFilePath": "Lcom/tencent/mm/plugin/sns/model/j6;->d(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", "WeMomentsApi:classSnsVideoLogic": "com.tencent.mm.plugin.sns.model.j7", "WeMomentsApi:methodGetSnsVideoPath": "Lcom/tencent/mm/plugin/sns/model/j7;->p(Lpc5/jp4;)Ljava/lang/String;", "WeMomentsApi:methodGenCdnMediaId": "Lcom/tencent/mm/plugin/sns/model/j7;->c(ILpc5/jp4;)Ljava/lang/String;", "WeMomentsApi:methodGetSnsVideoFullPath": "Lcom/tencent/mm/plugin/sns/model/j7;->o(Ljava/lang/String;Lpc5/jp4;)Ljava/lang/String;", "WeMomentsApi:methodIsSnsVideoDownloadFinished": "Lcom/tencent/mm/plugin/sns/model/j7;->w(Ljava/lang/String;Lpc5/jp4;)Ljava/lang/String;", "WeMomentsApi:methodGetSnsVideoThumbImagePath": "Lcom/tencent/mm/plugin/sns/model/j7;->q(Lpc5/jp4;)Ljava/lang/String;", "WeMomentsApi:classSnsCore": "com.tencent.mm.plugin.sns.model.p4", "WeMomentsApi:methodGetAccSnsPath": "Lcom/tencent/mm/plugin/sns/model/p4;->ej()Ljava/lang/String;", "WeMomentsApi:methodGetSnsVideoService": "Lcom/tencent/mm/plugin/sns/model/p4;->Tj()Lcom/tencent/mm/plugin/sns/model/t7;", "WeMomentsApi:methodDownloadVideo": "Lcom/tencent/mm/plugin/sns/model/t7;->m(Lpc5/jp4;ILjava/lang/String;ZZILjava/lang/String;)Z", "WeMomentsApi:classSnsDownloadManager": "com.tencent.mm.plugin.sns.model.n0", "WeMomentsApi:methodGetSnsDownManager": "Lcom/tencent/mm/plugin/sns/model/p4;->Gj()Lcom/tencent/mm/plugin/sns/model/n0;", "WeMomentsApi:methodAddDownLoadSns": "Lcom/tencent/mm/plugin/sns/model/n0;->d(Lpc5/jp4;ILmh4/s0;Lcom/tencent/mm/storage/r7;)Z", "WeMomentsApi:classSnsSourceScene": "com.tencent.mm.storage.r7", "WeMomentsApi:classXs4": "pc5.hz4", "WeMomentsApi:methodSerializeMusicShareXml": "La53/pd;->a(Lpc5/hz4;)Ljava/lang/String;", "WeMomentsApi:methodSerializeFinderFeed": "La53/t5;->f(Lpc5/b03;)Ljava/lang/String;", "WeMomentsApi:methodExportVideoToAlbum": "Lcom/tencent/mm/platformtools/ExportFileUtil;->g(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Lcom/tencent/mm/sdk/platformtools/c7;)Ljava/lang/String;", "WeMomentsApi:methodExportImageToAlbum": "Lcom/tencent/mm/platformtools/ExportFileUtil;->b(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", "WeMomentsApi:classGalleryEntryUi": "com.tencent.mm.plugin.gallery.ui.GalleryEntryUI", "WeMomentsApi:classSnsUploadUi": "com.tencent.mm.plugin.sns.ui.SnsUploadUI", "WeMomentsApi:classSnsUiAction": "com.tencent.mm.plugin.sns.ui.SnsUIAction", "WeMomentsApi:methodSnsUiActionOnActivityResult": "Lcom/tencent/mm/plugin/sns/ui/SnsUIAction;->l(IILandroid/content/Intent;)V", "WeMomentsApi:methodSnsUploadOnCreate": "Lcom/tencent/mm/plugin/sns/ui/SnsUploadUI;->onCreate(Landroid/os/Bundle;)V", "WeMomentsApi:classVfs": "com.tencent.mm.vfs.z6", "WeMomentsApi:classGalleryLivePhotoMediaItem": "com.tencent.mm.plugin.gallery.model.GalleryItem$LivePhotoMediaItem"}
+    },
+    "朋友圈菜单增强扩展": {
+      "methodHash": "ea806d06d6ce9da4bb16657821ff86c9",
+      "anchors": {"WeMomentsContextMenuApi:methodOnCreateMenu": "Lcom/tencent/mm/plugin/sns/ui/listener/h1;->onCreateContextMenu(Landroid/view/ContextMenu;Landroid/view/View;Landroid/view/ContextMenu$ContextMenuInfo;)V", "WeMomentsContextMenuApi:methodOnItemSelected": "Lcom/tencent/mm/plugin/sns/ui/listener/c;->onMMMenuItemSelected(Landroid/view/MenuItem;I)V", "WeMomentsContextMenuApi:methodImproveOnItemSelectedRegister2": "Lgk4/c;->onMMMenuItemSelected(Landroid/view/MenuItem;I)V", "WeMomentsContextMenuApi:methodImproveOnItemSelectedRegister3": "Lgk4/d;->onMMMenuItemSelected(Landroid/view/MenuItem;I)V", "WeMomentsContextMenuApi:methodImproveMultiPhotoOnItemSelected": "Lgk4/n0;->onMMMenuItemSelected(Landroid/view/MenuItem;I)V", "WeMomentsContextMenuApi:methodSnsInfoStorage": "Lcom/tencent/mm/plugin/sns/storage/f2;->u2(Ljava/lang/String;)Lcom/tencent/mm/plugin/sns/storage/SnsInfo;", "WeMomentsContextMenuApi:methodGetSnsInfoStorage": "Lcom/tencent/mm/plugin/sns/model/p4;->Jj()Lcom/tencent/mm/plugin/sns/storage/f2;"}
+    },
+    "消息 View 创建监听服务": {
+      "methodHash": "85d4b3363a3dafd971814145a53a6fa9",
+      "anchors": {"WeChatMessageViewApi:methodChatItemOnBindView": "Lxl5/g;->h(Lvv5/s0;Lvv5/c;IIZLjava/util/List;)V"}
+    },
+    "消息发送服务": {
+      "methodHash": "6673c16cfc86188e1c2200da45549cef",
+      "anchors": {"WeMessageApi:classNetSceneSendMsg": "v51.r0", "WeMessageApi:classNetSceneQueue": "com.tencent.mm.modelbase.r1", "WeMessageApi:classNetSceneBase": "com.tencent.mm.modelbase.m1", "WeMessageApi:classNetSceneObserverOwner": "com.tencent.mm.modelbase.r1", "WeMessageApi:methodGetSendMsgObject": "Lb41/h9;->e()Lcom/tencent/mm/modelbase/r1;", "WeMessageApi:methodPostToQueue": "Lcom/tencent/mm/modelbase/r1;->g(Lcom/tencent/mm/modelbase/m1;)Z", "WeMessageApi:classPatMsgExtension": "nv3.l", "WeMessageApi:ctorNetSceneSendPat": "Lqv3/b;-><init>(Landroid/util/Pair;Ljava/lang/String;Ljava/lang/String;I)V", "WeMessageApi:ctorNetSceneRevokeMsg": "Lcom/tencent/mm/modelsimple/d1;-><init>(Lcom/tencent/mm/storage/e9;Ljava/lang/String;Ljava/lang/String;)V", "WeMessageApi:ctorNetSceneSendMsgLocation": "Lv51/r0;-><init>(Ljava/lang/String;Ljava/lang/String;IILjava/lang/Object;Ljava/lang/String;)V", "WeMessageApi:classImportMultiVideo": "com.tencent.mm.pluginsdk.model.f3", "WeMessageApi:classAppMessage": "dx0.r", "WeMessageApi:methodSendAppMsg": "Lcom/tencent/mm/pluginsdk/model/app/k0;->M(Ldx0/r;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[BLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/tencent/mm/plugin/msg/MsgIdTalker;ZLjava/lang/String;Ljava/lang/String;)Landroid/util/Pair;", "WeMessageApi:methodShareFile": "Lcom/tencent/mm/pluginsdk/model/app/k0;->D(Lcom/tencent/mm/opensdk/modelmsg/WXMediaMessage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;)I", "WeMessageApi:classMsgInfo": "com.tencent.mm.storage.e9", "WeMessageApi:classMsgInfoStorage": "com.tencent.mm.storage.f9", "WeMessageApi:methodMsgInfoHandleApiInsertMessage": "Lcom/tencent/mm/storage/f9;->Bb(Lcom/tencent/mm/storage/e9;Z)J", "WeMessageApi:methodMsgInfoStorageInsertMessage": "Lcom/tencent/mm/storage/f9;->yb(Lcom/tencent/mm/storage/e9;)J", "WeMessageApi:classChattingContext": "gk5.d", "WeMessageApi:classChattingDataAdapter": "com.tencent.mm.ui.chatting.adapter.k", "WeMessageApi:classTransformChattingComponent": "com.tencent.mm.ui.chatting.component.vo", "WeMessageApi:methodGetIsTransformed": "Lcom/tencent/mm/storage/e9;->Z1()Z", "WeMessageApi:classMvvmBase": "jp0.o", "WeMessageApi:classImageSender": "qa0.s", "WeMessageApi:classImageTask": "da0.g", "WeMessageApi:classConfigLogic": "b41.y1", "WeMessageApi:classImageServiceImpl": "ha0.w", "WeMessageApi:methodImageSendEntry": "Lqa0/s;->K7(Lqa0/s;Lda0/g;Lda0/e;Laa0/l;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;", "WeMessageApi:classVoiceParams": "xi0.d", "WeMessageApi:classVoiceNameGen": "v61.d1", "WeMessageApi:classVfs": "com.tencent.mm.vfs.z6", "WeMessageApi:classPathUtil": "com.tencent.mm.sdk.platformtools.k1", "WeMessageApi:classMmKernel": "gp0.j1", "WeMessageApi:methodMmKernelGetStorage": "Lgp0/j1;->x()Lgp0/b0;", "WeMessageApi:classVoiceLogic": "v61.d1", "WeMessageApi:methodGetAmrFullPath": "Lpv/p0;->ej(Lou5/x;Ljava/lang/String;Z)Ljava/lang/String;", "WeMessageApi:methodStartRecvAndSend": "Lyl/y0;->b(Lyl/y0;)V", "WeMessageApi:classSceneVoiceService": "v61.v0", "WeMessageApi:methodRunVoiceService": "Lyl/y0;->e()V", "WeMessageApi:classVoiceServiceInterface": "yi0.f", "WeMessageApi:classVoiceServiceImpl": "ej0.o", "WeMessageApi:methodGetMsgInfoByTalkerAndSvrId": "Lcom/tencent/mm/storage/f9;->O3(Ljava/lang/String;J)Lcom/tencent/mm/storage/e9;", "WeMessageApi:methodImgUploadFeatureServiceSendImage": "Lha0/w;->rj(Lda0/g;)Lkotlinx/coroutines/flow/j;", "WeMessageApi:methodAppInfoSetAppId": "Lh95/b;->n(Ljava/lang/String;)V", "WeMessageApi:ctorNetSceneUploadMsgImg": "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;", "WeMessageApi:classEmojiFileEncryptMgr": "gr.a", "WeMessageApi:classAppAttachAutoDownload": "com.tencent.mm.pluginsdk.model.app.c0"}
+    },
+    "网络数据包服务": {
+      "methodHash": "854907989153ad3a713c009dbf6f3059",
+      "anchors": {"WePacketHelper:classProtoBase": "com.tencent.mm.protobuf.f", "WePacketHelper:classRawReq": "pc5.ne", "WePacketHelper:classGenericResp": "pc5.oe", "WePacketHelper:classConfigBuilder": "com.tencent.mm.modelbase.l", "WePacketHelper:classNewSendMsgReq": "pc5.r66", "WePacketHelper:classOplogReq": "pc5.x85", "WePacketHelper:classNetSceneBase": "com.tencent.mm.modelbase.m1", "WePacketHelper:classNetScenePat": "qv3.b", "WePacketHelper:classNetQueue": "com.tencent.mm.modelbase.r1", "WePacketHelper:classMmKernel": "gp0.j1", "WePacketHelper:classNetDispatcher": "com.tencent.mm.modelbase.z2", "WePacketHelper:classIOnSceneEnd": "com.tencent.mm.modelbase.u0", "WePacketHelper:classCallbackIface": "com.tencent.mm.modelbase.e3", "WePacketHelper:classReqResp": "com.tencent.mm.modelbase.o", "WePacketHelper:methodGetNetQueue": "Lgp0/j1;->e()Lcom/tencent/mm/modelbase/r1;"}
+    },
+    "群聊管理服务": {
+      "methodHash": "db1d99fde61b414739144e86c0a2740f",
+      "anchors": {"WeGroupApi:ctorAddMember": "Lqn/m;-><init>(Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/lang/Object;)V", "WeGroupApi:ctorDelMember": "Lqn/p;-><init>(Ljava/lang/String;Ljava/util/List;I)V", "WeGroupApi:ctorInviteMember": "Lqn/x;-><init>(Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)V"}
+    },
+    "聊天界面消息菜单扩展": {
+      "methodHash": "50e196b0be5a6c569303f28cc78ff157",
+      "anchors": {"WeChatMessageContextMenuApi:methodCreateMenu": "Lcom/tencent/mm/ui/chatting/viewitems/o0;->a(Lkj5/i4;Landroid/view/View;Landroid/view/ContextMenu$ContextMenuInfo;)V", "WeChatMessageContextMenuApi:methodSelectMenuItem": "Lcom/tencent/mm/ui/chatting/viewitems/r0;->onMMMenuItemSelected(Landroid/view/MenuItem;I)V", "WeChatMessageContextMenuApi:methodMultiCreateMenu": "Lcom/tencent/mm/ui/chatting/component/m5;->onCreateMMMenu(Lkj5/i4;)V", "WeChatMessageContextMenuApi:methodMultiSelectMenuItem": "Lcom/tencent/mm/ui/chatting/component/n5;->onMMMenuItemSelected(Landroid/view/MenuItem;I)V"}
+    },
+    "聊天输入栏增强 API": {
+      "methodHash": "1a55152a4c6243236c9a3b3f19e7f12b",
+      "anchors": {"WeChatInputBarMenuApi:methodSendMessage": "Lcom/tencent/mm/pluginsdk/ui/chat/p2;->onClick(Landroid/view/View;)V"}
+    },
+    "聊天输入栏钩子": {
+      "methodHash": "7ab982744f9c7f2376fdb706aeb78cc9",
+      "anchors": {"ChatFooterHooks:methodInitSmileyBtn": "Lcom/tencent/mm/pluginsdk/ui/chat/ChatFooter;->B0()V"}
+    },
+    "联系人服务": {
+      "methodHash": "2a771d88dd6779da2e7fe17d84f467dc",
+      "anchors": {"WeContactApi:ctorNetSceneVerifyUser": "Lcom/tencent/mm/pluginsdk/model/p3;-><init>(ILjava/lang/String;Ljava/lang/String;ILjava/lang/String;ILjava/util/List;Lpc5/te5;)V"}
+    },
+    "联系人标签服务": {
+      "methodHash": "a03e556aa53c85d9abd0840a93a1ae08",
+      "anchors": {"WeContactLabelApi:classNetSceneModifyContactLabelList": "mf3.e", "WeContactLabelApi:classNetSceneAddContactLabel": "mf3.a", "WeContactLabelApi:classContactLabelPb": "pc5.v47"}
+    },
+    "视频号分享菜单扩展": {
+      "methodHash": "a706d7b54011265d79adfa3544821e69",
+      "anchors": {"WeShortVideosShareMenuApi:methodCreateMenu1": "Lcom/tencent/mm/plugin/finder/feed/iz;->onCreateMMMenu(Lkj5/i4;)V", "WeShortVideosShareMenuApi:methodOnSelectMenuItem1": "Lcom/tencent/mm/plugin/finder/feed/uz;->onMMMenuItemSelected(Landroid/view/MenuItem;I)V", "WeShortVideosShareMenuApi:methodCreateMenu2": "Lcom/tencent/mm/plugin/finder/feed/c0;->n(Lcom/tencent/mm/plugin/finder/model/BaseFinderFeed;Lkj5/i4;Lcom/tencent/mm/ui/widget/dialog/k0;Lvv5/s0;)V", "WeShortVideosShareMenuApi:methodOnSelectMenuItem2": "Lcom/tencent/mm/plugin/finder/feed/c0;->s(Lcom/tencent/mm/plugin/finder/model/BaseFinderFeed;Landroid/view/MenuItem;IILvv5/s0;)V", "WeShortVideosShareMenuApi:methodCreateMenu3": "Lcom/tencent/mm/plugin/finder/feed/jr;->onCreateMMMenu(Lkj5/i4;)V", "WeShortVideosShareMenuApi:methodOnSelectMenuItem3": "Lcom/tencent/mm/plugin/finder/feed/qr;->onMMMenuItemSelected(Landroid/view/MenuItem;I)V"}
+    },
+    "设置模块入口": {
+      "methodHash": "9e4a193167b8cde676d4c40d7efaf89e",
+      "anchors": {"WeSettingsInjector:methodSetKey": "Lcom/tencent/mm/ui/base/preference/Preference;->J(Ljava/lang/String;)V", "WeSettingsInjector:methodSetTitle": "Lcom/tencent/mm/ui/base/preference/Preference;->S(Ljava/lang/CharSequence;)V", "WeSettingsInjector:methodGetKey": "Lcom/tencent/mm/ui/base/preference/Preference;->j()Ljava/lang/String;", "WeSettingsInjector:methodAddPref": "Lcom/tencent/mm/ui/base/preference/g0;->d(Lcom/tencent/mm/ui/base/preference/Preference;I)V", "WeSettingsInjector:classSettingItemClassesProvider": "q34.f", "WeSettingsInjector:classBaseSettingItem": "ja4.f", "WeSettingsInjector:classBaseSettingSwitchItem": "ja4.g", "WeSettingsInjector:classSettingLocation": "r94.u", "WeSettingsInjector:methodSettingGroupAccountInfoGetStringId": "Lcom/tencent/mm/plugin/setting/ui/setting_new/settings/SettingGroupAccountInfo;->M7()Ljava/lang/String;", "WeSettingsInjector:methodSettingGroupAccountInfoReturns1": "Lcom/tencent/mm/plugin/setting/ui/setting_new/settings/SettingGroupAccountInfo;->X7()I", "WeSettingsInjector:methodSettingGroupPersonalInfoGetGroupNameResId": "Lcom/tencent/mm/plugin/setting/ui/setting_new/settings/SettingGroupPersonalInfo;->K7()Ljava/lang/Integer;", "WeSettingsInjector:methodResourceHelperGetStringById": "Lke5/a;->r(Landroid/content/Context;I)Ljava/lang/String;"}
+    },
+    "转账服务": {
+      "methodHash": "6e7a7d9069932d3e1241ddebb2f1f081",
+      "anchors": {"WeTransferApi:classNetSceneTenpayRemittanceGen": "com.tencent.mm.plugin.remittance.model.r0"}
+    },
+    "隐藏联系人通知抑制": {
+      "methodHash": "0ee2b85543d4f29e3e37b92cb8e0430f",
+      "anchors": {"HideContactsNotifications:methodDealNotify": "Lcom/tencent/mm/booter/notification/x;->d(Lcom/tencent/mm/booter/notification/x;Ljava/lang/String;Ljava/lang/String;IIZ)V", "HideContactsNotifications:methodNotifyForLightPush": "Lcom/tencent/mm/booter/notification/e0;->f(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lpc5/k4;)V"}
+    },
+    "首页菜单服务": {
+      "methodHash": "61404f676a2bb8ad0a2c7e6641126161",
+      "anchors": {"WeHomeScreenPopupMenuApi:methodAddItem": "Lcom/tencent/mm/ui/HomeUI;->o()V", "WeHomeScreenPopupMenuApi:methodHandleItemClick": "Lcom/tencent/mm/ui/wg;->onItemClick(Landroid/widget/AdapterView;Landroid/view/View;IJ)V", "WeHomeScreenPopupMenuApi:classMenuItemData": "com.tencent.mm.ui.ug", "WeHomeScreenPopupMenuApi:classMenuItemWrapper": "com.tencent.mm.ui.tg"}
+    }
+  }
+}

@@ -63,3 +63,13 @@ vendor/mp3lame-sys/lame-3.100/
 
 # 本地签名凭据（复制 local-creds.env.example 得到，不入库）
 local-creds.env
+
+# 补丁签发工具的编译产物与临时文件（源码 SignPatch.java 要入库，class/产物不要）
+tools/sign-patch/*.class
+tools/sign-patch/*.jar
+tools/sign-patch/**/*.class
+tools/sign-patch/**/*.dex
+tools/sign-patch/testout/
+tools/sign-patch/kv/
+tools/sign-patch/pv/
+
