@@ -70,6 +70,7 @@ import com.composables.icons.materialsymbols.outlined.Close
 import com.composables.icons.materialsymbols.outlined.Colorize
 import com.composables.icons.materialsymbols.outlined.Contrast
 import com.composables.icons.materialsymbols.outlined.Delete_forever
+import com.composables.icons.materialsymbols.outlined.Cloud_download
 import com.composables.icons.materialsymbols.outlined.Download
 import com.composables.icons.materialsymbols.outlined.Frame_bug
 import com.composables.icons.materialsymbols.outlined.History
@@ -99,6 +100,7 @@ import com.Johnny.wcx.activity.TransparentActivity
 import com.Johnny.wcx.constants.PackageNames
 import com.Johnny.wcx.constants.Preferences
 import com.Johnny.wcx.features.api.core.WeApi
+import com.Johnny.wcx.features.items.debug.CloudAdaptation
 import com.Johnny.wcx.features.items.debug.ResetDexCache
 import com.Johnny.wcx.preferences.WePrefs
 import com.Johnny.wcx.ui.content.MiuixSmallTitle
@@ -112,6 +114,7 @@ import com.Johnny.wcx.utils.HostInfo
 import com.Johnny.wcx.utils.ReleaseItem
 import com.Johnny.wcx.utils.UpdateResult
 import com.Johnny.wcx.utils.WeLogger
+import com.Johnny.wcx.features.adapt.AdaptExporter
 import com.Johnny.wcx.utils.backup.BackupManager
 import com.Johnny.wcx.utils.fs.KnownPaths
 import com.Johnny.wcx.utils.android.showToastSuspend
@@ -235,6 +238,18 @@ fun SettingsPager(
                     summary = "清除 DEX 缓存, 等待下次启动时重新适配",
                     icon = MaterialSymbols.Outlined.Build_circle,
                     onClick = { ResetDexCache.onClick(context) },
+                )
+                PrefArrow(
+                    title = "云端适配",
+                    summary = "下载适配补丁, 无需更新模块即可适配当前微信版本",
+                    icon = MaterialSymbols.Outlined.Cloud_download,
+                    onClick = { CloudAdaptation.onClick(context) },
+                )
+                PrefArrow(
+                    title = "导出适配",
+                    summary = "把当前微信版本的锚点真值导出成补丁 JSON, 提交进仓库后供云端下发",
+                    icon = MaterialSymbols.Outlined.Upload,
+                    onClick = { exportAdaptation(context) },
                 )
                 PrefSwitch(
                     key = Preferences.RESET_DEX_ON_HOT_UPDATE,
@@ -648,6 +663,26 @@ private fun PrefIcon(icon: ImageVector) {
 //  Config import / export / clear / update / search (migrated verbatim)
 // ---------------------------------------------------------------------------
 
+/**
+ * 导出当前微信版本的锚点真值，供提交进仓库后云端下发。
+ *
+ * **必须在解析完成之后点** —— 导出读的是各委托已解析好的 descriptor，
+ * 还没解析时它们全是空的，导出的补丁会没有内容。
+ */
+private fun exportAdaptation(context: Context) {
+    TransparentActivity.launch(context) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val file = AdaptExporter.export()
+            val message = if (file == null) {
+                "导出失败，详看日志"
+            } else {
+                "已导出 ${file.name}，可在模块数据目录取走"
+            }
+            showToastSuspend(message)
+            withContext(Dispatchers.Main) { finish() }
+        }
+    }
+}
 private fun exportConfig(context: Context) {
     TransparentActivity.launch(context) {
         val exportLauncher = registerForActivityResult(

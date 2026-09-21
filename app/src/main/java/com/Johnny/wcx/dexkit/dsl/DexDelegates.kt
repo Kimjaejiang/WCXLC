@@ -5,7 +5,10 @@ package com.Johnny.wcx.dexkit.dsl
 import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.reflekt.utils.toClassOrNull
 import com.Johnny.wcx.dexkit.DexMethodDescriptor
+import com.Johnny.wcx.features.adapt.AdaptRegistry
+import com.Johnny.wcx.features.adapt.AnchorSpec
 import com.Johnny.wcx.features.core.BaseFeature
+import com.Johnny.wcx.utils.HostInfo
 import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.reflection.ClassLoaders
 import org.luckypray.dexkit.DexKitBridge
@@ -392,7 +395,35 @@ class DexMethodDelegate internal constructor(
     }
 
     override fun findInline(dexKit: DexKitBridge): Boolean {
-        return inlineBlock?.invoke(this, dexKit) ?: true
+        // 先问版本适配：有则**完全接管**这个锚点的查找。
+        //
+        // 接管而不是「都跑一遍」，是因为版本文件和功能内联 block 表达的是同一件事
+        // （怎么找这个锚点），只是针对不同微信版本。两边都跑的话，先跑的那个会先把
+        // descriptor 写成 placeholder，后跑的不一定覆盖得回来 —— 结果取决于执行顺序，
+        // 而且只在特定微信版本上出现，极难排查。所以二选一。
+        return when (val spec = AdaptRegistry.anchorOf(key)) {
+            is AnchorSpec.Matcher -> {
+                val ok = find(dexKit, allowFailure = true, block = spec.apply)
+                if (!ok) {
+                    WeLogger.w(
+                        "DexMethodDelegate",
+                        "版本适配 [$key] 未命中（微信 ${HostInfo.versionCode}），该锚点落空"
+                    )
+                }
+                ok
+            }
+
+            is AnchorSpec.Absent -> {
+                WeLogger.i(
+                    "DexMethodDelegate",
+                    "版本适配 [$key] 在本版本刻意作废：${spec.reason}"
+                )
+                setPlaceholderDescriptor(reason = spec.reason)
+                false
+            }
+
+            null -> inlineBlock?.invoke(this, dexKit) ?: true
+        }
     }
 
     override fun getValue(thisRef: BaseFeature, property: KProperty<*>): DexMethodDelegate = this
