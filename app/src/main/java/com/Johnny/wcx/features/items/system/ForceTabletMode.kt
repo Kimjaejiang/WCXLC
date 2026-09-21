@@ -11,6 +11,7 @@ import com.Johnny.wcx.dexkit.abc.IResolveDex
 import com.Johnny.wcx.dexkit.dsl.dexMethod
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.features.core.SwitchFeature
+import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.ui.content.AlertDialogContent
 import com.Johnny.wcx.ui.content.Button
 import com.Johnny.wcx.ui.content.TextButton
@@ -36,7 +37,18 @@ object ForceTabletMode : SwitchFeature(), IResolveDex {
     }
 
     override fun onEnable() {
-        methodIsTablet.hookBefore {
+        // 8.0.78 起方法体里已搜不到 "Lenovo TB-9707F" / "eebbk" 这两个串，
+        // methodIsTablet 恒落空。委托的 .method 对占位符直接 error()，
+        // 而 BaseFeature.enable 的 runCatching 会吞掉异常并把 isActive 置回 false，
+        // 表现为「开关打开了但强制平板模式没生效」。这里自己判并说明原因。
+        // 另两个锚点 (methodIsTablet2 / methodOtherDeviceLoginButtonIsVisible) 仍命中，
+        // 不受影响，照常挂钩。
+        if (methodIsTablet.isPlaceholder) {
+            WeLogger.w(
+                "ForceTabletMode",
+                "平板设备判定锚点未匹配（8.0.78 起特征串已移除），该子分支跳过；其余分支正常"
+            )
+        } else methodIsTablet.hookBefore {
             try {
                 // 仅当原方法返回 boolean 时才设置 result = true，避免对非 boolean 方法（如 getInstance）造成 ClassCastException
                 if (method is java.lang.reflect.Method) {

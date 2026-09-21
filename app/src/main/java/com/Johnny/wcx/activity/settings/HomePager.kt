@@ -541,7 +541,17 @@ private fun HealthStatusCard(
                         } else if (ok) {
                             "全部功能已正常加载"
                         } else {
-                            "DEX 缓存未就绪的功能会在下次启动微信后自动生效"
+                            // 分开说：DEX 缓存类故障重启后会自愈，启动失败类不会。
+                            // 混成一句会让用户以为重启就能修好 ENABLE_FAILED。
+                            val cacheRelated = problems.all {
+                                it.status == FeatureHealth.Status.SKIPPED_INCOMPLETE_CACHE ||
+                                    it.status == FeatureHealth.Status.SKIPPED_CACHE_FAILED
+                            }
+                            if (cacheRelated) {
+                                "DEX 缓存未就绪的功能会在下次启动微信后自动生效"
+                            } else {
+                                "存在无法自动恢复的故障，详情见下方列表"
+                            }
                         },
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

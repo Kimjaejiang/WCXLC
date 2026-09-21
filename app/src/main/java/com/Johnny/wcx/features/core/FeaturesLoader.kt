@@ -110,12 +110,22 @@ object FeaturesLoader {
                 try {
                     feature.startup()
                     // 未启用的功能属正常状态，单独标出，避免与「异常」混淆。
-                    val status = if (feature is SwitchFeature && !feature.isEnabled) {
-                        FeatureHealth.Status.DISABLED
-                    } else {
-                        FeatureHealth.Status.LOADED
+                    val status = when {
+                        feature !is SwitchFeature -> FeatureHealth.Status.LOADED
+                        !feature.isEnabled -> FeatureHealth.Status.DISABLED
+
+                        // 用户开着，但 enable() 没把它跑起来。startup() 全程没抛异常
+                        // —— 异常已被 BaseFeature.enable 的 runCatching 吞掉，所以
+                        // 只有比对 isActive 才能发现。不判的话这里会报 LOADED，
+                        // 「开关打开了但功能没用」就被彻底藏住了。
+                        !feature.isActive -> FeatureHealth.Status.ENABLE_FAILED
+
+                        else -> FeatureHealth.Status.LOADED
                     }
-                    describe(feature, status, null)
+                    val detail = if (status == FeatureHealth.Status.ENABLE_FAILED) {
+                        "功能启动失败，已自动停用（详见日志中 failed to enable feature）"
+                    } else null
+                    describe(feature, status, detail)
                 } catch (e: Throwable) {
                     WeLogger.e(TAG, "startup failed for ${feature.name}", e)
                     describe(feature, FeatureHealth.Status.FAILED, e.message)

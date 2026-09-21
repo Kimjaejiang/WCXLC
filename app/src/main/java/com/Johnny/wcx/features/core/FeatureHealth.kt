@@ -48,6 +48,16 @@ object FeatureHealth {
 
         /** 启动过程中抛异常。 */
         FAILED,
+
+        /**
+         * 用户开着这个功能，但 [BaseFeature.enable] 内部的 onEnable() 抛了异常，
+         * 已被它的 runCatching 吞掉并把 isActive 置回 false。
+         *
+         * 与 [FAILED] 的区别：[FAILED] 是 startup() 自己抛到了 FeaturesLoader；
+         * 本状态是异常被更内层吞掉，功能看起来「加载成功」，实际完全没生效。
+         * **这是「开关打开了但功能没用」最隐蔽的一种。**
+         */
+        ENABLE_FAILED,
     }
 
     /** 单个功能的健康记录。 */
@@ -69,7 +79,8 @@ object FeatureHealth {
         val isProblem: Boolean
             get() = status == Status.SKIPPED_INCOMPLETE_CACHE ||
                     status == Status.SKIPPED_CACHE_FAILED ||
-                    status == Status.FAILED
+                    status == Status.FAILED ||
+                    status == Status.ENABLE_FAILED
 
         /**
          * 锚点有空缺，且功能本身没出故障（[Status.LOADED] 或 [Status.DISABLED]）。
