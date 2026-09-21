@@ -57,8 +57,7 @@ object DexCacheManager {
      * @param moduleVersion 模块版本（如 `260922250000`）。仅当 [resetOnModuleUpdate]
      *   为 true 时，其变化才触发清缓存；否则只更新记录值，不动缓存。
      * @param resetOnModuleUpdate 对应设置项「热更新后重置 DEX 缓存」。
-     *   默认 false —— 模块升级不该连累适配结果（适配是按**微信版本**维护的，
-     *   见 `PatchStore` 里同样的取舍）。
+     *   默认 false —— 模块升级不该连累适配结果（适配是按**微信版本**维护的）。
      */
     fun init(
         hostVersion: String,
