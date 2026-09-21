@@ -85,6 +85,16 @@
       `enable()` 的 `runCatching`，**照样连坐整个 Themes**。
     - 加固：调用点改用 `firstMethodOrNull { ... }?.hookAfter { ... }`，找不到方法即静默跳过，
       异常不再外泄。
+  - 加固版真机验证（PHP110 / 微信 8.0.78，装上后重启微信重建 dex 缓存）：
+    - `312 个功能全部正常`；`cache saved for: 界面美化/主题` 正常出现，Themes 走完 `onEnable()`。
+    - `Multiple classes found ... count: 2` **仍会出现**（锚点写法未变，符合预期，本身无害）。
+    - 关键判据：**没有**出现针对 `onBindViewHolder` 的 `NoSuchElementException`，
+      也**没有**与 Themes 相关的 `Class resolution has failed`。
+    - 日志中 8 条 `Class resolution has failed` 全部属于 `PipVoip` 的 MultiTalk 锚点
+      （类已被微信移除、调用处有 `runCatching` 包裹），与本次修复无关。
+  - 附带发现（构建脚本缺陷，与本次修复无关）：`versionCode` 取 `verTag` 的**后 6 位（时分秒）**，
+    导致「后一天上午构建的版本」数字小于「前一天下午构建的」而被 Android 判定为降级、拒绝覆盖安装。
+    临时规避：构建时传 `VER=` 环境变量指定较大的时间串。根因待单独修复。
   - 教训：
     - **AND 配对锚点里任意一串消失 = 整个 matcher 失败**，比单串锚点脆弱得多。
     - 「次要子功能」的锚点若不加守卫，会把整个功能的 hook 一起拖垮。
