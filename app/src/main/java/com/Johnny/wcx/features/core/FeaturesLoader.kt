@@ -303,6 +303,22 @@ object FeaturesLoader {
         }
 
         WeLogger.i(TAG, "$featureName: 补丁命中，跳过 DexKit 解析（$applied 个委托）")
+
+        // 必须落盘。补丁省掉的只是「本次的 DexKit 扫描」；不写缓存的话，
+        // 下次启动 loadDescriptorsFromCache 查不到缓存文件（cache == null），
+        // 会把这个功能判进 failedItems 并标成 SKIPPED_INCOMPLETE_CACHE。
+        // 实测症状是日志里无限重复：
+        //   cache not found for 强制平板模式
+        //   强制平板模式: 补丁命中，跳过 DexKit 解析（3 个委托）
+        // 功能本身是好的（锚点已填全），却始终报「未生效」。
+        //
+        // 写失败不影响本次加载：委托已填好，本进程照常工作，
+        // 只是下次启动还得再补丁命中一次，所以记 warning 不抛。
+        runCatching {
+            DexCacheManager.saveItemCache(item)
+        }.onFailure {
+            WeLogger.w(TAG, "$featureName: 补丁命中但缓存写入失败，下次启动将重新补丁（$it）")
+        }
         true
     }.getOrElse {
         WeLogger.w(TAG, "$featureName: 应用补丁异常，走解析（$it）")
