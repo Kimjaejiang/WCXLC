@@ -50,7 +50,20 @@ object PatchDownloader {
      * 不需要任何服务端代码。
      */
     private const val REPO = "Kimjaejiang/WCXLC"
-    private const val BRANCH = "main"
+
+    /**
+     * 仓库默认分支 —— **必须是 `master`，不是 `main`**。
+     *
+     * 本仓库（Kimjaejiang/WCXLC）的默认分支是 `master`，不存在 `main`。
+     * 写成 `main` 时两个下载源的 URL 都会 404：
+     *   - `cdn.jsdelivr.net/gh/<repo>@main/...`
+     *   - `raw.githubusercontent.com/<repo>/main/...`
+     * 表现为「所有下载源均失败」—— 而这跟网络不通、DNS 污染长得一模一样，
+     * 极易被误判成「国内连不上 GitHub」而去折腾下载源，实际是分支名写错。
+     *
+     * 改这里之前先 `git ls-remote --heads origin` 确认远端分支名。
+     */
+    private const val BRANCH = "master"
 
     /**
      * 按优先级排列的下载源。
