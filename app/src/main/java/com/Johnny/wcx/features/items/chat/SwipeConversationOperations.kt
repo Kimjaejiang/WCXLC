@@ -167,7 +167,17 @@ object SwipeConversationOperations : ClickableFeature(), IResolveDex {
     // re-install their own row OnTouchListener on every bind — so we hook getView on whichever is
     // present. allowFailure so a build that only ships one of them still resolves the other.
     private val classConversationAdapter by dexClass(allowFailure = true) {
-        searchPackages("com.tencent.mm.ui.conversation")
+        // 8.0.78: 不要限制 searchPackages("com.tencent.mm.ui.conversation")。
+        // 该包还在（471 个类），但这两个串的持有者已被混淆搬出去了 ——
+        // 包限制会把它们一起排除，锚点恒落空：
+        //   "MicroMsg.ConversationWithCacheAdapter" -> jo5.e
+        //       抽象类，继承 at3.a，即适配器基类；原 ConversationWithCacheAdapter
+        //       本身就是抽象适配器，形态吻合。
+        //   "[getView] position="                   -> com.tencent.mm.ui.conversation.o2
+        //       继承 com.tencent.mm.ui.aa。
+        // 两个串是 OR 语义（ClassMatcher.usingStrings 存进 List），各自都能独立定位到
+        // 一个适配器类，保留双串比单串更稳。下面 classMvvmConversationAdapter 从来没加过
+        // 包限制，所以一直命中 —— 差异就在这里。
         matcher {
             usingStrings(
                 "MicroMsg.ConversationWithCacheAdapter",

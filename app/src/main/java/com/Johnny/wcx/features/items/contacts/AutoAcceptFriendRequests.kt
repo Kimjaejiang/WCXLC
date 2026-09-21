@@ -134,6 +134,12 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
 
     // 好友验证页面的 initView — 用于检测用户手动进入验证页面时提取信息
     // 备用：如果 NetScene 方法无法匹配，通过验证页面输入来触发
+    //
+    // 8.0.78: 这两个特征串已从 APK 中删除（dexdump 全 17 dex 实证），此备用路径
+    // 在新版上不可能命中。功能本身靠下面的 ctorVerifyUserAccept / methodVerifyAccept
+    // 正常工作，所以这只是「主路径可用、备用路径消失」。
+    // 用 reason 置空后不再计入 FeatureHealth 的未命中清单 —— 否则它会一直挂在那里，
+    // 让人误以为自动同意好友申请坏了。
     private val methodVerifyOkClick by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings(
@@ -142,6 +148,7 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
             )
         }
     }
+
 
     override fun resolveDex(dexKit: DexKitBridge) {
         // 8.0.76+：NetSceneVerifyUser 混淆为 m3，<init> 含 MM_VERIFYUSER_VERIFYOK 断言日志
@@ -172,6 +179,11 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
                     "verify ok clicked"
                 )
             }
+        }
+        // 备用路径在 8.0.78 恒不可用（特征串已删），显式声明为刻意缺席。
+        // 必须放在 find 之后 —— 否则会被 find 的失败路径重置覆盖。
+        if (methodVerifyOkClick.isPlaceholder) {
+            methodVerifyOkClick.intentionallyAbsent = true
         }
     }
 
