@@ -49,7 +49,15 @@ object WeConversationListViewApi : ApiFeature(), IResolveDex {
     private var latestListView: WeakReference<ListView>? = null
 
     private val methodLegacyGetView by dexMethod(allowFailure = true) {
-        searchPackages("com.tencent.mm.ui.conversation")
+        // 8.0.78: 不要再限制 searchPackages("com.tencent.mm.ui.conversation")。
+        // 两个会话列表适配器都被混淆搬出了那个包：
+        //   legacy -> jo5.e（持 "MicroMsg.ConversationWithCacheAdapter" 日志标签）
+        //   mvvm   -> jo5.y0（getView 在它身上）
+        // 加了包限制就恒落空 —— 注意上面 methodMvvmGetView 从没加过包限制，
+        // 所以它一直命中，这正是差异所在。
+        // 两个特征串在 8.0.78 都还在（dexdump 实证），按签名+串定位即可。
+        // 放宽后不会误伤：hookBinding 里用 `thisObject as? BaseAdapter` 过滤，
+        // 非适配器的同名调用会被挡掉（见下方 hookBinding）。
         matcher {
             name = "getView"
             paramTypes("int", "android.view.View", "android.view.ViewGroup")
