@@ -31,20 +31,81 @@ object DexCacheManager {
     private const val CACHE_FILE_SUFFIX = ".json"
     private const val KEY_HOST_VERSION = "host_version"
 
+    /**
+     * 模块版本。**与 [KEY_HOST_VERSION] 分开存**，因为它触发的是另一件事。
+     *
+     * 拆开的原因是个踩过的坑：原先模块版本被拼进同一个字符串里
+     * （`WeLauncher` 的 else 分支塞了 `BuildConfig.VERSION_*`），于是
+     * 「升级模块」会让 `cachedVer != currentVer` 成立，走进
+     * `host version changed` 这条分支 —— 日志和语义全错，排查时会让人
+     * 以为微信版本变了，实际只是模块重新编译了。
+     *
+     * 两条路径要处理的事本来就不同：
+     * - 微信版本变 → 混淆类名整体重排，缓存**必须**全清
+     * - 模块版本变 → 缓存本身仍然有效，只是用户开了「热更新后重置」想重扫一遍
+     */
+    private const val KEY_MODULE_VERSION = "module_version"
+
     private val cacheDir: Path by lazy {
         (KnownPaths.moduleData / CACHE_DIR_NAME).createDirsSafe()
     }
 
-    fun init(currentVer: String) {
-        val cachedVer = WePrefs.getString(KEY_HOST_VERSION)
-        if (cachedVer != currentVer) {
-            WeLogger.i(TAG, "host version changed: $cachedVer -> $currentVer, resetting all cache")
+    /**
+     * 初始化并与缓存里记录的版本比对。
+     *
+     * @param hostVersion 微信版本（如 `8.0.78.3180`）。变化 → 清空全部缓存。
+     * @param moduleVersion 模块版本（如 `260922250000`）。仅当 [resetOnModuleUpdate]
+     *   为 true 时，其变化才触发清缓存；否则只更新记录值，不动缓存。
+     * @param resetOnModuleUpdate 对应设置项「热更新后重置 DEX 缓存」。
+     *   默认 false —— 模块升级不该连累适配结果（适配是按**微信版本**维护的，
+     *   见 `PatchStore` 里同样的取舍）。
+     */
+    fun init(
+        hostVersion: String,
+        moduleVersion: String,
+        resetOnModuleUpdate: Boolean,
+    ) {
+        val cachedHost = WePrefs.getString(KEY_HOST_VERSION)
+
+        // 路径一：微信版本变化 —— 无条件清缓存。
+        // 这不是「用户想不想」的问题，是「缓存还在但已经没意义」：
+        // 微信换版本后混淆类名会整体重排，旧锚点指向的类可能已不存在。
+        if (cachedHost != hostVersion) {
+            WeLogger.i(
+                TAG,
+                "宿主版本变化：$cachedHost -> $hostVersion，清空全部 DEX 缓存"
+            )
             clearAllCache()
             Preferences.noDexResolve = false
-            WeLogger.i(TAG, "disabling NO_DEX_RESOLVE due to host version change")
+            WeLogger.i(TAG, "因宿主版本变化，已关闭 NO_DEX_RESOLVE")
         }
 
-        WePrefs.putString(KEY_HOST_VERSION, currentVer)
+        // 路径二：模块版本变化 —— 只有用户显式要求时才清。
+        //
+        // 与上面严格分开：这里**不**复用「宿主版本变化」的措辞，
+        // 否则又会出现「日志说微信变了、其实只是模块重编译」的误导。
+        val cachedModule = WePrefs.getString(KEY_MODULE_VERSION)
+        if (cachedModule != moduleVersion) {
+            if (resetOnModuleUpdate) {
+                WeLogger.i(
+                    TAG,
+                    "模块版本变化：$cachedModule -> $moduleVersion，" +
+                            "且已开启「热更新后重置」，清空全部 DEX 缓存"
+                )
+                clearAllCache()
+                // 清缓存后必须允许重新解析，否则会卡在「缓存没了但也不许扫」
+                Preferences.noDexResolve = false
+            } else {
+                WeLogger.d(
+                    TAG,
+                    "模块版本变化：$cachedModule -> $moduleVersion，" +
+                            "未开启「热更新后重置」，缓存保持不变"
+                )
+            }
+        }
+
+        WePrefs.putString(KEY_HOST_VERSION, hostVersion)
+        WePrefs.putString(KEY_MODULE_VERSION, moduleVersion)
     }
 
     /**
