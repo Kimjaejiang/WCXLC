@@ -1444,10 +1444,16 @@ object Themes : ClickableFeature(), IResolveDex {
 
     private val classSmileyTabAdapter by dexClass(allowFailure = true) {
         matcher {
-            // 8.0.78 起第二个日志串 "setSelection: %s" 已移除，而 usingStrings 多串是
-            // AND 语义，旧写法会必然匹配失败。类本身仍在（包路径由 emoji.panel 迁到
-            // emoji.panel.adapter），日志串 "MicroMsg.emoji.SmileyPanel.SmileyTabAdapter"
-            // 仍保留且唯一，单串即可定位。
+            // 8.0.78 移除了第二个日志串 "setSelection: %s"，而 usingStrings 多串是 AND
+            // 语义，旧写法必然匹配失败。
+            //
+            // 注意：本锚点已不可靠。实测 8.0.78 中 SmileyTabAdapter 类**根本不存在**
+            // （全 17 个 dex 的 class_defs 里没有任何名字含 Smiley 的 Adapter），而
+            // "MicroMsg.emoji.SmileyPanel.SmileyTabAdapter" 这个串仍留在 classes12.dex
+            // 的常量池里。于是 DexKit 会匹配到恰好引用了该串的**无关类**（实测 count=2，
+            // 日志会打 "Multiple classes found ... using first match"）。
+            // 保留此锚点只为在旧版微信上仍能工作；在 8.0.78 上它命中与否都没有意义，
+            // 因此下方调用点用 firstMethodOrNull 兜底，不再让异常外泄。
             usingStrings("MicroMsg.emoji.SmileyPanel.SmileyTabAdapter")
         }
     }
@@ -1953,8 +1959,11 @@ object Themes : ClickableFeature(), IResolveDex {
         //  runCatching，触发 unhookAll() 并令 isActive=false，导致 hookA~hookD 被撤销、
         //  hookE~hookL 从未执行。）
         if (!classSmileyTabAdapter.isPlaceholder) {
+            // 用 firstMethodOrNull 而非 firstMethod：锚点在 8.0.78 上可能指向无关类，
+            // 后者找不到 onBindViewHolder 会抛 NoSuchElementException，冒泡到 enable() 的
+            // runCatching 后触发 unhookAll()，整个主题功能连坐失效。
             classSmileyTabAdapter.clazz.reflekt()
-            .firstMethod { name = "onBindViewHolder" }.hookAfter {
+                .firstMethodOrNull { name = "onBindViewHolder" }?.hookAfter {
                 val holder = args.getOrNull(0) ?: return@hookAfter
                 val position = args.getOrNull(1) as? Int ?: return@hookAfter
                 val drawableName = when (position) {

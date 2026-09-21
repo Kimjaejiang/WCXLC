@@ -65,12 +65,34 @@
   - 据此证伪一个方案：「写一个微信不认识的 `parentRef` 值，让模块不在时微信自动还原成普通会话」。实测样本 `filehelper` 写入陌生值后**从主页消失**，且**关闭模块后依然消失、不会自动恢复**——写陌生值等于**永久隐藏**，比原方案更糟。
   - 推论：任何写入非空非锚点值的做法都等于隐藏，「模块不在时自动还原」在**落库路线**上不可能实现，只能改走**查询层拦截**。
 
-- **🐛 主题 · 表情面板 tab 锚点失效会连累全部主题 hook（已修复）**
+- **🐛 主题 · 表情面板 tab 锚点失效会连累全部主题 hook（已修复；真机实测后二次加固）**
   - 涉及文件：`features/items/beautify/Themes.kt`
   - 根因：`classSmileyTabAdapter` 用 `usingStrings("MicroMsg.emoji.SmileyPanel.SmileyTabAdapter", "setSelection: %s")` 定位，而 `usingStrings` 多串是 **AND** 语义；8.0.78 里第二个日志串 `setSelection: %s` 已移除，matcher 必然失败。该锚点**没有 `allowFailure`**，使用处 `classSmileyTabAdapter.clazz` 直接抛 `Class resolution has failed`。
   - 后果（在 `onEnable()` 内，最严重的一类）：异常冒泡到 `BaseFeature.enable()` 的 `runCatching`，触发 `unhookAll()` + `isActive = false` —— **`hookA`~`hookD` 已装上的 hook 被全部撤销、`hookE`~`hookL` 从未执行**，整个主题功能静默失效，而表象只是「表情面板 tab 没换图」。
-  - 修复：① 锚点改为单串（类仍在，包路径由 `emoji.panel` 迁到 `emoji.panel.adapter`，日志串 `MicroMsg.emoji.SmileyPanel.SmileyTabAdapter` 保留且全库唯一，单串即可定位）；② 补 `allowFailure = true`；③ 使用处加 `isPlaceholder` 守卫，即使将来再次失效也只跳过这个可选子功能。
-  - 教训：**AND 配对锚点里任意一串消失 = 整个 matcher 失败**，比单串锚点脆弱得多；且「次要子功能」的锚点若不加守卫，会把整个功能的 hook 一起拖垮。
+  - 首次修复：① 锚点改为单串；② 补 `allowFailure = true`；③ 使用处加 `isPlaceholder` 守卫。
+  - 真机实测（8.0.78 正式版，非主力机）发现首次修复不完整，据此**二次加固**：
+    - 实测日志：`DexKit: Multiple classes found for key: Themes:classSmileyTabAdapter, count: 2, using first match`。
+    - 重要更正：此前判断「类仍在，只是包路径迁到 `emoji.panel.adapter`」**是错的**。
+      直接解析 8.0.78 全部 17 个 dex 的 `class_defs`（共 249,613 个类，同一工具能正常找到
+      `LauncherUI` / `SmileyPanelManager` / `SmileyGrid` 作对照）后确认：**没有任何名字含 `Smiley` 的
+      Adapter 类存在**，`SmileyTabAdapter` 已被移除。
+    - 那为何 DexKit 还「命中 2 个类」？因为字符串 `MicroMsg.emoji.SmileyPanel.SmileyTabAdapter`
+      仍留在 `classes12.dex` 常量池（string index 39123），DexKit 的 `usingStrings` 匹配的是
+      **引用了该串的类**，于是命中两个恰好引用它的**无关类**。
+    - 这意味着首次修复只挡了「锚点未命中」，挡不住「锚点命中却指向错类」：
+      `isPlaceholder` 守卫会放行，随后 `firstMethod { name = "onBindViewHolder" }` 在错类上
+      抛 `NoSuchElementException`（见 `reflekt/Reflect.kt` 的 `?: throw`），异常同样冒泡到
+      `enable()` 的 `runCatching`，**照样连坐整个 Themes**。
+    - 加固：调用点改用 `firstMethodOrNull { ... }?.hookAfter { ... }`，找不到方法即静默跳过，
+      异常不再外泄。
+  - 教训：
+    - **AND 配对锚点里任意一串消失 = 整个 matcher 失败**，比单串锚点脆弱得多。
+    - 「次要子功能」的锚点若不加守卫，会把整个功能的 hook 一起拖垮。
+    - **「字符串存在」不代表「类存在」**：DexKit 的 `usingStrings` 匹配的是引用该串的类。
+      类被删而字符串残留在常量池里时，锚点会「假命中」到无关类 —— 这比干净地未命中更危险。
+      静态工具只比对字符串表，**判不出这一类**，必须解析 `class_defs` 才能发现。
+    - 防御手段应作用于调用点：用 `firstMethodOrNull` / `firstClassOrNull` 一类可空 API，
+      而不是只依赖锚点层。
 
 - **🐛 版本号常量 · `MM_8_0_76 = 3180` 名实不符（已修正并补齐缺号）**
   - 涉及文件：`constants/WeChatVersions.kt`
