@@ -65,25 +65,31 @@ private const val GITHUB_API_RELEASES =
     "https://api.github.com/repos/Kimjaejiang/WCXLC/releases?per_page=20"
 private const val RELEASES_PAGE = "https://github.com/Kimjaejiang/WCXLC/releases"
 
-// APKs are published per entry-point flavor: app-<flavor>-<abi>-release.apk.
+// APKs are published per entry-point flavor; CI renames them to
+// app-<flavor>-<YYMMDDHHMMSS>-release.apk. The version segment is optional here
+// because older releases shipped it without one.
 // Stay on the same flavor the installed build was compiled for.
 private val FLAVOR = BuildConfig.FLAVOR_SLUG
-private val ABI_LIST = listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
 private const val UNIVERSAL_APK_SUFFIX = "universal-release.apk"
 private val APK_RELEASE_NAME = Regex("""app-.*-release\.apk""")
 
 /**
  * 从 GitHub Release 的 asset 列表中选择最适合当前设备的 APK 下载地址
+ *
+ * 注意匹配顺序：flavor 专属的两种命名必须排在兜底正则之前。
+ * 兜底正则 `app-.*-release.apk` 对**任意** flavor 都成立，
+ * 若它先命中，就会把别的 flavor 下下来（装完框架激活不了）。
  */
 private fun selectApkUrl(assets: List<GitHubAsset>): String {
     val supportedAbis = Build.SUPPORTED_ABIS
-    // 优先带 ABI 段的命名（app-<flavor>-<abi>-release.apk，多 ABI splits 产物）
+    // 优先带 ABI 段的命名（app-<flavor>-<abi>[-<VER>]-release.apk）
     for (abi in supportedAbis) {
-        val expected = "app-$FLAVOR-$abi-release.apk"
-        assets.firstOrNull { it.name == expected }?.let { return it.browser_download_url }
+        val re = Regex("""app-$FLAVOR-$abi(?:-\d+)?-release\.apk""")
+        assets.firstOrNull { re.matches(it.name) }?.let { return it.browser_download_url }
     }
-    // 兼容不带 ABI 段的命名（app-<flavor>-release.apk：release 单 ABI 无 splits 时 AGP 实际产物名）
-    assets.firstOrNull { it.name == "app-$FLAVOR-release.apk" }?.let { return it.browser_download_url }
+    // 兼容不带 ABI 段的命名（app-<flavor>[-<VER>]-release.apk）
+    val reFlavor = Regex("""app-$FLAVOR(?:-\d+)?-release\.apk""")
+    assets.firstOrNull { reFlavor.matches(it.name) }?.let { return it.browser_download_url }
     assets.firstOrNull { it.name.endsWith(UNIVERSAL_APK_SUFFIX) }?.let { return it.browser_download_url }
     // 兜底：匹配任意 app-*-release.apk（flavor 混用或命名漂移时仍可下载）
     assets.firstOrNull { APK_RELEASE_NAME.matches(it.name) }?.let { return it.browser_download_url }

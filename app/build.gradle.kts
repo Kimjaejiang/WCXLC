@@ -84,12 +84,11 @@ android {
         buildConfigField("boolean", "BEAUTIFY_ENABLED", "true")
     }
 
-    // Two entry-point variants:
-    //  - standard: ships the modern libxposed entry point (entry/lxp/* sources +
-    //              META-INF/xposed/*), placed in the `standard` flavor source set.
-    //  - legacy:   omits both, so frameworks with poor libxposed compatibility fall
-    //              back to the traditional de.robv entry (Xp51HookEntry via
-    //              assets/xposed_init, which lives in `main` and is shared by both).
+    // Entry point: ships the modern libxposed entry point (entry/lxp/* sources +
+    // META-INF/xposed/*), placed in the `standard` flavor source set.
+    // The `legacy` variant (de.robv fallback, no libxposed entry) was removed:
+    // keeping two flavors of near-identical size made the in-app updater pick
+    // the wrong one, and the fallback entry is no longer needed.
     flavorDimensions += "entrypoint"
     productFlavors {
         create("standard") {
@@ -97,12 +96,6 @@ android {
             // ships the libxposed entry point (entry/lxp/* + META-INF/xposed/*)
             buildConfigField("boolean", "HAS_LIBXPOSED_ENTRY", "true")
             buildConfigField("String", "FLAVOR_SLUG", "\"standard\"")
-        }
-        create("legacy") {
-            dimension = "entrypoint"
-            // no libxposed entry; framework falls back to the de.robv api
-            buildConfigField("boolean", "HAS_LIBXPOSED_ENTRY", "false")
-            buildConfigField("String", "FLAVOR_SLUG", "\"legacy\"")
         }
     }
 
