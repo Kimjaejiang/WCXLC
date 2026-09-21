@@ -104,11 +104,24 @@ object PatchStore {
             return@runCatching null
         }
 
-        // 补丁绑定模块版本：不同版本的 methodHash 不同，装错等于把 A 版锚点用到 B 版代码上。
+        // 模块版本**不再**卡这里。
+        //
+        // 原先要求补丁的 moduleVersionCode 等于当前 APK，代价是「模块改一个字，
+        // 整份补丁作废」—— 而适配是按**微信版本**维护的（一个 vXXXX.kt 对一个
+        // 微信版本），模块发新版不该连累它。
+        //
+        // 放开后靠什么保证对得上：各功能的 methodHash（见 parse），它比模块版本
+        // 细 —— 只剔除「改动过的那几个功能」，而不是全部。
+        //
+        // 留一条日志是因为「模块版本差很多」往往意味着出事了（补丁是很旧的、
+        // 或者来自别的分支），出问题时要能一眼看到，而不是完全无声。
         val patchModuleVer = index.optLong("moduleVersionCode", -1L)
-        if (patchModuleVer != BuildConfig.VERSION_CODE.toLong()) {
-            WeLogger.i(TAG, "补丁模块版本不符：补丁=$patchModuleVer 当前=${BuildConfig.VERSION_CODE}，忽略")
-            return@runCatching null
+        if (patchModuleVer > 0 && patchModuleVer != BuildConfig.VERSION_CODE.toLong()) {
+            WeLogger.i(
+                TAG,
+                "补丁来自模块版本 $patchModuleVer（当前 ${BuildConfig.VERSION_CODE}），" +
+                        "版本不同不再作废，改由各功能 methodHash 单独判定"
+            )
         }
 
         val file = index.optString("file", "")
@@ -123,7 +136,25 @@ object PatchStore {
             return@runCatching null
         }
 
-        parse(JSONObject(patchFile.readText()))
+        // ── 签名校验（强制，无签名即拒绝）────────────────────────────
+        //
+        // 必须在 parse 之前做，且必须针对**原始字节**：JSON 的键序与空白
+        // 不唯一，重新序列化后的字节和签名时的不一样，验不过。
+        //
+        // 这是补丁链路上唯一的**信任根**。在此之前，能改仓库或能劫持
+        // jsDelivr 的人就能让所有用户的模块把 hook 装到任意方法上 ——
+        // 锚点指向哪儿就 hook 哪儿，所谓「只是数据」并不构成限制。
+        val patchBytes = java.nio.file.Files.readAllBytes(patchFile)
+        val signature = index.optString("signature", null)
+            ?.takeIf { it.isNotEmpty() && it != "null" }
+        if (!PatchSignature.verify(patchBytes, signature)) {
+            // 拒绝后不删文件 —— 保留现场便于排查（用户可通过设置页重新下载）。
+            // 走本地解析对功能没有影响，只是首次慢一点。
+            WeLogger.w(TAG, "补丁签名校验未通过，回退本地解析")
+            return@runCatching null
+        }
+
+        parse(JSONObject(String(patchBytes, Charsets.UTF_8)))
     }.onFailure {
         WeLogger.w(TAG, "读补丁失败，走本地解析：$it")
     }.getOrNull()
