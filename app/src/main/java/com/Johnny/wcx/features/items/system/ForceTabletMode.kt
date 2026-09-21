@@ -22,7 +22,15 @@ object ForceTabletMode : SwitchFeature(), IResolveDex {
 
     private val methodIsTablet by dexMethod {
         matcher {
-            usingEqStrings("Lenovo TB-9707F", "eebbk")
+            // 8.0.78: 原 usingEqStrings("Lenovo TB-9707F", "eebbk") 恒落空
+            // —— 它要求两个串同处一个方法，而 "eebbk" 已搬到调用方
+            // com.tencent.mm.ui.gk;->K2 的设备信息表里，只剩 "Lenovo TB-9707F"
+            // 留在 com.tencent.mm.ui.g9;->a:()Z。
+            // g9 类内只有这一个方法，语义即「Build.MODEL 是否为 Lenovo TB-9707F」
+            // （前面还有 lp/e0.a.contains("lenovo") 短路）。
+            declaredClass = "com.tencent.mm.ui.g9"
+            name = "a"
+            returnType = "boolean"
         }
     }
     private val methodIsTablet2 by dexMethod {
@@ -37,16 +45,15 @@ object ForceTabletMode : SwitchFeature(), IResolveDex {
     }
 
     override fun onEnable() {
-        // 8.0.78 起方法体里已搜不到 "Lenovo TB-9707F" / "eebbk" 这两个串，
-        // methodIsTablet 恒落空。委托的 .method 对占位符直接 error()，
-        // 而 BaseFeature.enable 的 runCatching 会吞掉异常并把 isActive 置回 false，
-        // 表现为「开关打开了但强制平板模式没生效」。这里自己判并说明原因。
-        // 另两个锚点 (methodIsTablet2 / methodOtherDeviceLoginButtonIsVisible) 仍命中，
-        // 不受影响，照常挂钩。
+        // 守卫：锚点解析失败时 .method 会直接 error()，而 BaseFeature.enable 的
+        // runCatching 会吞掉异常并把 isActive 置回 false —— 表现是「开关打开了但
+        // 强制平板模式没生效」，用户侧没有任何提示，所以这里自己判、自己说明。
+        // (8.0.78 下 matcher 已改为直指 g9.a()，正常情况下应当命中；
+        //  这条守卫是防微信后续版本再次漂移。)
         if (methodIsTablet.isPlaceholder) {
             WeLogger.w(
                 "ForceTabletMode",
-                "平板设备判定锚点未匹配（8.0.78 起特征串已移除），该子分支跳过；其余分支正常"
+                "平板设备判定锚点 (com.tencent.mm.ui.g9->a) 未匹配，该子分支跳过；其余分支正常"
             )
         } else methodIsTablet.hookBefore {
             try {
