@@ -26,8 +26,20 @@ object ForceTabletMode : SwitchFeature(), IResolveDex {
             // —— 它要求两个串同处一个方法，而 "eebbk" 已搬到调用方
             // com.tencent.mm.ui.gk;->K2 的设备信息表里，只剩 "Lenovo TB-9707F"
             // 留在 com.tencent.mm.ui.g9;->a:()Z。
-            // g9 类内只有这一个方法，语义即「Build.MODEL 是否为 Lenovo TB-9707F」
-            // （前面还有 lp/e0.a.contains("lenovo") 短路）。
+            //
+            // 这个锚点是微信平板判定链的 isP8Pad 分支。判定总入口是
+            // com.tencent.mm.ui.gk;->C(Lou5/w0;)Z，逐项检查并缓存到 gk.f：
+            //   gk.R()         折叠屏   -> false
+            //   gk.S() + zf5/b.c()     华为   "inTabletEnv, isHWTablet, ..."
+            //   gk.U() + lp/e0.b()     荣耀   "inTabletEnv, isHonorTablet, ..."
+            //   gk.Y() + zf5/d.h()     小米   "inTabletEnv, isMiTablet, ..."
+            //   gk.l0() + lp/e0.h()    vivo   "inTabletEnv, isVIVOTablet, ..."
+            //   gk.c0() + lp/e0.e()/d() OPPO  "inTabletEnv, isOppoTablet, ..."
+            //   g9.a()                 Lenovo "inTabletEnv, isP8Pad, return true"
+            //   lp/e0.o == "eebbk"     步步高
+            // （dexdump 扫全部 17 个 dex 实证；g9 类内只有 a() 这一个方法。）
+            // 注意别只扫一两个 dex 就下结论：g9.a() 另有 gk.K2 一处调用是 JSAPI
+            // 设备上报，真正关键的是上面 gk.C() 这条链，它在 classes15.dex。
             declaredClass = "com.tencent.mm.ui.g9"
             name = "a"
             returnType = "boolean"
