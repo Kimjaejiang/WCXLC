@@ -73,3 +73,6 @@ tools/sign-patch/testout/
 tools/sign-patch/kv/
 tools/sign-patch/pv/
 
+# 发补丁脚本的暂存目录（真机导出的中间产物，不是产物本身）
+.patch-stage/
+
