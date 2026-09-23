@@ -619,6 +619,19 @@ hookViewLongClickProbe()
         loadFolders().map { FolderChoice(it.id, it.name, it.type != FolderType.MANUAL) }
 
     /**
+     * Members of [folderId], for features that filter by folder (e.g. the contact selector's
+     * 归拢筛选维度).
+     *
+     * Manual folders read their stored list; auto folders resolve on demand and are cached.
+     * Returns emptyList when the folder is unknown or the database is not ready yet —
+     * the caller shows an empty filter rather than acting on a half-resolved set.
+     */
+    fun folderMembers(folderId: String): List<String> {
+        val folder = folderById(folderId) ?: return emptyList()
+        return getFolderMembers(folder)
+    }
+
+    /**
      * Adds [talker] to the manual folder [folderId] and opens the existing edit dialog so the
      * user can review and save. Returns false without acting when the folder is missing or in an
      * auto mode (members are computed, not hand-picked); callers surface that to the user.

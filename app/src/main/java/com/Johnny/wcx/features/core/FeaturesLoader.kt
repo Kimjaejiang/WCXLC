@@ -76,8 +76,29 @@ object FeaturesLoader {
         }
     }
 
+    /**
+     * 同名功能只报日志，不拦截。
+     *
+     * 同名会让用户的开关落在其中一个上，另一个永远跟着走 —— 但这不是能靠
+     * 启动期报错解决的事：一对同名功能里哪一个该留下，得人看代码才知道。
+     * 所以这里只把冲突叫出来（带全限定类名），不让整个模块启动失败。
+     *
+     * 实际踩过：同步上游时把上游的 `UnlockCustomEmojiLimit` 拿进来，
+     * 与本地已有的 `RemoveCustomStickersLimit` 撞了同名 —— 两者 @Feature
+     * 的 name/分类/描述逐字相同，只是后者多了 -434 错误码修复。
+     */
+    private fun reportDuplicateFeatureNames(features: Collection<BaseFeature>) {
+        features.groupBy { it.name }
+            .filterValues { it.size > 1 }
+            .forEach { (name, dupes) ->
+                val classes = dupes.joinToString { it.javaClass.name }
+                WeLogger.e(TAG, "duplicate feature name \"$name\" shared by ${dupes.size} items: $classes")
+            }
+    }
+
     fun loadFeatures() {
         val allFeatures = FeaturesProvider.ALL_HOOK_ITEMS
+        reportDuplicateFeatureNames(allFeatures)
         val allDexItems = allFeatures.filterIsInstance<IResolveDex>()
 
         val outdatedItems = DexCacheManager.getOutdatedItems(allDexItems)

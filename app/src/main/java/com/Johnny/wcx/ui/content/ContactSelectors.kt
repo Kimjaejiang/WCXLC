@@ -62,6 +62,8 @@ import com.composables.icons.materialsymbols.outlined.Expand_less
 import com.composables.icons.materialsymbols.outlined.Expand_more
 import com.composables.icons.materialsymbols.outlined.Groups
 import com.composables.icons.materialsymbols.outlined.Label
+import com.composables.icons.materialsymbols.outlined.Folder
+import com.composables.icons.materialsymbols.outlined.Groups
 import com.composables.icons.materialsymbols.outlined.Person
 import com.composables.icons.materialsymbols.outlined.Schedule
 import com.composables.icons.materialsymbols.outlined.Search
@@ -69,6 +71,10 @@ import com.composables.icons.materialsymbols.outlined.Select_all
 import com.composables.icons.materialsymbols.outlined.Sort_by_alpha
 import com.composables.icons.materialsymbols.outlined.Swap_vert
 import com.composables.icons.materialsymbols.outlined.Tag
+import androidx.compose.ui.platform.LocalContext
+import com.Johnny.wcx.features.items.chat.ConversationAggregation
+import com.Johnny.wcx.features.items.chat.ConversationGrouping
+import com.Johnny.wcx.preferences.WePrefs
 import com.Johnny.wcx.features.api.core.WeContactLabelApi
 import com.Johnny.wcx.features.api.core.WeDatabaseApi
 import com.Johnny.wcx.features.api.core.models.IWeContact
@@ -102,6 +108,38 @@ enum class SortMode(val displayName: String, val icon: ImageVector) {
     }
 }
 
+/**
+ * 联系人筛选维度。三者互斥，同一时刻只按其中一种筛：
+ * - LABELS：微信自带标签（永远可用）
+ * - AGGREGATION：本模块「对话归拢」的文件夹（该功能未启用时不出现）
+ * - GROUPING：本模块「对话分组」的群组（该功能未启用时不出现）
+ */
+private enum class ContactFilterMode(val icon: ImageVector, val nameRes: String) {
+    LABELS(MaterialSymbols.Outlined.Label, "标签"),
+    AGGREGATION(MaterialSymbols.Outlined.Folder, "归拢"),
+    GROUPING(MaterialSymbols.Outlined.Groups, "分组"),
+}
+
+// 非字母分节的 key。用 \u0000 开头是为了不跟真实联系人首字母撞车 ——
+// 以前直接用 "已选"/"新-旧" 当 key，虽然当天看不出问题，但那是把「展示文本」
+// 当「标识符」用，将来改文案就会连带改行为。
+private const val SELECTED_SECTION_KEY = "\u0000selected"
+private const val NEWEST_SECTION_KEY = "\u0000newest"
+private const val OLDEST_SECTION_KEY = "\u0000oldest"
+
+// 记住用户上次选的筛选维度。默认标签：那是唯一不依赖其它功能开关的维度。
+private var persistedContactFilterMode by WePrefs.prefOption(
+    "contact_selector_filter_mode",
+    ContactFilterMode.LABELS.name,
+)
+
+/** 一个可筛选的集合（一个标签 / 一个归拢文件夹 / 一个分组）。 */
+private data class ContactFilterOption(
+    val id: String,
+    val name: String,
+    val wxIds: Set<String>,
+)
+
 @Composable
 fun BaseContactSelector(
     title: String,
@@ -129,7 +167,7 @@ fun BaseContactSelector(
 ) {
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    val alphabet = remember { listOf("已选") + ('A'..'Z').map { it.toString() } + "#" }
+    val alphabet = remember { listOf(SELECTED_SECTION_KEY) + ('A'..'Z').map { it.toString() } + "#" }
 
     val transliterator = remember {
         try {
@@ -148,7 +186,10 @@ fun BaseContactSelector(
     var officialAccountWxIds by remember { mutableStateOf(emptySet<String>()) }
     var allLabels by remember { mutableStateOf(emptyList<WeContactLabelApi.ContactLabel>()) }
     var labelContactsMap by remember { mutableStateOf(emptyMap<String, Set<String>>()) }
+    var aggregationOptions by remember { mutableStateOf(emptyList<ContactFilterOption>()) }
+    var groupingOptions by remember { mutableStateOf(emptyList<ContactFilterOption>()) }
     var isFiltersLoaded by remember { mutableStateOf(false) }
+    val currentLocalizedContext = rememberUpdatedState(LocalContext.current)
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -161,6 +202,26 @@ fun BaseContactSelector(
                     val labelMap = labels.associate { label ->
                         label.labelName to WeContactLabelApi.getContactsByLabelId(label.labelId).toSet()
                     }
+                    // 归拢/分组两个维度只在对应功能开着时才有内容 —— 功能没开时
+                    // 不收集选项，也就不会在筛选栏里出现一个点了没反应的图标。
+                    val aggregation = if (ConversationAggregation.isEnabled) {
+                        ConversationAggregation.aggregationFolders().map { folder ->
+                            ContactFilterOption(
+                                id = folder.id,
+                                name = folder.name,
+                                wxIds = ConversationAggregation.folderMembers(folder.id).toSet(),
+                            )
+                        }
+                    } else {
+                        emptyList()
+                    }
+                    val grouping = if (ConversationGrouping.isEnabled) {
+                        ConversationGrouping.groupFilterOptions(currentLocalizedContext.value).map { group ->
+                            ContactFilterOption(group.id, group.name, group.members.toSet())
+                        }
+                    } else {
+                        emptyList()
+                    }
 
                     withContext(Dispatchers.Main) {
                         friendWxIds = friends
@@ -168,6 +229,8 @@ fun BaseContactSelector(
                         officialAccountWxIds = officialAccounts
                         allLabels = labels
                         labelContactsMap = labelMap
+                        aggregationOptions = aggregation
+                        groupingOptions = grouping
                         isFiltersLoaded = true
                     }
                 } else {
@@ -187,7 +250,24 @@ fun BaseContactSelector(
 
     var selectedType by remember { mutableStateOf(FilterType.ALL) }
     var selectedLabelName by remember { mutableStateOf<String?>(null) }
+    var selectedAggregationId by remember { mutableStateOf<String?>(null) }
+    var selectedGroupingId by remember { mutableStateOf<String?>(null) }
 
+    // 上次选的筛选维度可能依赖某个功能开关，而用户可能已经把它关掉了。
+    // 那种时候静默退回标签维度 —— 直接显示一个空列表会让用户以为联系人丢了。
+    // （选项是否真的有内容要等数据加载完才知道，由下面的 LaunchedEffect 兜底纠正。）
+    var filterMode by remember {
+        val persistedMode = ContactFilterMode.entries.firstOrNull {
+            it.name == persistedContactFilterMode
+        }
+        mutableStateOf(
+            when (persistedMode) {
+                ContactFilterMode.AGGREGATION -> if (ConversationAggregation.isEnabled) persistedMode else ContactFilterMode.LABELS
+                ContactFilterMode.GROUPING -> if (ConversationGrouping.isEnabled) persistedMode else ContactFilterMode.LABELS
+                ContactFilterMode.LABELS, null -> ContactFilterMode.LABELS
+            }
+        )
+    }
     var filtersExpanded by remember { mutableStateOf(true) }
 
     var sortMode by remember { mutableStateOf(SortMode.LAST_MESSAGE_TIME) }
@@ -309,6 +389,18 @@ fun BaseContactSelector(
     }
     val showTypeFilterRow = remember(availableTypes, isFiltersLoaded) { isFiltersLoaded && availableTypes.size > 2 }
 
+    // 本地头像文件解析会做 MD5 + 目录 listFiles（磁盘 IO）。它处在 Compose 渲染路径上，
+    // 滚动列表时同一个 wxId 会被反复求值 —— 不缓存的话每次重组都去碰磁盘，
+    // 正是「头像加载拖慢滑动」这类卡的来源。按 wxId 记缓存，
+    // null 也缓存（代表「确实没有」），否则没有头像的人会一直重试。
+    //
+    // key 只用 wxId：不能用含 width 之类渲染期会变的量，那样缓存永不命中，
+    // 等于没缓存。
+    val localAvatarCache = remember { mutableMapOf<String, java.io.File?>() }
+    val localAvatarResolver: (String) -> java.io.File? = remember {
+        { wxId -> localAvatarCache.getOrPut(wxId) { WeDatabaseApi.getLocalAvatarFile(wxId) } }
+    }
+
 
     val labelCounts = remember(filteredContacts, labelContactsMap) {
         labelContactsMap.mapValues { (_, wxIds) ->
@@ -321,9 +413,58 @@ fun BaseContactSelector(
             allContacts.any { it.wxId in wxIds }
         }
     }
-    val showLabelFilterRow = remember(availableLabels, isFiltersLoaded) { isFiltersLoaded && availableLabels.isNotEmpty() }
+    // 可选的归拢/分组选项：只列出当前联系人里真的有人属于的那些，
+    // 否则筛选栏会堆满点了没结果（或结果为空）的选项。
+    val availableAggregationOptions = remember(allContacts, aggregationOptions) {
+        aggregationOptions.filter { option -> allContacts.any { it.wxId in option.wxIds } }
+    }
+    val availableGroupingOptions = remember(allContacts, groupingOptions) {
+        groupingOptions.filter { option -> allContacts.any { it.wxId in option.wxIds } }
+    }
 
-    val displayedContacts = remember(filteredContacts, selectedType, selectedLabelName, friendWxIds, groupWxIds, officialAccountWxIds, labelContactsMap) {
+    // 筛选维度行什么时候出现：等筛选数据读完再决定，否则会先闪一下
+    // 只剩「标签」、数据回来后突然多出两个图标。
+    //
+    // 归拢/分组还要求「有选项」而不只是「功能开着」：空文件夹/空分组
+    // 列表里一个可选项都没有，循环切换到那里只会得到一个空列表。
+    val availableFilterModes = remember(
+        isFiltersLoaded, availableAggregationOptions, availableGroupingOptions
+    ) {
+        if (!isFiltersLoaded) emptyList()
+        else ContactFilterMode.entries.filter { mode ->
+            when (mode) {
+                ContactFilterMode.LABELS -> true
+                ContactFilterMode.AGGREGATION ->
+                    ConversationAggregation.isEnabled && availableAggregationOptions.isNotEmpty()
+                ContactFilterMode.GROUPING ->
+                    ConversationGrouping.isEnabled && availableGroupingOptions.isNotEmpty()
+            }
+        }
+    }
+    val showFilterModeRow = availableFilterModes.isNotEmpty()
+
+    // 恢复上次选的维度必须等数据读完才能定：初始化时 aggregationOptions 还是空的，
+    // isFiltersLoaded 也是 false，此刻按 isEnabled 判断会把「归拢开着但选项还没加载」
+    // 误判成「可用」，chip 显示「归拢」而列表却是空的。
+    // 数据到位后如果该维度真的没有内容，就退回标签，不让用户卡在空列表上。
+    LaunchedEffect(isFiltersLoaded, availableFilterModes) {
+        if (!isFiltersLoaded) return@LaunchedEffect
+        val options = if (filterMode == ContactFilterMode.AGGREGATION) {
+            availableAggregationOptions
+        } else {
+            availableGroupingOptions
+        }
+        if (filterMode != ContactFilterMode.LABELS && options.isEmpty()) {
+            filterMode = ContactFilterMode.LABELS
+        }
+    }
+
+    val displayedContacts = remember(
+        filteredContacts, selectedType, selectedLabelName, filterMode,
+        selectedAggregationId, selectedGroupingId,
+        friendWxIds, groupWxIds, officialAccountWxIds, labelContactsMap,
+        aggregationOptions, groupingOptions,
+    ) {
         filteredContacts.filter { contact ->
             val isGroup = contact is WeGroup || contact.wxId.endsWith("@chatroom") || contact.wxId in groupWxIds
             val isOfficial = contact is WeOfficialAccount || contact.wxId.startsWith("gh_") || contact.wxId in officialAccountWxIds
@@ -337,14 +478,21 @@ fun BaseContactSelector(
                 FilterType.OTHERS -> !isFriend && !isGroup && !isOfficial
             }
 
-            val matchesLabel = if (selectedLabelName == null) {
-                true
-            } else {
-                val labelWxIds = labelContactsMap[selectedLabelName] ?: emptySet()
-                contact.wxId in labelWxIds
+            // 没选具体集合时该维度不设限（等于「全部」），与类型筛选的 ALL 一致。
+            val matchesMode = when (filterMode) {
+                ContactFilterMode.LABELS ->
+                    selectedLabelName == null || contact.wxId in (labelContactsMap[selectedLabelName] ?: emptySet())
+
+                ContactFilterMode.AGGREGATION ->
+                    selectedAggregationId == null ||
+                            contact.wxId in (aggregationOptions.firstOrNull { it.id == selectedAggregationId }?.wxIds ?: emptySet())
+
+                ContactFilterMode.GROUPING ->
+                    selectedGroupingId == null ||
+                            contact.wxId in (groupingOptions.firstOrNull { it.id == selectedGroupingId }?.wxIds ?: emptySet())
             }
 
-            matchesType && matchesLabel
+            matchesType && matchesMode
         }
     }
 
@@ -358,13 +506,13 @@ fun BaseContactSelector(
             }
             val (selected, rest) = sorted.partition { isSelected(it) }
             linkedMapOf<String, List<IWeContact>>().apply {
-                if (selected.isNotEmpty()) put("已选", selected)
-                if (rest.isNotEmpty()) put(if (sortReversed) "旧-新" else "新-旧", rest)
+                if (selected.isNotEmpty()) put(SELECTED_SECTION_KEY, selected)
+                if (rest.isNotEmpty()) put(if (sortReversed) OLDEST_SECTION_KEY else NEWEST_SECTION_KEY, rest)
             }
         } else {
             displayedContacts.groupBy { contact ->
                 if (isSelected(contact)) {
-                    "已选"
+                    SELECTED_SECTION_KEY
                 } else {
                     val name = contact.displayName.trim()
                     if (name.isEmpty()) return@groupBy "#"
@@ -384,8 +532,8 @@ fun BaseContactSelector(
             }.toSortedMap { c1, c2 ->
                 when {
                     c1 == c2 -> 0
-                    c1 == "已选" -> -1
-                    c2 == "已选" -> 1
+                    c1 == SELECTED_SECTION_KEY -> -1
+                    c2 == SELECTED_SECTION_KEY -> 1
                     c1 == "#" -> 1
                     c2 == "#" -> -1
                     else -> if (sortReversed) c2.compareTo(c1) else c1.compareTo(c2)
@@ -479,7 +627,7 @@ fun BaseContactSelector(
                             }
                         }
 
-                        if (showLabelFilterRow) {
+                        if (showFilterModeRow) {
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 contentPadding = PaddingValues(horizontal = 4.dp),
@@ -488,32 +636,98 @@ fun BaseContactSelector(
                                     .padding(bottom = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                // 单个图标循环切换维度：点击时在「标签/归拢/分组」间轮流，
+                                // 并记住选择。三者只能选一个，所以做成一个循环按钮而非三个。
                                 item {
-                                    Icon(
-                                        imageVector = MaterialSymbols.Outlined.Label,
-                                        contentDescription = "标签",
-                                        modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    val modeIndex = availableFilterModes.indexOf(filterMode).coerceAtLeast(0)
+                                    val hasMoreModes = availableFilterModes.size > 1
+                                    FilterChip(
+                                        selected = true,
+                                        onClick = {
+                                            if (!hasMoreModes) {
+                                                showToast(
+                                                    "可启用「对话归拢」或「对话分组」以使用更多筛选方式"
+                                                )
+                                            } else {
+                                                filterMode = availableFilterModes[(modeIndex + 1) % availableFilterModes.size]
+                                                persistedContactFilterMode = filterMode.name
+                                                // 切换维度时清掉旧的选中项，否则会在新维度下
+                                                // 拿旧 id 去比，列表直接空掉。
+                                                selectedLabelName = null
+                                                selectedAggregationId = null
+                                                selectedGroupingId = null
+                                            }
+                                        },
+                                        label = { Text(filterMode.nameRes) },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = filterMode.icon,
+                                                contentDescription = filterMode.nameRes,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        },
                                     )
                                 }
 
-                                item {
-                                    val isSelected = selectedLabelName == null
-                                    FilterChip(
-                                        selected = isSelected,
-                                        onClick = { selectedLabelName = null },
-                                        label = { Text("全部") }
-                                    )
-                                }
+                                if (filterMode == ContactFilterMode.LABELS) {
+                                    item {
+                                        val isSelected = selectedLabelName == null
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = { selectedLabelName = null },
+                                            label = { Text("全部") }
+                                        )
+                                    }
 
-                                items(availableLabels) { label ->
-                                    val isSelected = selectedLabelName == label.labelName
-                                    val labelCount = labelCounts[label.labelName] ?: 0
-                                    FilterChip(
-                                        selected = isSelected,
-                                        onClick = { selectedLabelName = if (isSelected) null else label.labelName },
-                                        label = { Text("${label.labelName} ($labelCount)") }
-                                    )
+                                    items(availableLabels) { label ->
+                                        val isSelected = selectedLabelName == label.labelName
+                                        val labelCount = labelCounts[label.labelName] ?: 0
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = { selectedLabelName = if (isSelected) null else label.labelName },
+                                            label = { Text("${label.labelName} ($labelCount)") }
+                                        )
+                                    }
+                                } else {
+                                    val options = if (filterMode == ContactFilterMode.AGGREGATION) {
+                                        availableAggregationOptions
+                                    } else {
+                                        availableGroupingOptions
+                                    }
+                                    item {
+                                        val isSelected = if (filterMode == ContactFilterMode.AGGREGATION) {
+                                            selectedAggregationId == null
+                                        } else {
+                                            selectedGroupingId == null
+                                        }
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = {
+                                                if (filterMode == ContactFilterMode.AGGREGATION) {
+                                                    selectedAggregationId = null
+                                                } else {
+                                                    selectedGroupingId = null
+                                                }
+                                            },
+                                            label = { Text("全部") },
+                                        )
+                                    }
+                                    items(options, key = { it.id }) { option ->
+                                        val selectedId = if (filterMode == ContactFilterMode.AGGREGATION) selectedAggregationId else selectedGroupingId
+                                        val isSelected = selectedId == option.id
+                                        val count = filteredContacts.count { it.wxId in option.wxIds }
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = {
+                                                if (filterMode == ContactFilterMode.AGGREGATION) {
+                                                    selectedAggregationId = if (isSelected) null else option.id
+                                                } else {
+                                                    selectedGroupingId = if (isSelected) null else option.id
+                                                }
+                                            },
+                                            label = { Text("${option.name} ($count)") },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -652,7 +866,12 @@ fun BaseContactSelector(
                                         color = MaterialTheme.colorScheme.surfaceContainerHighest
                                     ) {
                                         Text(
-                                            text = if (letter == "已选") "已选" else letter,
+                                            text = when (letter) {
+                                                SELECTED_SECTION_KEY -> "已选"
+                                                NEWEST_SECTION_KEY -> "新-旧"
+                                                OLDEST_SECTION_KEY -> "旧-新"
+                                                else -> letter
+                                            },
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                                             style = MaterialTheme.typography.titleSmall,
                                             color = MaterialTheme.colorScheme.primary
@@ -678,10 +897,29 @@ fun BaseContactSelector(
                                         }
 
                                         AsyncImage(
+                                            // 头像回退链：调用方自定义 → contact.avatarUrl → 微信本地缓存文件。
+                                            //
+                                            // 最后一环是必需的：部分入口传入的 IWeContact 根本没有
+                                            // avatarUrl（如自定义好友头像里的 SimpleContact 恒为空串），
+                                            // 而 image_flag.reserved2 也只对「微信展示过」的账号才有值 ——
+                                            // 两者都会让整列头像空白。微信其实已把头像缓存在
+                                            // avatar/xx/yy/<md5>/user_*.png，直接给路径让 AsyncImage 去读。
                                             // 空字符串同样是无效 model（会让 AsyncImage 显示空白），
                                             // 一并归为 null，交给 Coil 的占位处理。
-                                            model = (avatarModelProvider?.invoke(contact) ?: contact.avatarUrl)
-                                                .takeIf { it !is String || it.isNotBlank() },
+                                            // 注意不能用 `?:` 串：provider 和 avatarUrl 都可能是**空串**而不是
+                                            // null，`?:` 会直接选它并停在那一环，永远走不到本地文件。
+                                            // 所以逐环判断「非空白」。
+                                            model = run {
+                                                val fromProvider = avatarModelProvider?.invoke(contact)
+                                                val usable = { candidate: Any? ->
+                                                    candidate != null && (candidate !is String || candidate.isNotBlank())
+                                                }
+                                                when {
+                                                    usable(fromProvider) -> fromProvider
+                                                    usable(contact.avatarUrl) -> contact.avatarUrl
+                                                    else -> localAvatarResolver(contact.wxId)
+                                                }
+                                            },
                                             contentDescription = null,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier
@@ -721,14 +959,14 @@ fun BaseContactSelector(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             val displayAlphabet = if (sortReversed) {
-                                listOf("已选") + ('A'..'Z').map { it.toString() }.reversed() + "#"
+                                listOf(SELECTED_SECTION_KEY) + ('A'..'Z').map { it.toString() }.reversed() + "#"
                             } else {
                                 alphabet
                             }
                             if (sortMode == SortMode.ALPHABETICAL) displayAlphabet.forEach { letter ->
                                 val isAvailable = groupedContacts.containsKey(letter)
                                 Text(
-                                    text = if (letter == "已选") "✓" else letter,
+                                    text = if (letter == SELECTED_SECTION_KEY) "✓" else letter,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (isAvailable) {
                                         MaterialTheme.colorScheme.primary
@@ -737,10 +975,10 @@ fun BaseContactSelector(
                                     },
                                     modifier = Modifier
                                         .clickable {
-                                            val targetIndex = if (letter == "已选") {
-                                                sectionIndices["已选"]
+                                            val targetIndex = if (letter == SELECTED_SECTION_KEY) {
+                                                sectionIndices[SELECTED_SECTION_KEY]
                                             } else {
-                                                val letterKeys = sectionIndices.keys.filter { it != "已选" }
+                                                val letterKeys = sectionIndices.keys.filter { it != SELECTED_SECTION_KEY }
                                                 val targetLetter = if (sortReversed) {
                                                     letterKeys.firstOrNull { it.first() <= letter.first() }
                                                 } else {

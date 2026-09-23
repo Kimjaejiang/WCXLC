@@ -45,7 +45,12 @@ dist/
 build_*.log
 
 # 临时备份与截图（不入库）
-*.bak/
+# 注意是 *.bak* 而不是 *.bak/ —— 后者只匹配目录，而实际留下的是
+# HomeSidePanelFeature.kt.bak_v226 这类「带后缀的文件」，
+# 曾经因此把 13 个源码快照误提交进来。
+*.bak
+*.bak_*
+*.bak.*
 screen*.png
 
 # 调试临时文件（不入库）
