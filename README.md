@@ -25,6 +25,77 @@
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 > ⚠️ 标记「已随 v247」的条目：v247 重构合入后**采用上游实现，本地无独有代码保留**（上游已含同等能力），仅作功能存档。
 
+### 2026-09-23
+
+- **📦 移植记录 · 上游 8.0.78 修复包（选择性移植，并修掉上游 4 处缺陷）**
+  - 来源：`WCX对8.0.78的修复包.zip`
+  - 做法：先逐文件比对上游与本地，**只移植真正领先的部分**。111 个差异文件中多数是本地已修、或上游实现更旧。
+  - 移植范围：`RemoveLimitsDuringCalls`（通话栈加固）、`PipVoip`（画中画回调兜底）、`ContactSelectors`（联系人三维修筛选）、`ConversationAggregation`（新增 `folderMembers()`）、`FeaturesLoader`（同名功能重复检测护栏）。
+
+- **🐛 移除通话时聊天限制 · 上游实现会让整个功能失效（本次最严重）**
+  - 涉及文件：`features/items/voip/RemoveLimitsDuringCalls.kt`
+  - 现象：8.0.78 上每次微信启动必报
+    `IllegalStateException: Method resolution has failed: RemoveLimitsDuringCalls:methodCheckDeviceUsing`，
+    被 `BaseFeature.enable` 捕获后把**整个功能**标记为启用失败。
+  - 根因：上游认为 `allowFailure = true` 就足够安全，**但它只保证「解析阶段」不中断**（降级为 placeholder），
+    **不保证后续访问 `.method` 安全**。`DexMethodDelegate.method` 对 placeholder 会直接
+    `error("Method resolution has failed")`，而 `hookBefore` 内部要读 `.method`，异常遂冒到 `onEnable`。
+  - 后果：**8 个本来解析成功的锚点被一并丢弃，功能 0 锚点生效** —— 属净负收益。
+  - 修复：`onEnable` 自行跳过 placeholder（不再依赖 `allowFailure`），并对每个锚点的挂载 `runCatching` 兜底。
+    **0 → 9 个锚点**，另 5 个优雅降级。
+  - 教训：`DexDelegates.kt` 注释里写着「调用处该守的 `isPlaceholder` 判断一个都不能省」，上游漏守了。
+
+- **🐛 移除通话时聊天限制 · 6 个新锚点里 5 个的方法已被微信删除**
+  - 涉及文件：`features/items/voip/RemoveLimitsDuringCalls.kt`
+  - 验证方法：解包 8.0.78 `base.apk` 的**全部 17 个 dex**，逐个搜字符串。
+  - 结果：`DeviceOccupy` 类下 `check*` 系列已大多被删 —— `checkDeviceUsing` /
+    `checkAudioDeviceUsing` / `checkSpeakerUsing` / `checkAppBrandCameraUsingAndShowToast`
+    **均搜到 0 次**，只剩 `is*` 系列。**不是 matcher 写错，是方法没了。**
+  - 处理：锚点保留以兼容 8.0.77 及更早；在 8.0.78 上标记 `intentionallyAbsent`
+    （`setPlaceholderDescriptor(true, reason)`），**只影响 FeatureHealth 上报口径** ——
+    否则健康检查长期挂 5 条永远修不好的假问题，把真正的锚点失效淹掉。
+  - 效果：健康检查未命中由「5 个功能 / 10 个锚点」降至「2 个功能 / 2 个锚点」（后者为历史遗留、独立问题）。
+
+- **🐛 移除通话时聊天限制 · 上游两处 matcher 写错**
+  - 涉及文件：`features/items/voip/RemoveLimitsDuringCalls.kt`
+  - ① `methodCheckAppBrandCameraUsing`：日志串 `checkAppBrandCameraUsing isVoiceUsing:%b, isCameraUsing:%b`
+    含**两个 `%b`**，对应两个 boolean 参数，应为 `paramCount = 2`（上游写 1），故匹配不到。
+  - ② `methodCheckAudioOutSupported`：上游只写 `usingEqStrings("checkAudioOutSupported")`，
+    **漏了 `MicroMsg.DeviceOccupy` 类约束**，在全部 dex 范围内无约束查找，实机解析失败。已补类限定。
+
+- **🐛 联系人选择器 · 筛选维度会在「功能开着但内容为空」时卡住**
+  - 涉及文件：`ui/content/ContactSelectors.kt`
+  - 根因：`filterMode` 初始化只看 `isEnabled`，未考虑该维度选项为空的情况 ——
+    表现为筛选项悬空在空列表上。
+  - 修复：`availableFilterModes` 改为要求 **`isEnabled && options.isNotEmpty()`**；
+    新增 `LaunchedEffect(isFiltersLoaded, availableFilterModes)` 在数据加载完后校正，
+    若当前维度不再可用则回退 `LABELS`。
+
+- **🐛 联系人选择器 · 头像回退链失效导致大量空白头像**
+  - 涉及文件：`ui/content/ContactSelectors.kt`
+  - 现象：「归拢」筛选生效后，**列表里大量好友没有头像**。
+  - 根因（历史遗留，非本次引入）：`CustomLocalFriendAvatars` 构造的 `SimpleContact` 里
+    `avatarUrl` 恒为 `""`，而旧渲染行写的是
+    `(avatarModelProvider?.invoke(contact) ?: contact.avatarUrl)` ——
+    **`?:` 只在 `null` 时降级，空串会直接停在那一环**，空白无法回退。
+    且 6 个 `BaseContactSelector` 调用点里有 3 个根本不传 `avatarModelProvider`，必然全空。
+  - 修复：在**渲染层**统一回退链 —— 自定义模型 → `contact.avatarUrl` → 微信本地头像文件
+    （`WeDatabaseApi.getLocalAvatarFile(wxId)`，命中
+    `MicroMsg/<hash>/avatar/<md5 分层>/user_<md5>.png`）。
+    判可用性时**显式排除空字符串**（`candidate !is String || candidate.isNotBlank()`），不再用 `?:`。
+  - 性能：`getLocalAvatarFile` 含 MD5 计算与 `listFiles()` 磁盘 IO，加 `wxId` 级 `remember` 缓存，
+    避免每次重组重复查盘拖慢滚动。
+
+- **🧹 仓储 · `.gitignore` 的 `*.bak/` 只匹配目录，导致 13 个源码快照被误提交**
+  - 涉及文件：`.gitignore`
+  - 根因：`*.bak/` 结尾带斜杠**只匹配目录**，而快照是文件（`Foo.kt.bak_v226`），故从未被忽略。
+  - 修复：改为 `*.bak` + `*.bak_*` + `*.bak.*`，并 `git rm --cached` 解除 13 个源码树快照的跟踪
+    （**工作区文件保留**，不删本地）。`gradle-wrapper.properties.bak` 等 2 个仍保留跟踪（上游也发布，Gradle 不读）。
+  - 影响：本次提交 `-19835` 行，绝大部分来自这批快照的出库。
+
+> 真机验证（微信 8.0.78 / versionCode 3180）：312 个功能全部正常、0 个启用失败；
+> 筛选「归拢」维度正常显示、「分组」在功能未开启时正确隐藏；通话功能 9 锚点装载且无异常抛出。
+
 ### 2026-09-20
 
 - **📋 适配记录 · 微信 8.0.78 锚点全量实测（新增可复用验证工具）**
@@ -853,6 +924,11 @@ wcx/
 > 为什么划出这条线：模块大量 hook 依赖微信的类名、方法签名与控件层级，这些结构在小版本之间会变。低版本上强行注入往往不是「少几个功能」，而是命中错位的类或方法导致启动崩溃或卡死，且故障现象与模块自身的 bug 难以区分。与其让用户在必然出问题的环境里踩坑，不如在入口拦下并明确告知。
 
 ### 8.0.78 锚点实测（2026-09-20）
+
+> 📌 **2026-09-23 更新**：`RemoveLimitsDuringCalls`（移除通话时聊天限制）经重新核实，
+> 其 `DeviceOccupy` 类下 `check*` 系列方法已在 8.0.78 被微信**删除**（非 matcher 失效）。
+> 已修掉上游引入的「单锚点失效拖垮整个功能」缺陷，现为 **9 个锚点生效、5 个优雅降级**，
+> 详见下方“下游修改项”09-23。
 
 把模块全部字符串锚点与 **微信 8.0.78 正式版（versionCode 3180）DEX 字符串表**
 （17 个 dex、857,369 条唯一字符串）逐条比对：
