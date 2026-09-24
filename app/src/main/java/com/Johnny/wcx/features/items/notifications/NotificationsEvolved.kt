@@ -240,7 +240,15 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                         TAG,
                         "failed to match message regex, using raw sender name & text content"
                     )
-                    senderName = notifTitle
+                    // 群聊里 notifTitle 是**群名**，不是发送者。图片/定位/表情这类通知
+                    // 的正文没有「昵称: 」前缀，正则会失配；此时若把群名当发送者，
+                    // 通知会显示成群名、头像也查不到（见 resolveSenderWxid 里的 @chatroom 说明）。
+                    // 退回上一次该群已知的发送者，没有就留空（宁可不显示，也不要显示错的人）。
+                    senderName = if (convWxId.isGroupChatWxId) {
+                        lastGroupChatSender[convWxId] ?: ""
+                    } else {
+                        notifTitle
+                    }
                     text = notifText
                 } else {
                     senderName = match.groupValues[2].takeIf { it.isNotEmpty() }
@@ -277,6 +285,14 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                     messagingStyle.conversationTitle = notifTitle
                 } else {
                     senderName = notifTitle
+                }
+
+                // 群聊里解析不出发送者（见上面的正则失配分支）就别记进历史：
+                // 记一条空名字会让这条消息永久显示成「无名氏」，还会把后续正确解析
+                // 的头像/名字覆盖掉。直接跳过，等微信下一次推送带上昵称再展示。
+                if (senderName.isEmpty()) {
+                    WeLogger.w(TAG, "群聊未解析出发送者，跳过本次增强 conv=$convWxId")
+                    return@hookBefore
                 }
 
                 // Append the new message to this conversation's history, then replay
@@ -487,9 +503,30 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
     private fun senderCacheKey(convWxId: String, senderName: String): String =
         if (convWxId.isGroupChatWxId) "$convWxId|$senderName" else convWxId
 
-    private fun resolveSenderWxid(convWxId: String, senderName: String): String? {
-        if (senderName.isBlank()) return null
+    /**
+     * 微信会在通知标题里给**非文本消息**附上类型标记，如「李艳[表情]: xxx」。
+     * 这些标记不是昵称的一部分，直接拿去查库必然落空 —— 实测带后缀的发送者
+     * 三次查询全部命中不了，表现就是头像空白。
+     */
+    private val SENDER_TYPE_SUFFIX = Regex(
+        "\\[(表情|图片|语音|视频|动画表情|文件|位置|名片|链接|音乐|小程序|卡券|红包|转账|拍一拍)\\]$"
+    )
+
+    /** 剥掉微信附加的消息类型后缀并归一化空白。 */
+    private fun cleanSenderName(raw: String): String =
+        raw.trim().replace(SENDER_TYPE_SUFFIX, "").trim()
+
+    /** 模糊比较用：去掉空白与零宽字符，让「看着一样」的名字也能对上。 */
+    private fun normalizeName(raw: String): String =
+        raw.filterNot { it.isWhitespace() || it == '\u200B' || it == '\uFEFF' }
+
+    private fun resolveSenderWxid(convWxId: String, senderNameRaw: String): String? {
+        if (senderNameRaw.isBlank()) return null
         if (!convWxId.isGroupChatWxId) return convWxId
+
+        // 「李艳[表情]」这类后缀必须先剥掉，否则 roomdata / rcontact 都查不到。
+        val senderName = cleanSenderName(senderNameRaw)
+        if (senderName.isBlank()) return null
 
         // 群聊必须**先**按群成员反查，不能先查 rcontact。
         //
@@ -507,8 +544,25 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
             ).firstOrNull()?.get("roomdata") as? ByteArray
             if (blob != null) {
                 val roomData = ProtoBuf.decodeFromByteArray<ChatRoomDataProto>(blob)
-                roomData.members.firstOrNull { it.displayName == senderName }?.wxId
-                    ?.takeIf { it.isNotEmpty() }
+                // 先精确匹配（绝大多数情况）。命中不了再按归一化名字兜底：微信有时会把
+                // 昵称里的空格/零宽字符改写，或长昵称在通知里被截断。
+                // 兜底仍限定在「该群成员」范围内，不会退到 rcontact 去撞名。
+                val exact = roomData.members.firstOrNull { it.displayName == senderName }
+                val matched = exact ?: run {
+                    val target = normalizeName(senderName)
+                    if (target.isEmpty()) null
+                    else roomData.members.firstOrNull { m ->
+                        val n = normalizeName(m.displayName)
+                        n.isNotEmpty() && (n == target || n.startsWith(target))
+                    }
+                }
+                if (exact == null && matched != null) {
+                    WeLogger.i(
+                        TAG,
+                        "resolveSenderWxid: 群成员模糊命中 name=$senderName → ${matched.displayName}"
+                    )
+                }
+                matched?.wxId?.takeIf { it.isNotEmpty() }
             } else null
         }.getOrNull()?.let {
             WeLogger.i(TAG, "resolveSenderWxid: 群成员命中 conv=$convWxId name=$senderName → $it")
@@ -517,10 +571,17 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
         // 群成员表没命中（昵称带后缀、被截断等）：按昵称/备注在联系人表里匹配。
         // 注意这里仍可能撞名，只作为兜底。
+        //
+        // 必须排除 %@chatroom：rcontact 里**群聊自身**也有一条记录，其 nickname 就是群名。
+        // 群聊里那些正文没有「昵称: 」的通知（图片/定位/表情/语音）会走到这里，
+        // 拿群名去查就会命中群自己 —— 头像查的是群 ID（取不到，表现为空白），
+        // 发送者也被显示成群名。实测踩过：
+        //   resolveSenderWxid: 群成员未命中，回退 rcontact name=测试 → 59058485546@chatroom
         runCatching {
             val esc = senderName.replace("'", "''")
             WeDatabaseApi.executeQuery(
-                "SELECT username FROM rcontact WHERE nickname = '$esc' OR conRemark = '$esc' LIMIT 1"
+                "SELECT username FROM rcontact WHERE (nickname = '$esc' OR conRemark = '$esc') " +
+                    "AND username NOT LIKE '%@chatroom' LIMIT 1"
             ).firstOrNull()?.get("username")?.toString()
         }.getOrNull()?.let {
             WeLogger.w(TAG, "resolveSenderWxid: 群成员未命中，回退 rcontact conv=$convWxId name=$senderName → $it（可能撞名）")
@@ -530,7 +591,8 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
         return runCatching {
             val esc = senderName.replace("'", "''")
             WeDatabaseApi.executeQuery(
-                "SELECT username FROM rcontact WHERE nickname LIKE '%$esc%' OR conRemark LIKE '%$esc%' LIMIT 1"
+                "SELECT username FROM rcontact WHERE (nickname LIKE '%$esc%' OR conRemark LIKE '%$esc%') " +
+                    "AND username NOT LIKE '%@chatroom' LIMIT 1"
             ).firstOrNull()?.get("username")?.toString()
         }.getOrNull()
     }

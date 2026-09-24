@@ -81,6 +81,11 @@ fun WeColorField(
         trailingIcon = {
             Box(
                 Modifier
+                    // 顺序很关键：先 padding 留出与文字的间距，再 size 定正方形，
+                    // 最后才 clip。
+                    // 之前写成 size(24.dp) 后接 padding(end=8.dp)：padding 是从已有的
+                    // 24dp 里再挖掉 8dp，盒子只剩 16×24 —— 非正方形，CircleShape 裁出来
+                    // 就是竖椭圆（色块上下被切平）。padding 必须在外层。
                     .padding(end = 8.dp)
                     .size(24.dp)
                     .clip(CircleShape)

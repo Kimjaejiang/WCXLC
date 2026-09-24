@@ -5098,7 +5098,12 @@ hookViewLongClickProbe()
                         if (latest.isSend == 1) "[自己]" else ""
                     // 成员消息里的微信表情码（如 [社会社会]）在普通 TextView 上只会显示字面文本，
                     // 直接换成对应的 unicode 表情，归拢摘要处就能看到表情本身。
-                    ) + latest.digest.replaceEmojis(),
+                    //
+                    // 末尾用 sanitizeDigest 把残留的格式占位符处理掉（**不能**转义 %）：
+                    // 微信的 digest 是「格式模板」，`%s` 由微信渲染时用发送者名填充。
+                    // 之前这里写成 escapePercent()（% → %%），反而把占位符保护起来，
+                    // 微信 format 再把 %% 还原成 %，于是摘要显示成字面「%s:」——实测就是这个现象。
+                    ) + sanitizeDigest(latest.digest, latest.digestUser).replaceEmojis(),
                     digestUser = latest.digestUser,
                     isSend = latest.isSend,
                     status = latest.status,
@@ -5146,6 +5151,40 @@ hookViewLongClickProbe()
         val m = WXID_PREFIX_REGEX.find(digest) ?: return digest
         return digest.substring(m.value.length)
     }
+
+    /**
+     * 清掉摘要里残留的格式占位符。
+     *
+     * 微信的 digest 是**格式模板**：群聊里形如 `%s: 正文`，`%s` 在微信渲染时
+     * 由发送者名填充。模块把它写进 `rconversation.digest` 后，微信**仍会再 format 一次**。
+     *
+     * 两条路都得堵：
+     *  - **不要转义 `%`**。曾用 `replace("%", "%%")`，结果 `%%s` 被 format 还原成
+     *    字面 `%s:` 直接显示出来（用户实测截图就是「%s: 行，我们晚上看看」）。
+     *  - **把占位符换成真实名字**。发送者名由 [prefixWithConversationName] 另行补上，
+     *    这里只需要让占位符不再裸露：能解析出名字就填名字，否则整体删掉。
+     *
+     * 处理范围限于 `%s` / `%S` / `%d` 这类**简单占位符**（可能带 `$`、宽度等修饰），
+     * 不碰正常的百分号文本（如「涨了 5%」）。
+     */
+    private fun sanitizeDigest(digest: String, digestUser: String?): String {
+        if (digest.isBlank()) return digest
+        if (!PLACEHOLDER_REGEX.containsMatchIn(digest)) return digest
+
+        // 占位符就是发送者名，优先按 digestUser 解析（最精确），
+        // 解析不出就整体删掉占位符（连它后面的冒号一起，避免留下「: 正文」）。
+        val sender = digestUser?.takeIf { it.isNotBlank() }
+            ?.let { resolveSenderDisplayName(it, it, null) }
+            .orEmpty()
+        return if (sender.isNotBlank()) {
+            PLACEHOLDER_REGEX.replace(digest) { sender }
+        } else {
+            PLACEHOLDER_REGEX.replace(digest, "").trimStart(':', '\uFF1A', ' ')
+        }
+    }
+
+    /** `%s` / `%1$s` / `%S` / `%2$d` 这类格式占位符。 */
+    private val PLACEHOLDER_REGEX = Regex("%(?:\\d+\\$)?[-#+ 0,(<]*\\d*(?:\\.\\d+)?[sSdDfFxXeEgGcCbBhH]")
 
     private fun chineseNumber(n: Int): String = when (n) {
         in 1..9 -> arrayOf("\u4e00", "\u4e8c", "\u4e09", "\u56db", "\u4e94", "\u516d", "\u4e03", "\u516b", "\u4e5d")[n - 1]
