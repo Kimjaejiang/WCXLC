@@ -261,6 +261,13 @@ object AntiMessageRecall : ClickableFeature(), WeXmlParserApi.IAfterParseListene
         // 撤回时就无法重绑列表 —— 表现为私聊标签完全不显示。
         rememberList(messageList)
 
+        // 先清掉本行残留的旧标签。
+        //
+        // 必须放在下面 serverId 判断**之前**：serverId<=0 的本地/系统消息（时间分割行、
+        // “xx 撤回了一条消息”提示等）也会被分配到这个容器，若提前 return，
+        // 上一条消息留下的标签就会一直挂在这些行上。
+        clearAvatarBadge(view)
+
         val msgInfo = WeChatMessageViewApi.getMsgInfoFromParam(param)
         val msgSvrId = msgInfo.serverId.takeIf { it > 0 }?.toString() ?: return
         val recalled = isRecalled(msgInfo.serverId, msgSvrId)
@@ -377,6 +384,8 @@ object AntiMessageRecall : ClickableFeature(), WeXmlParserApi.IAfterParseListene
      *  - **私聊**：没有昵称行（`userTV` 为 GONE/空白），改挂到消息内容文本后。
      */
     private fun applyToRow(view: View, msgInfo: MessageInfo, recalled: Boolean) {
+        // 注：残留标签的清理已由调用方（onCreateViewWithList）在当前 bind 开头无条件完成，
+        // 那里能覆盖 serverId<=0 提前 return 的行，这里不再重复。
         if (!recalled) return
 
         WeLogger.i(TAG, "打标签: msgSvrId=${msgInfo.serverId} inGroup=${msgInfo.isInGroupChat}")
@@ -409,26 +418,46 @@ object AntiMessageRecall : ClickableFeature(), WeXmlParserApi.IAfterParseListene
      * 气泡靠 toLeftOf/toRightOf 锚定，插入子 View 会破坏锚点，
      * 触发 `RelativeLayout.onMeasure` 的 NPE（`View.getVisibility()` on null，实测闪退）。
      */
-    private fun attachAvatarBadge(view: View) {
-        // 按 id 名找头像（真机确认 ChattingAvatarImageView 的 id 名是 bk1）。
-        // 用运行时 id 名而不是 `it is ChattingAvatarImageView`：模块编译期看到的是 stub，
-        // 与宿主真实类 classloader 不同，类型判断可能恒为 false。
+    /**
+     * 清掉本行残留的撤回标签。
+     *
+     * RecyclerView 复用行容器时，上一条消息 `addView` 进去的标签会留在容器里，
+     * 所以每次 bind 都要先清，否则标签会「粘」在容器上而跟错消息。
+     *
+     * 直接从整行 view 搜 tag：标签就在本行子树里，不必先定位头像容器，
+     * 少一次找头像的遍历（滚动时每行 bind 都要跑，开销敏感）。
+     */
+    private fun clearAvatarBadge(view: View) {
+        val badge = view.findViewWithTag<View>(TAG_AVATAR_BADGE) ?: return
+        (badge.parent as? ViewGroup)?.removeView(badge)
+    }
+
+    /**
+     * 找到本行的头像容器（用来挂标签）。
+     *
+     * 按 id 名找头像（真机确认 ChattingAvatarImageView 的 id 名是 bk1）。
+     * 用运行时 id 名而不是 `it is ChattingAvatarImageView`：模块编译期看到的是 stub，
+     * 与宿主真实类 classloader 不同，类型判断可能恒为 false。
+     */
+    private fun findAvatarContainer(view: View): ViewGroup? {
         val avatar = view.findViewsWhich<View> { it.idString == AVATAR_VIEW_ID }.firstOrNull()
             ?: view.findViewWhich<View> { it.javaClass.simpleName.contains("AvatarImage") }
-        if (avatar == null) {
-            WeLogger.w(TAG, "头像标签：找不到头像控件（id=$AVATAR_VIEW_ID）")
-            return
-        }
-        val container = avatar.parent as? ViewGroup ?: run {
-            WeLogger.w(TAG, "头像标签：头像的父容器不是 ViewGroup")
-            return
-        }
+            ?: return null
+        val container = avatar.parent as? ViewGroup ?: return null
 
         // 容器若有 clipChildren，子 View 超出部分会被裁掉。
         // 头像容器（MaskLayout）实测会裁 —— 标签贴在顶部边缘时上下会被切。
         // 关掉它（只影响这一层，不动消息行根布局），让标签能完整显示。
         container.clipChildren = false
         container.clipToPadding = false
+        return container
+    }
+
+    private fun attachAvatarBadge(view: View) {
+        val container = findAvatarContainer(view) ?: run {
+            WeLogger.w(TAG, "头像标签：找不到头像控件或父容器不是 ViewGroup（id=$AVATAR_VIEW_ID）")
+            return
+        }
 
         // 幂等：同一行重复 bind 时不要叠一堆标签
         val existing = container.findViewWithTag<View>(TAG_AVATAR_BADGE)
