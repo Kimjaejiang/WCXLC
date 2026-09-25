@@ -37,6 +37,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.Johnny.wcx.ui.content.MiuixSmallTitle
 import java.time.LocalDate
 
 
@@ -184,11 +185,25 @@ fun FeaturesPager(onOpenCategory: (String) -> Unit) {
 //  Category detail (replaces CategorySettingsScreen)
 // ---------------------------------------------------------------------------
 
+/**
+ * 不在功能列表里展示的项（按 [com.Johnny.wcx.features.core.Feature.name] 匹配）。
+ *
+ * `隐藏联系人` 是历史遗留的中间层：它与「密友名单管理」共用同一份名单，且我们已把它的
+ * 入口改成委托密友名单编辑器，于是列表里会出现两个都能改同一份名单的开关，用户无法分辨。
+ *
+ * 它本身仍有实现价值——22 个隐藏面里密友侧未覆盖的 8 个（音视频通话、摇一摇、
+ * 角标计数、拍一拍、收藏、视频号点赞、群成员列表、微信运动）都挂在它的 onEnable 上。
+ * 所以做法是**保留 object、隐藏列表项**：开关状态改由
+ * [com.Johnny.wcx.features.items.secret_friend.SecretFriendManager] 主控驱动，
+ * 这 8 个面随之并入密友总控，用户只需面对一个开关。
+ */
+internal val HIDDEN_ITEM_NAMES = setOf("隐藏联系人")
+
 @Composable
 fun CategoryDetailScreen(categoryName: String, onBack: () -> Unit) {
     val items = remember(categoryName) {
         val all = FeaturesProvider.ALL_HOOK_ITEMS.filter { categoryName in it.categories }
-        val filtered = all.filterNot { it.name == "对话归拢摘要颜色" }
+        val filtered = all.filterNot { it.name == "对话归拢摘要颜色" || it.name in HIDDEN_ITEM_NAMES }
         // 诊断：确认过滤逻辑与运行时 name（排查平级行残留）
         WeLogger.i(
             "FeaturesPager",
@@ -196,6 +211,11 @@ fun CategoryDetailScreen(categoryName: String, onBack: () -> Unit) {
         )
         filtered
     }
+
+    // 分组在 LazyListScope 之外算好：LazyListScope 不是 @Composable 上下文，
+    // 不能在其中调用 remember。
+    val grouped = remember(categoryName, items) { FeatureGroups.group(items) }
+
     val switchStates = remember(categoryName) {
         mutableStateMapOf<String, Boolean>().apply {
             items.forEach { put(it.name, WePrefs.getBoolOrFalse(it.name)) }
@@ -216,18 +236,35 @@ fun CategoryDetailScreen(categoryName: String, onBack: () -> Unit) {
     ) {
         if (items.isEmpty()) return@MiuixListScaffold
 
-        itemsIndexed(items, key = { _, item -> item.name }) { index, item ->
-            Column(
-                modifier = Modifier
-                    .then(if (index == 0) Modifier.padding(top = 12.dp) else Modifier)
-                    .groupedCardItem(index, items.size),
-            ) {
-                FeatureRow(
-                    item = item,
-                    checked = switchStates[item.name] ?: false,
-                    onCheckedChange = { switchStates[item.name] = it },
-                )
-                item.Ui()
+        // 按用途分组渲染（见 FeatureGroups）。分组只是展示层排序，不影响功能的启用逻辑。
+        grouped.forEachIndexed { groupIndex, (groupTitle, groupItems) ->
+            if (groupTitle != null) {
+                item(key = "group-header-$groupTitle") {
+                    MiuixSmallTitle(
+                        text = groupTitle,
+                        modifier = Modifier.padding(top = if (groupIndex == 0) 12.dp else 20.dp),
+                    )
+                }
+            }
+            itemsIndexed(groupItems, key = { _, item -> item.name }) { index, item ->
+                Column(
+                    modifier = Modifier
+                        .then(
+                            if (groupTitle == null && groupIndex == 0 && index == 0) {
+                                Modifier.padding(top = 12.dp)
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .groupedCardItem(index, groupItems.size),
+                ) {
+                    FeatureRow(
+                        item = item,
+                        checked = switchStates[item.name] ?: false,
+                        onCheckedChange = { switchStates[item.name] = it },
+                    )
+                    item.Ui()
+                }
             }
         }
 

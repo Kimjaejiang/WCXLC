@@ -50,10 +50,13 @@ sealed interface BaseDexDelegate {
      * 注意：这只影响**上报口径**。isPlaceholder 仍为 true，
      * 调用处该守的 isPlaceholder 判断一个都不能省（.field/.method/.clazz 对
      * 占位符是直接 error() 的）。
+     *
+     * 实现约定：**只以哨兵描述符为准**，不另存布尔字段。
+     * 原因是「先标缺席、后又 find 成功」时，冗余布尔字段会残留为 true，
+     * 把一个实际已解析成功的锚点误报成刻意缺席，反而掩盖真实失效。
+     * 哨兵会随 setDescriptor 被真实描述符覆盖，天然不会残留。
      */
-    var intentionallyAbsent: Boolean
-        get() = false
-        set(@Suppress("UNUSED_PARAMETER") value) {}
+    val intentionallyAbsent: Boolean
 
     /** 从缓存字符串恢复状态 */
     fun loadDescriptor(value: String)
@@ -78,9 +81,12 @@ class DexClassDelegate internal constructor(
     private var cachedClass: Class<*>? = null
     internal var cachedData: ClassData? = null
 
+    override val intentionallyAbsent: Boolean
+        get() = descriptorString == ABSENT_DESCRIPTOR
+
     val clazz: Class<*>
         get() {
-            if (descriptorString == "com.tencent.mm.ui.LauncherUI")
+            if (descriptorString == CLASS_PLACEHOLDER || descriptorString == ABSENT_DESCRIPTOR)
                 error("Class resolution has failed: $key")
             if (cachedClass == null && descriptorString != null)
                 cachedClass = descriptorString!!.toClassOrNull()
@@ -101,14 +107,13 @@ class DexClassDelegate internal constructor(
         setDescriptor(c.name)
     }
 
-    fun setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null) {
+    fun setPlaceholderDescriptor(reason: String? = null) {
         WeLogger.w("DexClassDelegate", "setting placeholder for $key")
-        intentionallyAbsent = reason != null
-        setDescriptor("com.tencent.mm.ui.LauncherUI")
+        setDescriptor(if (reason != null) ABSENT_DESCRIPTOR else CLASS_PLACEHOLDER)
     }
 
     override val isPlaceholder
-        get() = descriptorString == "com.tencent.mm.ui.LauncherUI"
+        get() = descriptorString == CLASS_PLACEHOLDER || descriptorString == ABSENT_DESCRIPTOR
 
     override fun getDescriptorString(): String? = descriptorString
     override fun loadDescriptor(value: String) = setDescriptor(value)
@@ -166,6 +171,13 @@ class DexClassDelegate internal constructor(
     }
 
     override fun getValue(thisRef: BaseFeature, property: KProperty<*>): DexClassDelegate = this
+
+    companion object {
+        private const val CLASS_PLACEHOLDER = "com.tencent.mm.ui.LauncherUI"
+
+        /** 「刻意缺席」哨兵，与 CLASS_PLACEHOLDER 区分，以便随 DEX 缓存落盘后仍可识别。 */
+        private const val ABSENT_DESCRIPTOR = "com.tencent.mm.ui.LauncherUI.IntentionallyAbsent"
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -184,9 +196,12 @@ class DexFieldDelegate internal constructor(
     private var cachedField: Field? = null
     internal var cachedData: FieldData? = null
 
+    override val intentionallyAbsent: Boolean
+        get() = descriptorString == ABSENT_DESCRIPTOR
+
     val field: Field
         get() {
-            if (descriptorString == PLACEHOLDER_DESCRIPTOR)
+            if (descriptorString == PLACEHOLDER_DESCRIPTOR || descriptorString == ABSENT_DESCRIPTOR)
                 error("Field resolution has failed: $key")
             if (cachedField == null && descriptorString != null)
                 cachedField = getFieldInstance(descriptorString!!)
@@ -204,14 +219,13 @@ class DexFieldDelegate internal constructor(
         setDescriptor(f.descriptor)
     }
 
-    fun setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null) {
+    fun setPlaceholderDescriptor(reason: String? = null) {
         WeLogger.w("DexFieldDelegate", "setting placeholder for $key")
-        intentionallyAbsent = reason != null
-        setDescriptor(PLACEHOLDER_DESCRIPTOR)
+        setDescriptor(if (reason != null) ABSENT_DESCRIPTOR else PLACEHOLDER_DESCRIPTOR)
     }
 
     override val isPlaceholder
-        get() = descriptorString == PLACEHOLDER_DESCRIPTOR
+        get() = descriptorString == PLACEHOLDER_DESCRIPTOR || descriptorString == ABSENT_DESCRIPTOR
 
     override fun getDescriptorString(): String? = descriptorString
     override fun loadDescriptor(value: String) = setDescriptor(value)
@@ -283,6 +297,11 @@ class DexFieldDelegate internal constructor(
     companion object {
         private const val PLACEHOLDER_DESCRIPTOR =
             "Lcom/tencent/mm/ui/LauncherUI;->INSTANCE:Lcom/tencent/mm/ui/LauncherUI;"
+
+        /** 「刻意缺席」哨兵，与 PLACEHOLDER_DESCRIPTOR 一样按字段描述符格式构造。
+         *  分开存放是为了随 DEX 缓存落盘后仍能区分「主动作废」与「找不到」。 */
+        private const val ABSENT_DESCRIPTOR =
+            "Lcom/tencent/mm/ui/LauncherUI;->INSTANCE_INTENTIONALLY_ABSENT:Lcom/tencent/mm/ui/LauncherUI;"
     }
 }
 
@@ -302,9 +321,14 @@ class DexMethodDelegate internal constructor(
     private var cachedMethod: Method? = null
     internal var cachedData: MethodData? = null
 
+    override val intentionallyAbsent: Boolean
+        get() = descriptor?.descriptor == ABSENT_DESCRIPTOR
+
     val method: Method
         get() {
-            if (descriptor?.descriptor == PLACEHOLDER_DESCRIPTOR)
+            if (descriptor?.descriptor == PLACEHOLDER_DESCRIPTOR ||
+                descriptor?.descriptor == ABSENT_DESCRIPTOR
+            )
                 error("Method resolution has failed: $key")
             if (cachedMethod == null && descriptor != null)
                 cachedMethod = descriptor!!.getMethodInstance(ClassLoaders.HOST)
@@ -324,15 +348,19 @@ class DexMethodDelegate internal constructor(
     inline fun setDescriptor(m: MethodData) = setDescriptor(DexMethodDescriptor(m.className, m.methodName, m.methodSign))
 
     override val isPlaceholder
-        get() = descriptor?.descriptor == PLACEHOLDER_DESCRIPTOR
+        get() = descriptor?.descriptor == PLACEHOLDER_DESCRIPTOR ||
+            descriptor?.descriptor == ABSENT_DESCRIPTOR
 
     fun setDescriptor(className: String, methodName: String, methodSign: String) =
         setDescriptor(DexMethodDescriptor(className, methodName, methodSign))
 
-    fun setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null) {
+    fun setPlaceholderDescriptor(reason: String? = null) {
         WeLogger.w("DexMethodDelegate", "setting placeholder for $key")
-        intentionallyAbsent = reason != null
-        setDescriptor(DexMethodDescriptor(PLACEHOLDER_DESCRIPTOR))
+        // 刻意缺席写另一个哨兵值：这样 DEX 缓存落盘后再读回来，
+        // intentionallyAbsent 仍能认出来。
+        // 若只写 PLACEHOLDER_DESCRIPTOR，在未跑 resolveDex 的进程（如设置页）里，
+        // 从缓存恢复的锚点会被当成普通「锚点失效」重新混进报告。
+        setDescriptor(DexMethodDescriptor(if (reason != null) ABSENT_DESCRIPTOR else PLACEHOLDER_DESCRIPTOR))
     }
 
     override fun getDescriptorString(): String? = descriptor?.descriptor
@@ -401,6 +429,16 @@ class DexMethodDelegate internal constructor(
         /** 锚点未命中时写入的哨兵描述符。isPlaceholder 与 setPlaceholderDescriptor 必须共用它。 */
         const val PLACEHOLDER_DESCRIPTOR =
             "Lcom/tencent/mm/ui/LauncherUI;->getInstance()Lcom/tencent/mm/ui/LauncherUI;"
+
+        /**
+         * 「刻意缺席」哨兵：锚点是按版本/分支主动作废的，不是找不到。
+         *
+         * 与 PLACEHOLDER_DESCRIPTOR 分开，是为了让这个信息能随描述符一起入缓存 ——
+         * intentionallyAbsent 作为普通字段只在跑过 resolveDex 的进程里为 true，
+         * 而自检页可能开在另一个进程，那里只能从缓存描述符反推。
+         */
+        const val ABSENT_DESCRIPTOR =
+            "Lcom/tencent/mm/ui/LauncherUI;->getInstanceIntentionallyAbsent()Lcom/tencent/mm/ui/LauncherUI;"
     }
 }
 
@@ -420,6 +458,9 @@ class DexConstructorDelegate internal constructor(
     private var cachedConstructor: Constructor<*>? = null
     internal var cachedData: MethodData? = null
 
+    override val intentionallyAbsent: Boolean
+        get() = descriptor?.descriptor == DexMethodDelegate.ABSENT_DESCRIPTOR
+
     val constructor: Constructor<*>
         get() {
             if (cachedConstructor == null && descriptor != null)
@@ -438,10 +479,9 @@ class DexConstructorDelegate internal constructor(
         cachedData = null
     }
 
-    fun setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null) {
+    fun setPlaceholderDescriptor(reason: String? = null) {
         WeLogger.w("DexMethodDelegate", "setting placeholder for $key")
-        intentionallyAbsent = reason != null
-        setDescriptor(DexMethodDescriptor(DexMethodDelegate.PLACEHOLDER_DESCRIPTOR))
+        setDescriptor(DexMethodDescriptor(if (reason != null) DexMethodDelegate.ABSENT_DESCRIPTOR else DexMethodDelegate.PLACEHOLDER_DESCRIPTOR))
     }
 
     @Suppress("unused")
@@ -450,7 +490,8 @@ class DexConstructorDelegate internal constructor(
 
     override fun getDescriptorString(): String? = descriptor?.descriptor
     override val isPlaceholder
-        get() = descriptor?.descriptor == DexMethodDelegate.PLACEHOLDER_DESCRIPTOR
+        get() = descriptor?.descriptor == DexMethodDelegate.PLACEHOLDER_DESCRIPTOR ||
+            descriptor?.descriptor == DexMethodDelegate.ABSENT_DESCRIPTOR
 
 
     override fun loadDescriptor(value: String) {

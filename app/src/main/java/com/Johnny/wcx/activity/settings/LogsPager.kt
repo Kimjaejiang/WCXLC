@@ -105,7 +105,7 @@ import androidx.compose.animation.core.tween as animTween
 private const val LOGS_TAG = "SettingsActivity"
 
 /** Which log kind a page is showing. */
-private enum class LogKind { RUN, CRASH }
+private enum class LogKind { RUN, CRASH, SELF_CHECK }
 
 // ---------------------------------------------------------------------------
 //  Parsed models
@@ -270,7 +270,11 @@ private fun saveLogFile(context: Context, file: Path) {
 // Bottom padding so scrollable content clears the floating bar (mirrors SettingsActivity's inset).
 private val LOGS_BOTTOM_INSET = 88.dp
 
-private val LOG_TABS = listOf("运行日志" to LogKind.RUN, "崩溃日志" to LogKind.CRASH)
+private val LOG_TABS = listOf(
+    "运行日志" to LogKind.RUN,
+    "崩溃日志" to LogKind.CRASH,
+    "模块自检" to LogKind.SELF_CHECK,
+)
 
 // ---------------------------------------------------------------------------
 //  Page 2 — Logs
@@ -283,6 +287,9 @@ fun LogsPager() {
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val kind = LOG_TABS[selectedTab].second
+
+    // 自检页不读日志文件，工具条的分享/保存/清空对它没有意义。
+    val isSelfCheck = kind == LogKind.SELF_CHECK
 
     // One LazyListState per tab, retained across refreshes so scroll position survives a reload.
     val runListState = rememberLazyListState()
@@ -315,76 +322,92 @@ fun LogsPager() {
                 title = "日志",
                 scrollBehavior = scrollBehavior,
                 actions = {
-                    IconButton(onClick = {
-                        currentFile?.let { shareLogFile(context, it) }
-                            ?: scope.launch { showToastSuspend("暂无可分享的日志") }
-                    }) {
-                        Icon(
-                            imageVector = MaterialSymbols.Outlined.Share,
-                            contentDescription = "分享",
-                            tint = MiuixTheme.colorScheme.onBackground,
-                        )
-                    }
-                    IconButton(onClick = {
-                        currentFile?.let { saveLogFile(context, it) }
-                            ?: scope.launch { showToastSuspend("暂无可保存的日志") }
-                    }) {
-                        Icon(
-                            imageVector = MaterialSymbols.Outlined.Save,
-                            contentDescription = "保存",
-                            tint = MiuixTheme.colorScheme.onBackground,
-                        )
+                    if (!isSelfCheck) {
+                        IconButton(onClick = {
+                            currentFile?.let { shareLogFile(context, it) }
+                                ?: scope.launch { showToastSuspend("暂无可分享的日志") }
+                        }) {
+                            Icon(
+                                imageVector = MaterialSymbols.Outlined.Share,
+                                contentDescription = "分享",
+                                tint = MiuixTheme.colorScheme.onBackground,
+                            )
+                        }
+                        IconButton(onClick = {
+                            currentFile?.let { saveLogFile(context, it) }
+                                ?: scope.launch { showToastSuspend("暂无可保存的日志") }
+                        }) {
+                            Icon(
+                                imageVector = MaterialSymbols.Outlined.Save,
+                                contentDescription = "保存",
+                                tint = MiuixTheme.colorScheme.onBackground,
+                            )
+                        }
                     }
                     // Native miuix overflow menu (ListPopup), matching the Settings-page dropdown style.
-                    val menuEntry = remember(listState) {
+                    val menuEntry = remember(listState, isSelfCheck) {
                         DropdownEntry(
-                            items = listOf(
-                                DropdownItem(
-                                    text = "刷新",
-                                    icon = { m -> Icon(MaterialSymbols.Outlined.Refresh, null, m) },
-                                    onClick = { refreshKey++ },
-                                ),
-                                DropdownItem(
-                                    text = "转到顶部",
-                                    icon = { m -> Icon(MaterialSymbols.Outlined.Vertical_align_top, null, m) },
-                                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
-                                ),
-                                DropdownItem(
-                                    text = "转到底部",
-                                    icon = { m -> Icon(MaterialSymbols.Outlined.Vertical_align_bottom, null, m) },
-                                    onClick = {
-                                        scope.launch {
-                                            val end = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
-                                            listState.animateScrollToItem(end)
-                                        }
-                                    },
-                                ),
-                                DropdownItem(
-                                    text = "清空",
-                                    icon = { m -> Icon(MaterialSymbols.Outlined.Delete_sweep, null, m) },
-                                    onClick = {
-                                        scope.launch {
-                                            withContext(Dispatchers.IO) {
-                                                when (kind) {
-                                                    LogKind.RUN -> WeLogger.allLogFiles
-                                                        .forEach { runCatching { it.toFile().delete() } }
-
-                                                    LogKind.CRASH -> CrashLogsManager.deleteAllCrashLogs()
+                            items = buildList {
+                                if (!isSelfCheck) {
+                                    add(
+                                        DropdownItem(
+                                            text = "刷新",
+                                            icon = { m -> Icon(MaterialSymbols.Outlined.Refresh, null, m) },
+                                            onClick = { refreshKey++ },
+                                        ),
+                                    )
+                                    add(
+                                        DropdownItem(
+                                            text = "转到顶部",
+                                            icon = { m -> Icon(MaterialSymbols.Outlined.Vertical_align_top, null, m) },
+                                            onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                                        ),
+                                    )
+                                    add(
+                                        DropdownItem(
+                                            text = "转到底部",
+                                            icon = { m -> Icon(MaterialSymbols.Outlined.Vertical_align_bottom, null, m) },
+                                            onClick = {
+                                                scope.launch {
+                                                    val end = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                                                    listState.animateScrollToItem(end)
                                                 }
-                                            }
-                                            refreshKey++
-                                        }
-                                    },
-                                ),
-                            ),
+                                            },
+                                        )
+                                    )
+                                    add(
+                                        DropdownItem(
+                                            text = "清空",
+                                            icon = { m -> Icon(MaterialSymbols.Outlined.Delete_sweep, null, m) },
+                                            onClick = {
+                                                scope.launch {
+                                                    withContext(Dispatchers.IO) {
+                                                        when (kind) {
+                                                            LogKind.RUN -> WeLogger.allLogFiles
+                                                                .forEach { runCatching { it.toFile().delete() } }
+
+                                                            LogKind.CRASH -> CrashLogsManager.deleteAllCrashLogs()
+                                                            // 自检页没有可清的内容。
+                                                            LogKind.SELF_CHECK -> Unit
+                                                        }
+                                                    }
+                                                    refreshKey++
+                                                }
+                                            },
+                                        )
+                                    )
+                                }
+                            },
                         )
                     }
-                    WindowIconDropdownMenu(entry = menuEntry) {
-                        Icon(
-                            imageVector = MaterialSymbols.Outlined.More_vert,
-                            contentDescription = "菜单",
-                            tint = MiuixTheme.colorScheme.onBackground,
-                        )
+                    if (menuEntry.items.isNotEmpty()) {
+                        WindowIconDropdownMenu(entry = menuEntry) {
+                            Icon(
+                                imageVector = MaterialSymbols.Outlined.More_vert,
+                                contentDescription = "菜单",
+                                tint = MiuixTheme.colorScheme.onBackground,
+                            )
+                        }
                     }
                 },
                 bottomContent = {
@@ -405,19 +428,28 @@ fun LogsPager() {
         },
         popupHost = {},
     ) { innerPadding ->
-        Crossfade(targetState = kind, animationSpec = tween(200), label = "logKind") { k ->
-            LogTabContent(
-                kind = k,
-                listState = if (k == LogKind.RUN) runListState else crashListState,
-                barBackdrop = barBackdrop,
-                scrollBehavior = scrollBehavior,
-                innerPadding = innerPadding,
-                refreshKey = refreshKey,
-                isRefreshing = isRefreshing,
-                onRefreshingChange = { isRefreshing = it },
-                onRefreshRequested = { refreshKey++ },
-                onCurrentFileChange = { if (k == kind) currentFile = it },
-            )
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (kind == LogKind.SELF_CHECK) {
+                ModuleSelfCheckContent(
+                    context = context,
+                    contentPadding = innerPadding,
+                )
+            } else {
+                Crossfade(targetState = kind, animationSpec = tween(200), label = "logKind") { k ->
+                    LogTabContent(
+                        kind = k,
+                        listState = if (k == LogKind.RUN) runListState else crashListState,
+                        barBackdrop = barBackdrop,
+                        scrollBehavior = scrollBehavior,
+                        innerPadding = innerPadding,
+                        refreshKey = refreshKey,
+                        isRefreshing = isRefreshing,
+                        onRefreshingChange = { isRefreshing = it },
+                        onRefreshRequested = { refreshKey++ },
+                        onCurrentFileChange = { if (k == kind) currentFile = it },
+                    )
+                }
+            }
         }
     }
 }
@@ -452,6 +484,8 @@ private fun LogTabContent(
             when (kind) {
                 LogKind.RUN -> WeLogger.allLogFiles
                 LogKind.CRASH -> CrashLogsManager.allCrashLogs
+                // 自检页不走这个分支（在 LogsPager 里就被拦下了），兜底成空列表。
+                LogKind.SELF_CHECK -> emptyList()
             }
         }
         files = result
@@ -479,6 +513,7 @@ private fun LogTabContent(
         when (kind) {
             LogKind.RUN -> runEntries = withContext(Dispatchers.Default) { parseRunLog(text) }
             LogKind.CRASH -> crashSections = withContext(Dispatchers.Default) { parseCrashLog(text) }
+            LogKind.SELF_CHECK -> Unit
         }
         loading = false
         onRefreshingChange(false)
@@ -535,6 +570,9 @@ private fun LogTabContent(
                     }
                     items(crashSections.size, key = { "crash-$it" }) { i -> CrashSectionCard(crashSections[i]) }
                 }
+
+                // 自检页在 LogsPager 里已分支出去，不会走到这里。
+                LogKind.SELF_CHECK -> Unit
             }
 
             item(key = "bottom-inset") { Spacer(Modifier.height(LOGS_BOTTOM_INSET)) }

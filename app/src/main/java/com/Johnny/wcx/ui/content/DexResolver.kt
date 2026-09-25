@@ -39,8 +39,10 @@ import com.Johnny.wcx.utils.restartHost
 import com.Johnny.wcx.utils.unreachable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.map
@@ -70,6 +72,14 @@ private sealed class DialogPhase {
 
 private val TAG = "DexResolver"
 
+/**
+ * 适配全部成功后自动重启前的缓冲时间。
+ *
+ * 留这几秒是为了让用户看到「适配完成」而不是界面突然消失；
+ * 太短会像崩溃，太长就失去了自动重启的意义。
+ */
+private const val AUTO_RESTART_DELAY_MS = 3_000L
+
 @Composable
 fun DexResolver(
     context: Context,
@@ -80,6 +90,10 @@ fun DexResolver(
     var phase by remember { mutableStateOf<DialogPhase>(DialogPhase.Idle) }
     var currentTask by remember { mutableStateOf("正在适配...") }
     var completed by remember { mutableIntStateOf(0) }
+    // 自动重启与手动重启共享的闸门：两者都走这里，避免各触发一次。
+    var restartTriggered by remember { mutableStateOf(false) }
+    // 自动重启倒计时任务；用户先手动重启/关闭时取消它。
+    var autoRestartTimer by remember { mutableStateOf<Job?>(null) }
     val scanResults = remember { mutableStateMapOf<String, ScanResult>() }
 
     fun updateProgress(progress: ScanProgress) {
@@ -151,6 +165,21 @@ fun DexResolver(
 
                 val failed = results.filterIsInstance<ScanResult.Failed>()
                 phase = DialogPhase.Done(failed)
+
+                // 适配全部成功时自动重启，免去用户「手动重启 → 才发现没生效 → 再重启」的两轮循环。
+                //
+                // 有失败项时**不**自动重启：失败详情需要用户看到（并可能复制上报），
+                // 自动重启会把错误刷掉。此时仍由用户点「重启微信」。
+                if (failed.isEmpty()) {
+                    autoRestartTimer = launch {
+                        delay(AUTO_RESTART_DELAY_MS)
+                        if (!restartTriggered) {
+                            restartTriggered = true
+                            dismiss()
+                            restartHost()
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 WeLogger.e(TAG, "scanning failed", e)
                 phase = DialogPhase.Error("扫描过程中发生未知错误: ${e.message}")
@@ -263,15 +292,24 @@ fun DexResolver(
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
             ) {
                 if (phase !is DialogPhase.Scanning) {
-                    TextButton(onClick = dismiss) { Text("关闭") }
+                    TextButton(onClick = {
+                        // 用户自己关了对话框（可能想先看看别处）：取消自动重启，
+                        // 否则倒计时一到会在他不预期的时候把微信重启掉。
+                        autoRestartTimer?.cancel()
+                        dismiss()
+                    }) { Text("关闭") }
                 }
                 if (phase is DialogPhase.Idle) {
                     Button(onClick = ::startScanning) { Text("开始适配") }
                 }
                 if (phase is DialogPhase.Done || phase is DialogPhase.Error) {
                     Button(onClick = {
-                        dismiss()
-                        restartHost()
+                        autoRestartTimer?.cancel()
+                        if (!restartTriggered) {
+                            restartTriggered = true
+                            dismiss()
+                            restartHost()
+                        }
                     }) { Text("重启微信") }
                 }
             }

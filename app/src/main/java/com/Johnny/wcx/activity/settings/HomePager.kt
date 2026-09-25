@@ -47,6 +47,7 @@ import com.Johnny.wcx.constants.PackageNames
 import com.Johnny.wcx.constants.Preferences
 import com.Johnny.wcx.features.core.FeatureHealth
 import com.Johnny.wcx.features.core.FeaturesProvider
+import com.Johnny.wcx.loader.startup.StartupInfo
 import com.Johnny.wcx.preferences.WePrefs
 import com.Johnny.wcx.utils.AppUpdater
 import com.Johnny.wcx.utils.HostInfo
@@ -98,7 +99,7 @@ private fun openLsposedManager(context: Context) {
 }
 
 /** 安全判断当前是否运行在微信宿主进程内 */
-private fun safeIsHost(): Boolean {
+internal fun safeIsHost(): Boolean {
     return runCatching { HostInfo.isHost }.getOrDefault(false)
 }
 
@@ -108,7 +109,7 @@ private fun safeIsHost(): Boolean {
  * - 微信进程内：直接从 HostInfo 读取当前宿主版本
  * 返回 null 表示未检测到微信。
  */
-private fun safeGetWeChatVersionInfo(context: Context): String? {
+internal fun safeGetWeChatVersionInfo(context: Context): String? {
     // 微信进程内：直接从 HostInfo 读取
     if (safeIsHost()) {
         return runCatching {
@@ -129,12 +130,17 @@ private fun safeGetWeChatVersionInfo(context: Context): String? {
 }
 
 /**
- * 识别运行环境：LSPosed / LSPatch / 未知。
- * - 主体App进程：主动探测并缓存到 WePrefs（跨进程共享）
- * - 微信进程内：从 WePrefs 读取缓存值，禁止在微信进程内探测
+ * 识别运行环境（框架名），如 LSPosed / LSPatch。
+ *
+ * 数据源是 [StartupInfo.hookBridge]，它在**本进程**实际装载 hook 时建立，
+ * 直接提供 frameworkName。这比读 WePrefs 缓存可靠得多 ——
+ * 缓存的唯一写入点在主体 App 进程，在微信进程里基本永远是「未知」。
  */
-private fun detectOrReadLspEnvironment(context: Context): String {
-    // 微信进程内：从跨进程缓存读取
+internal fun detectOrReadLspEnvironment(context: Context): String {
+    frameworkName()?.let { return it }
+
+    // 微信进程内且拿不到 hookBridge：不再自己探测（探测结果也未必准），
+    // 退回读主体 App 写入的缓存。
     if (safeIsHost()) {
         return runCatching {
             WePrefs.getStringOrDef(Preferences.CACHED_LSP_ENVIRONMENT, "未知")
@@ -168,19 +174,51 @@ private fun detectOrReadLspEnvironment(context: Context): String {
     return result
 }
 
-/** 读取 LSPosed API 版本（跨进程缓存），返回显示字符串。 */
-private fun safeGetLspApiVersion(): String {
-    val apiVersion = runCatching {
+/**
+ * 框架名，从运行时 hook 桥取。拿不到返回 null。
+ *
+ * [StartupInfo.hookBridge] 可能尚未赋值，故整体包在 runCatching 里。
+ */
+private fun frameworkName(): String? = runCatching {
+    StartupInfo.hookBridge?.frameworkName?.takeIf { it.isNotBlank() }
+}.getOrNull()
+
+/**
+ * 框架版本，从运行时 hook 桥直接读取。
+ *
+ * 先试 [StartupInfo.hookBridge]（真实框架版本），拿不到再退回
+ * [StartupInfo.loaderService] 的 API 版本，最后才是 WePrefs 缓存。
+ * 三级降级是为了不在任何情况下显示「未知」。
+ */
+internal fun safeGetLspApiVersion(): String {
+    val fromBridge = runCatching {
+        val bridge = StartupInfo.hookBridge ?: return@runCatching null
+        val name = bridge.frameworkVersion.takeIf { it.isNotBlank() }
+        val api = bridge.apiLevel
+        when {
+            name != null && api > 0 -> "$name (API $api)"
+            name != null -> name
+            api > 0 -> "API $api"
+            else -> null
+        }
+    }.getOrNull()
+    if (fromBridge != null) return fromBridge
+
+    // 退回桥的 API 等级（部分框架不给版本号，但一定给 API 等级）。
+    val apiOnly = runCatching { StartupInfo.hookBridge?.apiLevel ?: 0 }.getOrDefault(0)
+    if (apiOnly > 0) return "API $apiOnly"
+
+    val cached = runCatching {
         WePrefs.getIntOrDef(Preferences.CACHED_LSP_API_VERSION, 0)
     }.getOrDefault(0)
-    if (apiVersion <= 0) return "未知"
+    if (cached <= 0) return "未知"
 
-    val hotReload = if (apiVersion >= 102) " (支持热重载)" else " (需重启)"
-    return "API $apiVersion$hotReload"
+    val hotReload = if (cached >= 102) " (支持热重载)" else " (需重启)"
+    return "API $cached$hotReload"
 }
 
 /** 版本字符串格式化：git+4fcbb76 (73) */
-private fun formatLocalVersion(): String {
+internal fun formatLocalVersion(): String {
     val name = BuildConfig.VERSION_NAME.ifEmpty { "未知" }
     return "$name (${"%06d".format(BuildConfig.VERSION_CODE)})"
 }
@@ -528,8 +566,8 @@ private fun HealthStatusCard(
                     Text(
                         text = when {
                             entries.isEmpty() -> "尚未完成加载"
-                            ok -> "${entries.size} 个功能正常"
-                            else -> "${problems.size} 个功能未生效"
+                            !ok -> "${problems.size} 个功能未生效"
+                            else -> "${entries.size} 个功能正常"
                         },
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -588,6 +626,12 @@ private fun HealthStatusCard(
                     copyDiagnosticsToClipboard(context)
                     showToast(context, "诊断报告已复制")
                 },
+            )
+            Text(
+                text = "更详细的逐功能自检，见「日志 → 模块自检」",
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 6.dp),
             )
         }
     }

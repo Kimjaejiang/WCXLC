@@ -88,9 +88,33 @@ abstract class BaseFeature {
         unhooks += u
     }
 
+    /**
+     * 本功能挂上的 hook 数量与这些 hook 被回调的次数。
+     *
+     * 用于区分「hook 从未生效」与「装了但从未被调用」：前者锚点会落空，
+     * 后者锚点全中、[isActive] 也为真，却没有任何实际作用 —— 现有健康检查
+     * 对后者只能报「正常」，这组计数就是补这个盲区。
+     *
+     * [hookInstalledCount] 在每次装 hook 时 +1（不递减，disable 后清空），
+     * [hookCallCount] 在 [executeHookAction] 中累加，走的是信息量最小的
+     * 原子自增路径（热路径，不加锁、不拼字符串）。
+     */
+    private val _hookCallCount = java.util.concurrent.atomic.AtomicLong()
+    internal var hookInstalledCount: Int = 0
+        private set
+    val hookCallCount: Long get() = _hookCallCount.get()
+
+    /** 是否装了 hook 且本次从未被回调 —— 值得上报的「静默空转」。 */
+    val hasInstalledHooks: Boolean get() = hookInstalledCount > 0
+
+    internal fun recordHookInstalled() {
+        hookInstalledCount += 1
+    }
+
     internal fun unhookAll() {
         unhooks.forEach { it.unhook() }
         unhooks.clear()
+        hookInstalledCount = 0
     }
 
     // --- hookBefore ---
@@ -107,7 +131,7 @@ abstract class BaseFeature {
                     executeHookAction(param, action)
                 }
             }
-        ))
+        )).also { recordHookInstalled() }
 
     @JvmName("hookBefore2")
     internal fun BaseReflectedMethod.hookBefore(
@@ -153,7 +177,7 @@ abstract class BaseFeature {
                     executeHookAction(param, action)
                 }
             }
-        ))
+        )).also { recordHookInstalled() }
 
     @JvmName("hookAfter2")
     internal fun BaseReflectedMethod.hookAfter(
@@ -194,6 +218,9 @@ abstract class BaseFeature {
     // --- end dex delegate ---
 
     internal fun executeHookAction(param: XC_MethodHook.MethodHookParam, action: HookAction) {
+        // 热路径：先记一次调用，再跑业务。原子自增无锁、无字符串分配，
+        // 开销与 runCatching 同量级，可忽略。
+        _hookCallCount.incrementAndGet()
         runCatching {
             action(param)
         }.onFailure { e -> WeLogger.e("executeHookAction", "failed to execute hook of $name", e) }

@@ -75,6 +75,16 @@ object FeatureHealth {
          * 实测 PipVoip 的 MultiTalk 锚点全废时，健康检查照样报「全部正常」。
          */
         val missingAnchors: List<String> = emptyList(),
+        /**
+         * 本功能挂上的 hook 数量。0 表示它不靠 hook（纯 UI/资源类）。
+         */
+        val installedHooks: Int = 0,
+        /**
+         * 这些 hook 在本次进程内被回调的总次数。
+         *
+         * 与 [status] 正交：[Status.LOADED] 只说明功能启动了，不说明 hook 真的被调用。
+         */
+        val hookCalls: Long = 0L,
     ) {
         val isProblem: Boolean
             get() = status == Status.SKIPPED_INCOMPLETE_CACHE ||
@@ -98,6 +108,57 @@ object FeatureHealth {
          */
         val hasMissingAnchorsWhileDisabled: Boolean
             get() = status == Status.DISABLED && missingAnchors.isNotEmpty()
+
+        /**
+         * 挂了 hook，但本次进程内一次都没被回调 —— 静默空转。
+         *
+         * 这是 [status] 和 [missingAnchors] 都盖不住的一类：锚点全中、
+         * 功能也能启动，只是微信改了调用路径，hook 再也走不到。
+         * 仅对已启用的功能报告（未启用本来就不会有调用）。
+         */
+        val hasIdleHooks: Boolean
+            get() = status == Status.LOADED && installedHooks > 0 && hookCalls == 0L
+
+        /**
+         * 自检页面用的三档健康度，对应外部展示的「正常 / 异常 / 失败」。
+         *
+         * 两处刻意不计入 [DEGRADED]：
+         * - [hasIdleHooks]：无法区分「微信改了调用路径」和「本次还没用到」。
+         *   开机后两分钟内绝大部分功能都是后者，报成异常会让整个清单红一片。
+         * - [hasMissingAnchorsWhileDisabled]：功能用户根本没开，
+         *   锚点落空当前无影响，只能算隐患。
+         *
+         * 两者仍可见 —— 作为 [Entry] 上的中性描述展示在行内文案里。
+         */
+        val grade: Grade
+            get() = when {
+                isProblem -> Grade.FAILED
+                hasMissingAnchors && !hasMissingAnchorsWhileDisabled -> Grade.DEGRADED
+                else -> Grade.OK
+            }
+    }
+
+    /** 自检页面展示用的健康档位。 */
+    enum class Grade { OK, DEGRADED, FAILED }
+
+    /** 各档位计数，供自检页面顶部的统计块使用。 */
+    data class Summary(
+        val ok: Int,
+        val degraded: Int,
+        val failed: Int,
+        val total: Int,
+    ) {
+        companion object {
+            fun of(entries: List<Entry>): Summary {
+                val g = entries.groupingBy { it.grade }.eachCount()
+                return Summary(
+                    ok = g[Grade.OK] ?: 0,
+                    degraded = g[Grade.DEGRADED] ?: 0,
+                    failed = g[Grade.FAILED] ?: 0,
+                    total = entries.size,
+                )
+            }
+        }
     }
 
     @Volatile
@@ -129,6 +190,52 @@ object FeatureHealth {
 
     fun problemEntries(): List<Entry> = entries.filter { it.isProblem }
 
+    /** 自检页面顶部的统计块数据。 */
+    fun summary(): Summary = Summary.of(entries)
+
+    /**
+     * 用当前 hook 计数重建一份快照，供自检页面实时展示。
+     *
+     * 与 [snapshot] 的关键差异：快照里的计数是**加载结束那一刻**采集的，
+     * 那一刻 hook 刚装上、还一次都没被调用过，所以「装了 hook 但 0 次调用」
+     * 在当时是普遍现象而非故障。拿那组数字判「异常」会把整个列表误报成问题。
+     *
+     * 因此这里只信任**当前能拿到实例**的功能：拿得到就写实时计数；
+     * 拿不到（实例不在本进程，如设置页跑在非主进程）则把计数置 0，
+     * 让 [Entry.hasIdleHooks] 与 [Entry.installedHooks] 都不成立 ——
+     * 宁可报「未知」也不能报一个自己都知道是陈旧的「异常」。
+     */
+    fun liveSnapshot(features: List<Any>): List<Entry> {
+        val byName = features.filterIsInstance<BaseFeature>().associateBy { it.name }
+        val out = entries.map { e ->
+            val f = byName[e.name]
+                ?: return@map e.copy(installedHooks = 0, hookCalls = 0L)
+            e.copy(installedHooks = f.hookInstalledCount, hookCalls = f.hookCallCount)
+        }
+        // 诊断：页面「异常」数字不正常时，靠这行对比快照与实时值。
+        WeLogger.i(
+            TAG,
+            "自检读取: loadCount=$loadCount snapshotAt=$loadFinishedAt " +
+                    "entries=${entries.size} live=${out.size} " +
+                    "degraded=${out.count { it.grade == Grade.DEGRADED }} " +
+                    "failed=${out.count { it.grade == Grade.FAILED }} " +
+                    "anchorHoles=${out.count { it.hasMissingAnchors }} " +
+                    "disabledHoles=${out.count { it.hasMissingAnchorsWhileDisabled }} " +
+                    "idle=${out.count { it.hasIdleHooks }}"
+        )
+        return out
+    }
+
+    /**
+     * 本进程能否读到功能的实时 hook 计数。
+     *
+     * 设置页可能跑在非主进程，那里功能实例没跑过 onEnable，计数恒为 0。
+     * 自检页面据此决定要不要提示「调用数不可用」，避免用户把
+     * 「读不到」误读成「功能坏了」。
+     */
+    fun canReadLiveCounts(features: List<Any>): Boolean =
+        features.filterIsInstance<BaseFeature>().any { it.hookInstalledCount > 0 }
+
     /**
      * 由 [FeaturesLoader] 在加载结束后一次性写入。
      *
@@ -151,6 +258,18 @@ object FeatureHealth {
                 TAG,
                 "健康检查: ${list.size} 个功能中 ${problems.size} 个未生效 —— " +
                         problems.joinToString("; ") { "${it.name}(${it.status})" }
+            )
+        }
+
+        // 单独打一行：这行回答的是「功能都装了，但有多少 hook 其实从来没被调用」。
+        // 与锚点检查互补：锚点说「没找到目标」，这里说「找到了但没人调」。
+        val idleHooks = list.filter { it.hasIdleHooks }
+        if (idleHooks.isNotEmpty()) {
+            WeLogger.w(
+                TAG,
+                "调用检查: ${idleHooks.size} 个功能挂了 hook 但本次未被调用" +
+                        "（可能微信改了调用路径）—— " +
+                        idleHooks.joinToString("; ") { "${it.name}(${it.installedHooks}个hook)" }
             )
         }
 
@@ -208,8 +327,19 @@ object FeatureHealth {
             it.status == Status.DISABLED || it.status == Status.SKIPPED_PROCESS
         }
         val anchorHoles = list.filter { it.hasMissingAnchors }
-        sb.appendLine("汇总: 正常 $okCount / 未生效 ${problems.size} / 未启用 $offCount / 共 ${list.size}")
+        val idleHooks = list.filter { it.hasIdleHooks }
+        sb.appendLine("汇总: 正常 $okCount / 未生效 ${problems.size} / 未启用 $offCount" +
+                " / hook 空转 ${idleHooks.size} / 共 ${list.size}")
         sb.appendLine()
+
+        if (idleHooks.isNotEmpty()) {
+            sb.appendLine("── hook 已装但从未被调用（可能微信改了调用路径）──")
+            sb.appendLine("共 ${idleHooks.size} 个功能")
+            idleHooks.sortedBy { it.name }.forEach {
+                sb.appendLine("• ${it.name} — 挂了 ${it.installedHooks} 个 hook，调用 0 次")
+            }
+            sb.appendLine()
+        }
 
         if (anchorHoles.isNotEmpty()) {
             val live = anchorHoles.filter { !it.hasMissingAnchorsWhileDisabled }
@@ -243,15 +373,22 @@ object FeatureHealth {
         list.sortedWith(compareBy({ !it.isProblem }, { it.name })).forEach {
             val mark = when {
                 it.isProblem -> "✗"
+                it.hasIdleHooks -> "○"
                 it.hasMissingAnchorsWhileDisabled -> "◇"
                 it.hasMissingAnchors -> "△"
                 else -> "✓"
             }
-            val suffix = if (it.hasMissingAnchors) " · 锚点缺 ${it.missingAnchors.size}" else ""
+            val suffix = buildString {
+                if (it.hasMissingAnchors) append(" · 锚点缺 ${it.missingAnchors.size}")
+                // 只给已启用的功能显示调用数，未启用本来就不会调。
+                if (it.status == Status.LOADED && it.installedHooks > 0) {
+                    append(" · hook ${it.hookCalls} 次")
+                }
+            }
             sb.appendLine("$mark ${it.name} — ${it.status}$suffix")
         }
         sb.appendLine()
-        sb.appendLine("图例: ✓正常  △已启用但锚点落空  ◇未启用但锚点已坏  ✗未生效")
+        sb.appendLine("图例: ✓正常  △已启用但锚点落空  ◇未启用但锚点已坏  ○hook装了却没被调用  ✗未生效")
         return sb.toString().trimEnd()
     }
 }
