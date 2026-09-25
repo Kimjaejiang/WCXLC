@@ -86,9 +86,10 @@ object SecretFriendState {
 
     // ─────────────────────────── 名单 ───────────────────────────
 
-    /** 当前名单（JSON 反序列化）；首次调用触发旧键懒迁移。 */
+    /** 当前名单（JSON 反序列化）；首次调用触发两套旧键的懒迁移。 */
     fun getMaskItems(): List<MaskItem> {
         migrateLegacyListIfNeeded()
+        migrateHiddenContactsIfNeeded()
         return parseMaskList(WePrefs.getStringOrDef(KEY_MASK_LIST, "[]"))
     }
 
@@ -136,6 +137,16 @@ object SecretFriendState {
     /** 名单是否为空（隐藏类开关据此跳过全部逻辑，零开销）。 */
     fun isEmpty(): Boolean = !isSecretFriendMasterOn() || getMaskItems().isEmpty()
 
+    /**
+     * 标题手势类功能是否应生效。
+     *
+     * 与 [isEmpty] 的差别：标题手势的作用对象是**名单本身**（切换整份名单的显示/隐藏），
+     * 所以「主控关闭」不应让它失效——主控关意味着名单暂时不生效，但用户仍可能想用
+     * 手势切换，且手势本身无副作用。这里只看「是否真的有人可切换」，
+     * 用不受主控约束的存储名单。
+     */
+    fun isEnabledForGesture(): Boolean = getStoredWxIds().isNotEmpty()
+
     fun findMaskItem(wxId: String?): MaskItem? =
         if (wxId.isNullOrEmpty()) null else getMaskItems().firstOrNull { it.maskId == wxId }
 
@@ -156,7 +167,14 @@ object SecretFriendState {
         return array.toString()
     }
 
-    /** 旧键懒迁移：maskList 缺失而旧 string set 非空时，把旧名单转成默认条目。 */
+    /**
+     * 旧键懒迁移：maskList 缺失而旧 string set 非空时，把旧名单转成默认条目。
+     *
+     * 注意这里的「maskList 已存在就直接返回」是有意为之——它是密友自己早期的
+     * `secret_friend_wxids` 键，语义与 maskList 完全同构，无需合并。
+     * 「隐藏联系人」的名单是**另一套**语义（见 [KEY_LEGACY_HIDDEN_CONTACTS]），
+     * 两者可能同时存在且互相不覆盖，故单独由 [migrateHiddenContactsIfNeeded] 处理。
+     */
     private fun migrateLegacyListIfNeeded() {
         if (WePrefs.getBoolOrDef(KEY_LEGACY_MIGRATED, false)) return
         if (WePrefs.containsKey(KEY_MASK_LIST)) {
@@ -171,6 +189,46 @@ object SecretFriendState {
         WePrefs.putString(KEY_MASK_LIST, serializeMaskList(legacy.map { MaskItem(maskId = it) }))
         WePrefs.putBool(KEY_LEGACY_MIGRATED, true)
         WeLogger.i(TAG, "migrated ${legacy.size} wxid(s) from legacy key $KEY_LEGACY_WXIDS")
+    }
+
+    /** 「隐藏联系人」功能的名单键；合并后仅用于一次性迁移，不再作为数据源。 */
+    const val KEY_LEGACY_HIDDEN_CONTACTS = "hidden_contacts"
+    private const val KEY_HIDDEN_CONTACTS_MERGED = "hidden_contacts_merged_into_masklist"
+
+    /**
+     * 把「隐藏联系人」的名单并入 maskList（功能合并）。
+     *
+     * 与原 `migrateLegacyListIfNeeded` 的关键差别：这里做的是**并集**，不是「已有就跳过」。
+     * 用户很可能两边都维护过名单，跳过任一方的数据都会表现为「联系人莫名不再隐藏」。
+     *
+     * 迁移条目的字段取值刻意保守，保证不改变用户现有观感：
+     * - `tipMode = TIP_MODE_SILENT`：隐藏联系人原本就不发提示，取 ALERT 会凭空多出提醒；
+     * - `mapId = DEFAULT_MAP_ID`：与密友新建条目一致（伪装为微信支付商家助手）；
+     * - `tagName`/`tipMess` 留空。
+     * 已有 maskList 条目一律保留原五字段，只追加缺失的 wxid。
+     *
+     * 旧键**不删除**：迁移标记为一次性，键留着以便回滚与排查。
+     */
+    private fun migrateHiddenContactsIfNeeded() {
+        if (WePrefs.getBoolOrDef(KEY_HIDDEN_CONTACTS_MERGED, false)) return
+        val hidden = WePrefs.getStringSetOrDef(KEY_LEGACY_HIDDEN_CONTACTS, emptySet())
+        if (hidden.isEmpty()) {
+            WePrefs.putBool(KEY_HIDDEN_CONTACTS_MERGED, true)
+            return
+        }
+        val existing = parseMaskList(WePrefs.getStringOrDef(KEY_MASK_LIST, "[]"))
+        val known = existing.mapTo(mutableSetOf()) { it.maskId }
+        val added = hidden.filter { it.isNotEmpty() && it !in known }
+        WePrefs.putString(
+            KEY_MASK_LIST,
+            serializeMaskList(existing + added.map { MaskItem(maskId = it) })
+        )
+        WePrefs.putBool(KEY_HIDDEN_CONTACTS_MERGED, true)
+        WeLogger.i(
+            TAG,
+            "merged ${added.size} hidden-contact wxid(s) into maskList " +
+                "(kept ${existing.size} existing, legacy key $KEY_LEGACY_HIDDEN_CONTACTS retained)"
+        )
     }
 
     // ─────────────────────── 名单变动通知 ───────────────────────
@@ -200,19 +258,46 @@ object SecretFriendState {
         System.currentTimeMillis() < WePrefs.getLongOrDef(KEY_TEMP_UNTIL, 0L)
 
     /**
+     * 表示「临时显示无到期时间」的哨兵值（见 [tempShowUntil]）。
+     *
+     * 注意它必须配 [scheduleTempExpiry] 的溢出保护使用：`until - now` 在 until 取
+     * Long.MAX_VALUE 时会溢出为负数，若不额外判断就会走成「delay<=0 直接不排程」——
+     * 结果虽也是「不自动恢复」，但那属于巧合，一旦有人改动算式就会静默失效。
+     * 故在 [scheduleTempExpiry] 里显式识别本哨兵。
+     */
+    const val TEMP_SHOW_FOREVER = Long.MAX_VALUE
+
+    /**
+     * 临时显示到指定的绝对时刻（epoch 毫秒）。用于「定时显示/隐藏」这类
+     * **由外部决定时长**的场景——它的语义是「显示到下一次定时触发为止」，
+     * 而不是 [tempShowForMinutes] 的默认 30 分钟。
+     *
+     * 若不提供本入口、直接复用 [tempShowForMinutes]，定时器设的 SHOW 会在 30 分钟后
+     * 被到期定时器自动收回（表现为「定时显示只生效半小时」），
+     * 而用户配置的是「08:00 显示、20:00 隐藏」，两者不符。
+     *
+     * [until] 若已过去则直接走 [tempOff]，不留下一个无意义的时间戳。
+     */
+    fun tempShowUntil(until: Long, context: Context? = null) {
+        if (until != TEMP_SHOW_FOREVER && until <= System.currentTimeMillis()) {
+            tempOff(context)
+            return
+        }
+        WePrefs.putLong(KEY_TEMP_UNTIL, until)
+        WeLogger.i(TAG, "temporarily showing secret friends until $until")
+        showToastIfEnabled(context, toastTempShown)
+        HideConversations.restoreHiddenRows()
+        WeConversationApi.reloadConversations()
+        scheduleTempExpiry(until)
+    }
+
+    /**
      * 临时解除隐藏（时长取 [tempShowMinutes]，可用参数覆盖）。到期由 [scheduleTempExpiry]
      * 主动恢复；各隐藏钩子按 [isTemporarilyShown] 被动过滤。
      * 触发主页会话列表刷新，使 SQL 过滤立即放行密友行。
      */
     fun tempShowForMinutes(context: Context? = null, minutes: Int = tempShowMinutes.coerceIn(1, 1440)) {
-        val until = System.currentTimeMillis() + minutes * 60_000L
-        WePrefs.putLong(KEY_TEMP_UNTIL, until)
-        WeLogger.i(TAG, "temporarily showing secret friends for $minutes min")
-        showToastIfEnabled(context, toastTempShown)
-        // 此前为隐藏而删除的会话行在此重建，否则临时解除后列表无行可显
-        HideConversations.restoreHiddenRows()
-        WeConversationApi.reloadConversations()
-        scheduleTempExpiry(until)
+        tempShowUntil(System.currentTimeMillis() + minutes * 60_000L, context)
     }
 
     /**
@@ -221,6 +306,10 @@ object SecretFriendState {
      * 仅当 [KEY_TEMP_UNTIL] 未被更新（期间没有再次解除/手动恢复）时动作。
      */
     private fun scheduleTempExpiry(until: Long) {
+        // 无到期时间（定时显示到下次触发才改）：不排程，由后续的 tempOff 收回。
+        // 必须显式判断——放任 `until - now` 溢出为负虽然也会走到下面的 return，
+        // 但那是巧合而非意图，改动算式即会静默失效。
+        if (until == TEMP_SHOW_FOREVER) return
         val delay = until - System.currentTimeMillis() + 300L
         if (delay <= 0) return
         mainHandler.postDelayed({
@@ -233,15 +322,46 @@ object SecretFriendState {
 
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
-    /** 立即恢复隐藏（锁屏 / 离开对话 / 离开微信 / 指令 / 到期）。 */
+    /**
+     * 立即恢复隐藏（锁屏 / 离开对话 / 离开微信 / 指令 / 到期）。
+     *
+     * 注意这里**不能**用 [isTemporarilyShown] 做前置守卫。原先的
+     * `if (!isTemporarilyShown()) return` 是错误的：该函数判定的是「当前时间 < 到期时间戳」，
+     * 一旦自然到期，条件即为假，于是 tempOff 空转 —— 时间戳没归零、
+     * [HideConversations.removeSecretRows] 也不会执行，临时显示期间新产生的会话行
+     * 就永久留在列表上（表现为「切不出隐藏」）。同理，到期后用户手动点「恢复隐藏」
+     * 也会被这行挡掉。
+     *
+     * 改为按「是否还有需要回滚的状态」判断：到期时间戳非 0（无论是否已过期），
+     * 或名单里仍有密友需要隐藏（此时即使时间戳为 0，也可能存在临时显示期间
+     * 新产生的行未清理）。两者都为空才算无事可做。
+     */
     fun tempOff(context: Context? = null) {
-        if (!isTemporarilyShown()) return
+        val until = WePrefs.getLongOrDef(KEY_TEMP_UNTIL, 0L)
+        val stillSecret = getWxIds().isNotEmpty()
+        if (until == 0L && !stillSecret) return
         WePrefs.putLong(KEY_TEMP_UNTIL, 0L)
-        WeLogger.i(TAG, "temporarily-show state cleared")
+        WeLogger.i(TAG, "temporarily-show state cleared (was=$until, secretCount=${getWxIds().size})")
         showToastIfEnabled(context, toastTempOff)
         // 临时展示期间新产生的会话行统一删除（reload 不会重建列表，必须删行才隐藏）
         HideConversations.removeSecretRows()
         WeConversationApi.reloadConversations()
+    }
+
+    /**
+     * 只清除临时显示标记，**不做任何会话行操作**（不删行、不重建、不刷新列表）。
+     *
+     * 与 [tempOff] 的区别就是这一点：tempOff 是「回到隐藏」，要删掉临时显示期间新产生的行；
+     * 而本函数用于「功能被关闭」这类场景——用户的本意是不再隐藏，此时若再删一遍会话行，
+     * 主页会直接少掉这些聊天，属于与用户意图相反的破坏性副作用。
+     *
+     * 调用方自行决定是否刷新列表。
+     */
+    fun clearTemporarilyShown() {
+        val until = WePrefs.getLongOrDef(KEY_TEMP_UNTIL, 0L)
+        if (until == 0L) return
+        WePrefs.putLong(KEY_TEMP_UNTIL, 0L)
+        WeLogger.i(TAG, "temporarily-show flag cleared without touching rows (was=$until)")
     }
 
     // ─────────────────────── 提示自定义 ───────────────────────

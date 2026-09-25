@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import com.tencent.mm.ui.LauncherUI
 import com.tencent.mm.ui.chatting.ChattingUI
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import com.Johnny.wcx.ui.content.m3.TextFieldDialogWidget
 import com.Johnny.wcx.dexkit.abc.IResolveDex
@@ -40,7 +41,7 @@ import java.lang.ref.WeakReference
 @Feature(
     name = "多击标题解除",
     categories = ["密友功能"],
-    description = "连续点击微信主页标题可临时解除隐藏 30 分钟（点击次数与时间窗口可调）"
+    description = "连续点击微信主页标题可切换临时显示/恢复隐藏（点击次数与时间窗口可调）"
 )
 object MultiClickTitleUnlock : SwitchFeature() {
 
@@ -53,13 +54,44 @@ object MultiClickTitleUnlock : SwitchFeature() {
     var clickWindowMs by prefOption("secret_friend_unlock_click_window_ms", 1000)
 
     private var clickCounter = 0
-    private var lastClickAt = 0L
     private var warnedTitleMissing = false
 
+    /**
+     * 接入统一标题手势分发点（见 [SecretFriendTitleGesture]）。
+     *
+     * 旧实现自己 `setOnClickListener`，与 HideContacts 的「三击标题」抢同一个监听器，
+     * 后启用者覆盖前者，导致两者之一永久失效。现在只声明配置，由分发点统一装配。
+     */
+    private val gestureSource = object : SecretFriendTitleGesture.Source {
+        override val name = TAG
+        override fun clickSpec(): SecretFriendTitleGesture.ClickSpec? {
+            if (!SecretFriendState.isEnabledForGesture()) return null
+            return SecretFriendTitleGesture.ClickSpec(
+                count = clickCount.coerceAtLeast(2),
+                windowMs = clickWindowMs.coerceAtLeast(200).toLong()
+            )
+        }
+
+        override fun longPressMs(): Long? = null
+        override fun onClickTriggered() {
+            // 与「长按标题解除」保持同一语义：同一个手势做**切换**而不是单向显示。
+            //
+            // 原先这里无条件调 tempShowForMinutes()，于是已临时显示时再点一次只是把
+            // 到期时间往后推——用户看不到任何反馈，也回不到隐藏，表现为
+            // 「多击只能显示、不能恢复隐藏」。
+            if (SecretFriendState.isTemporarilyShown()) {
+                WeLogger.i(TAG, "title multi-click: restoring hidden state")
+                SecretFriendState.tempOff()
+            } else {
+                WeLogger.i(TAG, "title multi-click unlock triggered")
+                SecretFriendState.tempShowForMinutes()
+            }
+        }
+
+        override fun onLongPressTriggered() = Unit
+    }
+
     override fun onEnable() {
-        // LauncherUI.onResume 后标题布局已就绪; 与 HideContacts 的三击标题互不干扰
-        // (本开关挂 setOnClickListener, HideContacts 亦挂同名监听, 后启用的替换前者——
-        //  两个功能都开时以最后启用者为准, 界面上有各自开关说明)
         val resumeHook = runCatching {
             LauncherUI::class.reflekt()
                 .firstMethod {
@@ -70,33 +102,50 @@ object MultiClickTitleUnlock : SwitchFeature() {
             WeLogger.e(TAG, "hook LauncherUI.onResume failed; multi-click unlock unavailable", it)
             return
         }
+        SecretFriendTitleGesture.register(gestureSource)
+        WeLogger.i(TAG, "multi-click unlock registered (count=$clickCount, window=${clickWindowMs}ms)")
         resumeHook.hookAfter {
-                val activity = thisObject as? android.app.Activity ?: return@hookAfter
-                val root = activity.window?.decorView ?: return@hookAfter
-                root.post {
-                    val title = SecretFriendState.findHomeTitleTextView(root)
-                    if (title == null) {
-                        if (!warnedTitleMissing) {
-                            warnedTitleMissing = true
-                            WeLogger.w(TAG, "home title view not found; multi-click unlock not attached")
-                        }
-                        return@post
-                    }
-                    WeLogger.i(TAG, "multi-click unlock attached to ${title.javaClass.name}")
-                    title.setOnClickListener { view ->
-                        if (SecretFriendState.isEmpty()) return@setOnClickListener
-                        val now = System.currentTimeMillis()
-                        if (now - lastClickAt > clickWindowMs.coerceAtLeast(200)) clickCounter = 1
-                        else clickCounter++
-                        lastClickAt = now
-                        if (clickCounter >= clickCount.coerceAtLeast(2)) {
-                            clickCounter = 0
-                            WeLogger.i(TAG, "title multi-click unlock triggered")
-                            SecretFriendState.tempShowForMinutes(view.context)
-                        }
-                    }
-                }
-            }
+            (thisObject as? android.app.Activity)?.let { SecretFriendTitleGesture.attach(it) }
+        }
+    }
+
+    override fun onDisable() {
+        SecretFriendTitleGesture.unregister(gestureSource)
+    }
+
+    /**
+     * 调节入口：连续点击次数与计次窗口。
+     *
+     * 原先本功能只有开关、没有可调项，而 `@Feature` 描述却写着「点击次数与时间窗口可调」
+     * —— 用户找不到入口。这里补上，与「长按标题解除」的同名入口保持一致的交互。
+     *
+     * 改完无需重挂监听：[gestureSource].clickSpec() 是每次点击时求值的，
+     * 直接读到最新 pref。
+     */
+    @Composable
+    override fun Ui() {
+        Column {
+            TextFieldDialogWidget(
+                title = "连续点击次数",
+                value = clickCount.toString(),
+                onValueChange = { raw ->
+                    raw.filter { it.isDigit() }.take(2).toIntOrNull()?.let { clickCount = it }
+                },
+                dialogTitle = "连续点击次数（2–10）",
+                confirmLabel = "确定",
+                dismissLabel = "取消",
+            )
+            TextFieldDialogWidget(
+                title = "计次窗口(毫秒)",
+                value = clickWindowMs.toString(),
+                onValueChange = { raw ->
+                    raw.filter { it.isDigit() }.take(5).toIntOrNull()?.let { clickWindowMs = it }
+                },
+                dialogTitle = "计次窗口（毫秒，200–5000）",
+                confirmLabel = "确定",
+                dismissLabel = "取消",
+            )
+        }
     }
 }
 
@@ -120,19 +169,35 @@ object LongPressTitleUnlock : SwitchFeature() {
     /** 长按触发时长毫秒（默认 800）。 */
     var longPressMs by prefOption("secret_friend_long_press_ms", 800)
 
-    private val handler = Handler(Looper.getMainLooper())
-    private var pending = false
-    private var warnedTitleMissing = false
+    /**
+     * 接入统一标题手势分发点（见 [SecretFriendTitleGesture]）。
+     *
+     * 旧实现自己 `setOnTouchListener`。虽然 `OnTouchListener` 与 `OnClickListener` 不直接
+     * 互相覆盖，但「多击」与「三击」两个 `OnClickListener` 互相覆盖的问题仍存在，
+     * 且三处各自维护越界判定/计时/ACTION_CANCEL 处理，行为不一致。
+     * 现在统一由分发点处理原始触摸流，长按与多击互斥（长按触发后本次抬手不计点击）。
+     */
+    private val gestureSource = object : SecretFriendTitleGesture.Source {
+        override val name = TAG
+        override fun clickSpec(): SecretFriendTitleGesture.ClickSpec? = null
 
-    private val triggerRunnable = Runnable {
-        if (!pending) return@Runnable
-        pending = false
-        if (SecretFriendState.isTemporarilyShown()) {
-            WeLogger.i(TAG, "title long-press: restoring hidden state")
-            SecretFriendState.tempOff()
-        } else {
-            WeLogger.i(TAG, "title long-press unlock triggered")
-            SecretFriendState.tempShowForMinutes()
+        override fun longPressMs(): Long? =
+            if (SecretFriendState.isEnabledForGesture()) {
+                longPressMs.coerceIn(300, 5000).toLong()
+            } else {
+                null
+            }
+
+        override fun onClickTriggered() = Unit
+
+        override fun onLongPressTriggered() {
+            if (SecretFriendState.isTemporarilyShown()) {
+                WeLogger.i(TAG, "title long-press: restoring hidden state")
+                SecretFriendState.tempOff()
+            } else {
+                WeLogger.i(TAG, "title long-press unlock triggered")
+                SecretFriendState.tempShowForMinutes()
+            }
         }
     }
 
@@ -147,49 +212,15 @@ object LongPressTitleUnlock : SwitchFeature() {
             WeLogger.e(TAG, "hook LauncherUI.onResume failed; long-press unlock unavailable", it)
             return
         }
+        SecretFriendTitleGesture.register(gestureSource)
+        WeLogger.i(TAG, "long-press unlock registered (threshold=${longPressMs}ms)")
         resumeHook.hookAfter {
-                val activity = thisObject as? android.app.Activity ?: return@hookAfter
-                val root = activity.window?.decorView ?: return@hookAfter
-                root.post {
-                    val title = SecretFriendState.findHomeTitleTextView(root)
-                    if (title == null) {
-                        if (!warnedTitleMissing) {
-                            warnedTitleMissing = true
-                            WeLogger.w(TAG, "home title view not found; long-press unlock not attached")
-                        }
-                        return@post
-                    }
-                    // TextView 不可点击时触摸流（MOVE/UP）会被父级接管，自计时无法正常工作，
-                    // 必须显式置为可点击/可长按（重复 onResume 挂监听是替换语义，不叠加）
-                    title.isClickable = true
-                    title.isLongClickable = true
-                    val touchSlop = ViewConfigurationCompat.scaledTouchSlop(title)
-                    title.setOnTouchListener { view, event ->
-                        when (event.actionMasked) {
-                            MotionEvent.ACTION_DOWN -> {
-                                pending = true
-                                handler.postDelayed(triggerRunnable, longPressMs.coerceIn(300, 5000).toLong())
-                            }
+            (thisObject as? android.app.Activity)?.let { SecretFriendTitleGesture.attach(it) }
+        }
+    }
 
-                            MotionEvent.ACTION_MOVE -> {
-                                // 手指滑出标题区域即取消（自计时版本需要自己判越界）
-                                if (event.x < -touchSlop || event.y < -touchSlop ||
-                                    event.x > view.width + touchSlop || event.y > view.height + touchSlop
-                                ) {
-                                    pending = false
-                                    handler.removeCallbacks(triggerRunnable)
-                                }
-                            }
-
-                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                                pending = false
-                                handler.removeCallbacks(triggerRunnable)
-                            }
-                        }
-                        false // 不消费: 正常点击派发不受影响, 与「多击标题解除」可同时启用
-                    }
-                }
-            }
+    override fun onDisable() {
+        SecretFriendTitleGesture.unregister(gestureSource)
     }
 
     @Composable

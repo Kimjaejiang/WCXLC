@@ -25,6 +25,144 @@
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
 > ⚠️ 标记「已随 v247」的条目：v247 重构合入后**采用上游实现，本地无独有代码保留**（上游已含同等能力），仅作功能存档。
 
+### 2026-09-26
+
+- **🐛 密友「主页会话隐藏」反复崩溃根治 · 删行+快照重建 → 纯查询过滤（A1）**
+  - 涉及文件：`features/items/secret_friend/SecretFriendCoreHiding.kt`（`HideConversations` 对象整体重写）
+  - 现象：微信 8.0.78 主页会话列表**反复崩溃**，两种栈：
+    - 旧栈：`Resources$NotFoundException: Resource ID #0x0` → `NoMeasuredTextView.setCompoundLeftDrawablesWithIntrinsicBounds(0)` → `jo5.y0.getView`（主页列表 UI 渲染）
+    - A1 后新栈：`NullPointerException: contact.s.m2()` on null → `storage.u9.b/a` → `storage.s9.invokeSuspend`（存储层协程读数据）
+  - 关键实测（锁定为**主微信数据目录里的坏行**）：**关模块还崩 / 升级微信还崩 / 微信分身不崩**（分身库干净）。
+  - 根因：`HideConversations` 用「`delChatContact` 物理删行 + 快照 INSERT 重建」实现即时隐藏。快照只存部分列、类型处理不完整，`restoreHiddenRows()` 用 `insertWithOnConflict(REPLACE)` 重建出的行**字段残缺**（`convItem.f321932i=0` → `getDrawable(0)` 崩溃）。且删行前捕获快照的 `SELECT * FROM rconversation` 是微信加密库，跨进程 JSON 持久化快照再还原时**类型/字段必然失真**。
+  - 修复（A1 方案）：**彻底移除删行 + 快照重建机制**，隐藏**完全依赖查询过滤**：
+    - 保留 `methodSqliteWrapperRawQuery` wrapper 钩子 + `onQuery` 的 `rewriteConversationSql`（对 `from rconversation` 多行查询注入 `username NOT IN (名单)`）；
+    - 删除：`delChatContact` 删行、`rowSnapshots` 快照捕获/JSON 持久化/`insertWithOnConflict` 重建、`pickConversationDb`/`hasConversationTable` 库探测、`onInsert`/`onUpdate` 监听器删行兜底，整套写入 rconversation 的路径全部移除；
+    - 保留三个外部调用签名（`restoreHiddenRows()`/`removeSecretRows()`/`reconcileOnListChange()`，改为**纯 `reloadConversations()` 刷新**，供 `SecretFriendState`/`SecretFriendManager`/`HideContacts` 调用）；
+    - import 清理（移除 `ContentValues`/`Base64`/`WePrefs`/`runOnUiThread`/`SQLiteDatabase`/`JSONObject`/`ConcurrentHashMap`）。
+  - 存量坏行：A1 只防未来不写坏，**已写坏的存量行**需清库。本机用 root 删 `/data/data/com.tencent.mm/`（42GB）重建干净库 + 重新登录，崩溃根治（实测不再崩）。
+  - 教训：**往微信核心表（rconversation/rcontact）做「删行 + 重建 / 部分列 INSERT」是高风险操作**——重建字段一旦残缺，会在**微信自己的存储层/UI 层**爆出看似与模块无关的崩溃（栈里无模块帧），极易误判为微信自身 bug。**能只读过滤（SQL NOT IN / 钩子拦截）就绝不物理删行重建。**
+
+- **📋 核查结论 · 对话归拢（ConversationAggregation）非坏行来源，无需改动**
+  - 涉及文件：`features/items/chat/ConversationAggregation.kt`（**未修改**）
+  - 排查：崩根因明确后，审查归拢是否同样写坏 rconversation。核实其写入均为**显式 SQL**（`INSERT OR IGNORE` 部分列建行、`UPDATE` 显式列名赋值），值类型正确（`''`/`0`/`flag` 位运算保留原高位），与密友「删行+ContentValues 快照重建」的坏行机制**不同**——归拢不会把已有行写残缺，且其 `wekit_folder_*` 行微信按特殊行处理、不走联系人 `m2()` 逻辑。
+  - 结论：归拢**保持现状不动**（避免为不存在的隐患去动一个复杂且当前功能正常的模块）。已实机确认归拢正常。
+
+### 2026-09-25
+
+- **🐛 移除通话时聊天限制 · `checkAppBrandCameraUsing` 的 `paramCount` 一直被写错（0 参而非 2 参）**
+  - 涉及文件：`features/items/voip/RemoveLimitsDuringCalls.kt`
+  - 现象：该锚点长期解析失败、降级为 placeholder；健康检查里这个功能始终挂着未命中条目。
+  - 根因：匹配串 `checkAppBrandCameraUsing isVoiceUsing:%b, isCameraUsing:%b` 里有**两个 `%b`**，
+    上游据此推断「方法有 2 个 boolean 参数」，写成 `paramCount = 2`。**这个推断是错的** ——
+    反编译 8.0.78 的 `pq.b`（即 `MicroMsg.DeviceOccupy`，位于第 16 个 dex）确认该方法真身是
+    `public static boolean a()`，**0 个参数**；两个 `%b` 是传给 `Log.i` 的实参，与签名无关。
+  - 修复：`paramCount` 改为 `0`。挂载数由 **9 → 10**，`checkAppBrandCameraUsing`
+    从 placeholder 日志中消失。
+  - 教训：**日志格式串里的占位符个数 ≠ 方法参数个数**。`%b` 对应的是日志参数，
+    真正的参数信息只能来自反编译签名或 DexKit 的 `paramTypes`。
+
+- **🐛 解除消息多选数量限制 · 跨 Feature 读 `.clazz` 导致两个锚点恒失败**
+  - 涉及文件：`features/items/chat/RemoveMessageSelectionLimit.kt`
+  - 现象：每次启动必报
+    `DexKit findMethod failed for key: RemoveMessageSelectionLimit:methodToggleMessageSelection, error: Class not found for key: WeMessageApi:classChattingDataAdapter`，
+    两个锚点（`methodToggleMessageSelection` / `methodGetSelectedMessageCount`）一同降级。
+  - 根因：两个 matcher 里写的是 `declaredClass(WeMessageApi.classChattingDataAdapter.clazz)` ——
+    `classChattingDataAdapter` 是 **`WeMessageApi` 这个 feature 的委托**，与本体没有解析顺序保证。
+    而 `resolveAllDex` 的执行顺序是
+    `resolveInlineDex(dexKit)`（逐个 `findInline`）→ `resolveDex(dexKit)`，
+    前者跑的时候 `classChattingDataAdapter` 往往还没解析，读 `.clazz` 立即抛
+    `Class not found for key: ...`（`DexClassDelegate.clazz` 对未解析状态直接 `error()`），
+    异常被 `DexMethodDelegate.find` 的 `catch (Throwable)` 吞掉，锚点就此定格为 placeholder。
+  - 修复：把类锚点**搬进本 feature 自持**，改用类自身的字符串特征定位，彻底消除跨 feature 顺序依赖：
+    ```kotlin
+    private val classChattingDataAdapter by dexClass(allowFailure = true) {
+        matcher {
+            usingEqStrings(
+                "MicroMsg.ChattingDataAdapterV3",
+                "[handleMsgChange] isLockNotify:",
+            )
+        }
+    }
+    ```
+    并在 `resolveDex` 里先 `classChattingDataAdapter.findInline(dexKit)`，再解析四个方法。
+  - 目标类核对（8.0.78 实证）：`com.tencent.mm.ui.chatting.adapter.k`，其 `e1()` 中
+    `Log.i("MicroMsg.ChattingDataAdapterV3", "[handleMsgChange] isLockNotify:" + ...)`，
+    两串确实同处该类，matcher 条件本身正确 —— **问题只在解析时机**。
+  - 真机验证（清空 `dex_cache` 后冷启动全量重建）：缓存写入
+    `classChattingDataAdapter = com.tencent.mm.ui.chatting.adapter.k`、
+    `methodToggleMessageSelection = ...adapter/k;->k1(Lcom/tencent/mm/plugin/msg/MsgIdTalker;)Z`、
+    `methodGetSelectedMessageCount = ...adapter/k;->Z0()I`；
+    日志中不再出现任何 `Class not found for key: WeMessageApi:classChattingDataAdapter`，
+    `锚点检查` 的「功能已启用…未命中」一条彻底归零。
+  - 教训：**内联 matcher 不要依赖另一个 Feature 的委托**。`resolveAllDex` 先跑 `resolveInlineDex`，
+    此时其它 feature 的委托尚未解析，读 `.clazz` 必然抛错；跨 feature 依赖应改为自包含特征锚点。
+
+- **🐛 自动同意好友申请 · `methodVerifyOkClick` 为已移除的备用路径（标注 `intentionallyAbsent`）**
+  - 涉及文件：`features/items/chat/AutoAcceptFriendRequests.kt`
+  - 说明：该锚点指向 `VerifyUserUtil` 的 verify-ok-clicked 特征串，8.0.78 已删除。
+    它只是 `ifEmpty` 里的**备用路径**，主路径（`ctorVerifyUserAccept` + 轮询）工作正常，
+    功能不受影响 —— **已由维护者在真机实测确认，自动同意好友请求可正常完成**。
+    此前手写 `intentionallyAbsent = true` 是**进程内瞬时状态**，
+    设置页进程拿不到（那里本 feature 的 `resolveDex` 从不执行），故改为
+    `setPlaceholderDescriptor(reason = ...)`，让该标志随 DEX 缓存跨进程持久化。
+  - 效果：消除一条永不修复的假异常，不再淹没真正的锚点失效。
+
+- **🐛 会话列表 View 绑定监听服务 · legacy `getView` 已从宿主移除（标注 `intentionallyAbsent`）**
+  - 涉及文件：`features/api/ui/WeConversationListViewApi.kt`
+  - 现象：`methodLegacyGetView` 长期落空（`methodMvvmGetView` 一直命中）。
+  - 根因核实（解包 8.0.78 全部 17 个 dex 逐个搜字符串）：
+    - 完整 dup 日志 `Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d`
+      **全包只出现在 `jo5.y0.getView` 一处**，而它持有的是
+      `MicroMsg.ConversationAdapter.MvvmConversationAdapter` 标签 —— 即**已被 `methodMvvmGetView` 命中的那个**。
+    - 持 `MicroMsg.ConversationWithCacheAdapter` 标签的 `jo5.e` 是 `abstract` 基类，**没有 `getView`**。
+    - matcher 要求两串同处一类，在当前版本下**无解**。
+  - 结论：**不是 matcher 写错，是微信已把会话列表全面 mvvm 化、legacy `getView` 不复存在**。
+    功能本身不受影响 —— `hookBinding` 的两个入口只要有一个命中，监听就能装上。
+    已在 `resolveDex` 中按 `isPlaceholder` 判定并标记 `intentionallyAbsent`。
+  - **真机实测（已验证，非推断）**：在 `hookBinding` 内加了三行诊断日志后实机滑动会话列表：
+    ```
+    14:47:55.019  hookBinding: methodLegacyGetView 未解析成功，跳过（不参与绑定）
+    14:47:55.020  onEnable 完成: legacyPlaceholder=true, mvvmPlaceholder=false, calls=0
+    14:47:55.550  hook 首次回调: methodMvvmGetView，绑定链路已生效
+    ```
+    滑动后 **0.53 秒**即触发回调，证明绑定链路真的通了 ——
+    **既确认了 legacy 锚点确实缺失，也确认了功能由 mvvm 链路正常支撑**，
+    标 `intentionallyAbsent` 是如实上报而非掩盖。
+
+- **🛠️ Dex 委托 · 新增独立的 `ABSENT_DESCRIPTOR` 哨兵（让「刻意缺席」跨进程持久化）**
+  - 涉及文件：`dexkit/dsl/DexDelegates.kt`（`DexClassDelegate` / `DexFieldDelegate` /
+    `DexMethodDelegate` / `DexConstructorDelegate`）
+  - 背景：`intentionallyAbsent` 原是一个普通字段，**只存在于设置它的那个进程**。
+    而「模块自检」页跑在设置页进程，那里归属功能的 `resolveDex()` 从不执行，
+    标志必然丢失 —— 于是刻意缺席的锚点从缓存（缓存只存哨兵描述符字符串）恢复后，
+    看起来与普通「锚点失效」一模一样，继续被报成异常。
+  - 修复：新增与 `PLACEHOLDER_DESCRIPTOR` **并列的** `ABSENT_DESCRIPTOR`，
+    `setPlaceholderDescriptor(reason != null)` 时写后者；
+    `isPlaceholder`、`method` / `field` / `clazz` / `constructor` 的守卫同时接受两种哨兵；
+    `intentionallyAbsent` 改为 `get() = field || descriptor == ABSENT_DESCRIPTOR`。
+    哨兵取值（method/constructor 与 field / class 各自一套）：
+    - method/constructor：`Lcom/tencent/mm/ui/LauncherUI;->getInstanceIntentionallyAbsent()Lcom/tencent/mm/ui/LauncherUI;`
+    - field：`Lcom/tencent/mm/ui/LauncherUI;->INSTANCE_INTENTIONALLY_ABSENT:Lcom/tencent/mm/ui/LauncherUI;`
+    - class：`com.tencent.mm.ui.LauncherUI.IntentionallyAbsent`
+  - 效果：刻意缺席的锚点经缓存往返后仍能被 `FeaturesLoader.collectMissingAnchors()` 的
+    `!it.intentionallyAbsent` 过滤掉，不再污染健康检查。
+
+> 真机验证（微信 8.0.78 / versionCode 3180，清空 `dex_cache` 后冷启动全量重建）：
+> `锚点检查` 的「功能已启用…个锚点未命中」一条**归零**；缓存中
+> `RemoveMessageSelectionLimit:classChattingDataAdapter` 为新键且值为
+> `com.tencent.mm.ui.chatting.adapter.k`，其两个方法分别为
+> `k1(MsgIdTalker)Z` 与 `Z0()I`（均为真实方法，非哨兵）。
+> 两个曾被标注「待实测」的功能已全部结清：
+> - `会话列表 View 绑定监听服务`：**运行时已验证**（滑动会话列表触发 `hook 首次回调`，见对应条目）。
+> - `自动同意好友申请`：**由维护者真机实测确认可正常完成**。
+
+- **📋 备忘 · `setPlaceholderDescriptor` 的 `placeholder` 首参实际未被使用（未修改）**
+  - 涉及文件：`dexkit/dsl/DexDelegates.kt`（四处实现）
+  - 现状：四个重载都声明为 `setPlaceholderDescriptor(placeholder: Boolean = true, reason: String? = null)`，
+    但函数体只读 `reason`（`intentionallyAbsent = reason != null`），
+    **传 `false` 也一样会把描述符置为 placeholder** —— 签名与实际行为不一致，容易误用。
+  - 本次**未动**：该 API 调用点较多，超出本次修复范围。仅作记录，供后续清理。
+
 ### 2026-09-23
 
 - **📦 移植记录 · 上游 8.0.78 修复包（选择性移植，并修掉上游 4 处缺陷）**
@@ -55,11 +193,15 @@
     （`setPlaceholderDescriptor(true, reason)`），**只影响 FeatureHealth 上报口径** ——
     否则健康检查长期挂 5 条永远修不好的假问题，把真正的锚点失效淹掉。
   - 效果：健康检查未命中由「5 个功能 / 10 个锚点」降至「2 个功能 / 2 个锚点」（后者为历史遗留、独立问题）。
+    > 后续（09-25）：剩余条目已全部处置完毕，详见上方 09-25 条目。
 
 - **🐛 移除通话时聊天限制 · 上游两处 matcher 写错**
   - 涉及文件：`features/items/voip/RemoveLimitsDuringCalls.kt`
   - ① `methodCheckAppBrandCameraUsing`：日志串 `checkAppBrandCameraUsing isVoiceUsing:%b, isCameraUsing:%b`
-    含**两个 `%b`**，对应两个 boolean 参数，应为 `paramCount = 2`（上游写 1），故匹配不到。
+    含**两个 `%b`**。本条当时误判为「两个 `%b` ⇒ 两个 boolean 参数」，写成了 `paramCount = 2`。
+    > ⚠️ **该结论已于 09-25 推翻**：两个 `%b` 是传给 `Log.i` 的实参；反编译确认方法真身是
+    > `public static boolean a()`，**0 个参数**。已改为 `paramCount = 0`，详见上方 09-25 条目。
+    > 此处保留原始记录以便回溯，**不要照此改回 2**。
   - ② `methodCheckAudioOutSupported`：上游只写 `usingEqStrings("checkAudioOutSupported")`，
     **漏了 `MicroMsg.DeviceOccupy` 类约束**，在全部 dex 范围内无约束查找，实机解析失败。已补类限定。
 

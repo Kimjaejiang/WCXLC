@@ -8,6 +8,7 @@ import com.Johnny.wcx.features.core.SwitchFeature
 import com.Johnny.wcx.features.items.contacts.hidecontacts.injectCondition
 import com.Johnny.wcx.features.items.contacts.hidecontacts.toSqlList
 import com.Johnny.wcx.utils.WeLogger
+import org.luckypray.dexkit.DexKitBridge
 
 /**
  * 外围界面组 7 / 10 / 12 / 13：最近转发、状态页、存储空间聊天记录、存储空间缓存。
@@ -44,6 +45,35 @@ object HideRecentForward : SwitchFeature(), IResolveDex, WeDatabaseListenerApi.I
     override fun onEnable() {
         WeDatabaseListenerApi.addListener(this)
         hookSecretStringArgListFilter(methodTransmitListInstaller, "RecentForwardList")
+    }
+
+    /**
+     * 8.0.78 实测结论：`ui.transmit` 包内的 `void(List)` 装配方法已不存在，且「最近转发」段
+     * 没有可用静态特征稳定捕获的替代装配点。
+     *
+     * 已排除的候选（三轮运行时诊断，全部 0 触发，即打开转发面板时不被调用）：
+     * - `ui.contact.item.q1` / `k1.b3`（旧 adapter 与列表项绑定）
+     * - `ui.mvvm.uic.conversation.recent.i1.H7/I7`（RecentConversationForwardListUIC 所在的
+     *   MVVM 组件包；该包实为**会话列表**页所用，不是转发面板）
+     * - `MicroMsg.RecentForwardInfoStorage` 的查询方法（MMKV 数据层，读写发生在别处）
+     * 另经反射枚举 `ui.mvvm.MvvmContactListUI` 实例字段，该 Activity 自身不持有任何列表
+     * （仅有空监听器集合），数据挂在 UIC 组件树上，无稳定公开锚点。
+     *
+     * 因此该锚点在本版属「按版本主动缺席」而非「找不到」：标记后自检页不再把它算作
+     * 已启用功能的静默空转，但 [onQuery] 的 SQL 兜底路径照常保留并工作（若将来某版本
+     * 重新引入 `recentforward` 表，兜底会自动生效）。
+     */
+    override fun resolveDex(dexKit: DexKitBridge) {
+        if (methodTransmitListInstaller.isPlaceholder) {
+            WeLogger.w(
+                TAG,
+                "ui.transmit List installer absent in this WeChat version; " +
+                    "marking anchor intentionally absent (SQL fallback remains active)"
+            )
+            methodTransmitListInstaller.setPlaceholderDescriptor(
+                "forward-panel list installer has no stable anchor in this WeChat version"
+            )
+        }
     }
 
     override fun onDisable() {

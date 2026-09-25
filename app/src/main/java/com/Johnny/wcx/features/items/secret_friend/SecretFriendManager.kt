@@ -5,6 +5,7 @@ import com.Johnny.wcx.features.api.core.WeConversationApi
 import com.Johnny.wcx.features.api.core.WeDatabaseApi
 import com.Johnny.wcx.features.core.ClickableFeature
 import com.Johnny.wcx.features.core.Feature
+import com.Johnny.wcx.features.items.contacts.HideContacts
 import com.Johnny.wcx.ui.content.ContactsSelector
 import com.Johnny.wcx.ui.utils.showComposeDialog
 import com.Johnny.wcx.utils.WeLogger
@@ -52,7 +53,20 @@ object SecretFriendManager : ClickableFeature() {
     }
 
     override fun onEnable() {
-        // 主控重新开启：主页会话隐藏开着时，把关闭期间恢复显示的密友会话行重新隐藏
+        // 主控开启：连带启用 [HideContacts]。
+        //
+        // HideContacts 已不再作为列表项展示（见 FeaturesPager.HIDDEN_ITEM_NAMES），它承担的
+        // 8 个隐藏面（通话/摇一摇/角标计数/拍一拍/收藏/视频号点赞/群成员列表/微信运动）
+        // 随之并入密友总控。
+        //
+        // 注意这两行的**适用时机只是运行期切换**：启动路径由 HideContacts.shouldEnableOnStartup
+        // 自行读主控 pref 决定，不依赖这里。原因是 isEnabled 的 setter 带
+        // `if (_isEnabled == value) return` 短路——startup() 已把 _isEnabled 置为 pref 值，
+        // 若把它当作唯一启用入口，主控赋 true 时会因值相同而跳过 enable()，hook 永不安装
+        // （已实际导致「长按/点按/命令」三入口同时失效）。
+        if (!HideContacts.isEnabled) HideContacts.isEnabled = true
+
+        // 主页会话隐藏开着时，把关闭期间恢复显示的密友会话行重新隐藏
         if (HideConversations.isEnabled) {
             HideConversations.removeSecretRows()
         }
@@ -61,6 +75,12 @@ object SecretFriendManager : ClickableFeature() {
     }
 
     override fun onDisable() {
+        // 主控关闭：连带停掉 HideContacts 的 8 个隐藏面。
+        //
+        // 先关 HideContacts 再 reconciliation：HideContacts.onDisable 会清临时显示标记并
+        // reload，之后 reconcileOnListChange 才在「名单已因主控关闭而视为空」的前提下恢复会话行。
+        if (HideContacts.isEnabled) HideContacts.isEnabled = false
+
         // 主控关闭：不动名单存储，仅恢复被删除的会话行并放行所有过滤
         // （此时 getWxIds 已因主控关闭返回空，reconcile 内 removeSecretRows 为空操作）
         HideConversations.reconcileOnListChange()
