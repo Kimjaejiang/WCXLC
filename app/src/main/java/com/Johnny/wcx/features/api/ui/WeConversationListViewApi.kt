@@ -23,6 +23,7 @@ import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.WeakHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import org.luckypray.dexkit.DexKitBridge
 
 @Feature(
     name = "会话列表 View 绑定监听服务",
@@ -83,8 +84,35 @@ object WeConversationListViewApi : ApiFeature(), IResolveDex {
     }
 
     override fun onEnable() {
+        val before = bindCallCount
         hookBinding(methodLegacyGetView)
         hookBinding(methodMvvmGetView)
+        WeLogger.i(
+            TAG,
+            "onEnable 完成: legacyPlaceholder=${methodLegacyGetView.isPlaceholder}, " +
+                "mvvmPlaceholder=${methodMvvmGetView.isPlaceholder}, calls=$before"
+        )
+    }
+
+    override fun resolveDex(dexKit: DexKitBridge) {
+        methodMvvmGetView.findInline(dexKit)
+        methodLegacyGetView.findInline(dexKit)
+
+        // 8.0.78 实机核对（全部 17 个 dex 逐个搜字符串）：
+        // legacy 适配器的那个 getView 已不存在 —— 微信完成了会话列表的 mvvm 重构。
+        // 完整 dup 日志 "Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d"
+        // 全包只出现在 jo5.y0.getView 一处，而它持有的是 MvvmConversationAdapter 标签
+        // （已由上面的 methodMvvmGetView 命中）；
+        // 持 "MicroMsg.ConversationWithCacheAdapter" 标签的 jo5.e 是 abstract 基类，没有 getView。
+        // matcher 要求两个串同处一类，在当前版本下无解 —— 不是 matcher 写错，是目标已被移除。
+        //
+        // 功能本身不受影响：mvvm 锚点覆盖了唯一的 getView，hookBinding 的两个入口
+        // 只要有一个命中，监听就能装上。所以这里只影响上报口径，标为刻意缺席。
+        if (methodLegacyGetView.isPlaceholder) {
+            methodLegacyGetView.setPlaceholderDescriptor(
+                reason = "8.0.78 会话列表已全面 mvvm 化，legacy getView 已从宿主移除（由 methodMvvmGetView 覆盖）"
+            )
+        }
     }
 
     fun addListener(listener: IBindViewListener) {
@@ -121,9 +149,21 @@ object WeConversationListViewApi : ApiFeature(), IResolveDex {
         refresh()
     }
 
+    /** hook 回调被触发次数，用于区分「没装上」与「装上了但未被调用」 */
+    @Volatile
+    private var bindCallCount = 0
+
     private fun hookBinding(method: DexMethodDelegate) {
-        if (method.isPlaceholder) return
+        if (method.isPlaceholder) {
+            WeLogger.i(TAG, "hookBinding: ${method.key} 未解析成功，跳过（不参与绑定）")
+            return
+        }
         method.hookAfter {
+            // 首次回调打一条，兼作「hook 真的挂上了」的运行时证据（不刷屏）
+            if (bindCallCount == 0) {
+                WeLogger.i(TAG, "hook 首次回调: ${method.key}，绑定链路已生效")
+            }
+            bindCallCount++
             // 8.0.78: the same matcher can hit a method whose receiver is not the
             // adapter (observed on LauncherUI); skip those calls instead of throwing
             // ClassCastException, which used to abort the whole binding hook action.

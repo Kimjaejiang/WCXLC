@@ -66,7 +66,6 @@ object RemoveLimitsDuringCalls : SwitchFeature(), IResolveDex {
                 // 说明是 matcher 真的写错了，保持普通 placeholder 让健康检查报出来。
                 if (anchor in absentOn8078) {
                     anchor.setPlaceholderDescriptor(
-                        true,
                         "removed by WeChat 8.0.78 (DeviceOccupy check* API)"
                     )
                 }
@@ -198,9 +197,10 @@ object RemoveLimitsDuringCalls : SwitchFeature(), IResolveDex {
                 "MicroMsg.DeviceOccupy",
                 "checkAppBrandCameraUsing isVoiceUsing:%b, isCameraUsing:%b"
             )
-            // 日志串里有两个 %b，对应两个 boolean 参数。
-            // 上游写的是 paramCount = 1，因此匹配不到 —— 这里按实际签名修正。
-            paramCount = 2
+            // 0 个参数：反编译 pq.b（8.0.78 的 DeviceOccupy）确认该日志所在方法是
+            // public static boolean a()，两个 %b 是传给 Log.i 的实参，不是方法参数。
+            // 上游曾按「两个 %b ⇒ 两个参数」写成 paramCount = 2，导致永远匹配不到。
+            paramCount = 0
             returnType = "boolean"
         }
     }

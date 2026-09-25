@@ -182,6 +182,23 @@ internal fun rewriteWrapperSql(sql: String, hidden: Set<String> = HideContacts.h
     if (hidden.isEmpty()) return null
 
     val lower = sql.lowercase()
+
+    // 诊断：文件夹内查询是否被规则放行。用户反馈「归拢文件夹内仍能看到密友」，
+    // 需要区分两种情况——(a) 查询形状未被 looksLikeConversationListQuery 识别（规则缺失），
+    // (b) 规则命中但密友本就不在该文件夹。仅记录带 parentRef/wekit_folder 的 rconversation 查询，
+    // 避免刷屏（主页查询极频繁，且已被 CONV_LIST 规则覆盖）。
+    if (lower.contains("from rconversation") &&
+        (lower.contains("wekit_folder") || lower.contains("parentref"))
+    ) {
+        val matched = WRAPPER_RULES.firstOrNull { it.matches(lower) }
+        WeLogger.d(
+            TAG,
+            "folder-ish rconversation query: matchedRule=${matched != null} " +
+                "hasDisplayCols=${lower.contains("conversationtime") && lower.contains("unreadcount") && lower.contains("digestuser")} " +
+                "sql=${sql.take(240)}"
+        )
+    }
+
     val rule = WRAPPER_RULES.firstOrNull { it.matches(lower) } ?: return null
     return injectCondition(sql, rule.condition(hidden))
 }

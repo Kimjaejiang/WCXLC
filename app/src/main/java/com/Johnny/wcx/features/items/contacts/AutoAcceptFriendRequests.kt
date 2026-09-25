@@ -182,8 +182,14 @@ object AutoAcceptFriendRequests : ClickableFeature(), IResolveDex,
         }
         // 备用路径在 8.0.78 恒不可用（特征串已删），显式声明为刻意缺席。
         // 必须放在 find 之后 —— 否则会被 find 的失败路径重置覆盖。
+        //
+        // 走 setPlaceholderDescriptor(reason) 而不是直接赋 intentionallyAbsent：
+        // 只有前者会把「刻意缺席」写成一个独立哨兵描述符入缓存，
+        // 这样在没跑过 resolveDex 的进程（自检页所在进程）里读缓存时仍能认出来。
         if (methodVerifyOkClick.isPlaceholder) {
-            methodVerifyOkClick.intentionallyAbsent = true
+            methodVerifyOkClick.setPlaceholderDescriptor(
+                reason = "8.0.78 已删除 VerifyUserUtil 的 verify ok clicked 特征串，备用路径不参与该版本"
+            )
         }
     }
 

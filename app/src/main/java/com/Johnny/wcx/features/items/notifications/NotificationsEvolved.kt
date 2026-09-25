@@ -263,6 +263,19 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                     text = match.groupValues[3]
                 }
 
+                // 诊断：替换前的通知原文。表情类占位符的真实形态只能靠实测确定——
+                // 微信的表情名表既不在 dex（UTF-8 精确字节搜索 0 命中）也不在
+                // files/public/emoji 的 xml 里，无法离线取得权威映射，故先记录原文。
+                // 若正文含 [xxx]，把 xxx 补进 MessageTextUtils 的对应映射表即可。
+                runCatching {
+                    val raw = text
+                    val tags = Regex("\\[[^]]+]").findAll(raw).map { it.value }.toList()
+                    WeLogger.i(
+                        TAG,
+                        "raw notif text=[$raw] tags=${if (tags.isEmpty()) "none" else tags.joinToString(" ")}"
+                    )
+                }
+
                 text = text
                     .replaceRichContent()
                     .replaceEmojis()
@@ -282,7 +295,8 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
 
                 if (convWxId.isGroupChatWxId) {
                     messagingStyle.isGroupConversation = true
-                    messagingStyle.conversationTitle = notifTitle
+                    // 群名同样可能含 emoji 占位符（见渲染 Person 名处的说明），一并还原。
+                    messagingStyle.conversationTitle = notifTitle.replaceRichContent().replaceEmojis()
                 } else {
                     senderName = notifTitle
                 }
@@ -302,7 +316,18 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                 while (history.size > MAX_HISTORY) history.removeFirst()
 
                 for (entry in history) {
-                    val personBuilder = Person.Builder().setName(entry.senderName)
+                    // 昵称/群名里的表情占位符要还原成图案，理由同正文：
+                    //
+                    // 微信会把**昵称本身**里的 emoji 也转成 `[名称]`（实测：群名「18🈲🐭」在
+                    // 通知里变成「18[表情][老鼠]」）。这个转换发生在微信构建通知之前，
+                    // 所以 EXTRA_TITLE / Person 名拿到的就已经是 tag 文本，`replaceEmojis`
+                    // 若不在这里再跑一遍，通知标题就会显示方括号文字。
+                    //
+                    // 注意只替换**渲染用的副本**：entry.senderName 原值仍用于头像查找
+                    // （resolveSenderWxid / senderKey 都按微信库里的原始昵称匹配），
+                    // 就地改掉会让头像查不到。
+                    val displayName = entry.senderName.replaceRichContent().replaceEmojis()
+                    val personBuilder = Person.Builder().setName(displayName)
                     // 头像三级查找：内存 → 映射反查磁盘 → 按 key 直接读磁盘。
                     //
                     // 之前群聊（senderKey 含 "|"）被排除在磁盘兜底之外，而磁盘文件名按 wxid 生成，

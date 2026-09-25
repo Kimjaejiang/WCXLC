@@ -5,7 +5,7 @@ import com.Johnny.wcx.constants.PackageNames
 import com.Johnny.wcx.dexkit.abc.IResolveDex
 import com.Johnny.wcx.dexkit.dsl.dexClass
 import com.Johnny.wcx.dexkit.dsl.dexMethod
-import com.Johnny.wcx.features.api.core.WeMessageApi
+import org.luckypray.dexkit.DexKitBridge
 import com.Johnny.wcx.features.core.Feature
 import com.Johnny.wcx.features.core.SwitchFeature
 import com.Johnny.wcx.utils.WeLogger
@@ -26,9 +26,28 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
 
     private const val SELECTION_LIMIT = 100
 
+    // 不要写 declaredClass(WeMessageApi.classChattingDataAdapter.clazz)：
+    // 那个委托属于 WeMessageApi，它的内联解析时机与本体不保证先后。
+    // resolveAllDex 会先跑本 feature 的 resolveInlineDex（逐个 findInline），
+    // 此时若 classChattingDataAdapter 还没解析，读 .clazz 就会抛
+    // "Class not found for key: WeMessageApi:classChattingDataAdapter"，
+    // 两个锚点当场降级为 placeholder。改成用类自身的字符串特征定位，
+    // 自包含、无跨 feature 顺序依赖。
+    //
+    // 特征取自 com.tencent.mm.ui.chatting.adapter.k（8.0.78 实证）：
+    //   e1() 中 Log.i("MicroMsg.ChattingDataAdapterV3", "[handleMsgChange] isLockNotify:...")
+    private val classChattingDataAdapter by dexClass(allowFailure = true) {
+        matcher {
+            usingEqStrings(
+                "MicroMsg.ChattingDataAdapterV3",
+                "[handleMsgChange] isLockNotify:",
+            )
+        }
+    }
+
     private val methodToggleMessageSelection by dexMethod(allowFailure = true) {
         matcher {
-            declaredClass(WeMessageApi.classChattingDataAdapter.clazz)
+            declaredClass(classChattingDataAdapter.clazz)
             usingNumbers(SELECTION_LIMIT)
             paramTypes("${PackageNames.WECHAT}.plugin.msg.MsgIdTalker")
             returnType(bool)
@@ -37,7 +56,7 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
 
     private val methodGetSelectedMessageCount by dexMethod(allowFailure = true) {
         matcher {
-            declaredClass(WeMessageApi.classChattingDataAdapter.clazz)
+            declaredClass(classChattingDataAdapter.clazz)
             addUsingField {
                 type(CopyOnWriteArraySet::class.java)
             }
@@ -94,6 +113,19 @@ object RemoveMessageSelectionLimit : SwitchFeature(), IResolveDex {
     )
 
     private val selectedMessageCountOverride = ThreadLocal<Int>()
+
+    override fun resolveDex(dexKit: DexKitBridge) {
+        // 先把类解出来，后面四个方法的 matcher 都要读它的 .clazz。
+        // 在同一个 resolveDex 里显式排序，不再依赖跨 feature 的解析时机。
+        classChattingDataAdapter.findInline(dexKit)
+
+        listOf(
+            methodToggleMessageSelection,
+            methodGetSelectedMessageCount,
+            methodSetQuickSelectViewEnabled1,
+            methodSetQuickSelectViewEnabled2,
+        ).forEach { it.findInline(dexKit) }
+    }
 
     // 本地 Xposed 桥的 MethodHookParam.extra 为 val+Bundle（非 fork 的 Any），
     // 临时状态改用 ThreadLocal 传递（与 selectedMessageCountOverride 同风格）

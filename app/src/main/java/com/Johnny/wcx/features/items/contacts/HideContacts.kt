@@ -40,7 +40,9 @@ import com.Johnny.wcx.features.items.contacts.HideContacts.methodFtsSearchChatro
 import com.Johnny.wcx.features.items.contacts.HideContacts.methodMultiTalkOnInvite
 import com.Johnny.wcx.features.items.contacts.HideContacts.methodVoipShowFloatingCard
 import com.Johnny.wcx.features.items.contacts.HideContacts.temporarilyShown
-import com.Johnny.wcx.features.items.contacts.HideContacts.toggleTemporarilyShown
+import com.Johnny.wcx.features.items.secret_friend.HideConversations
+import com.Johnny.wcx.features.items.secret_friend.SecretFriendManager
+import com.Johnny.wcx.features.items.secret_friend.SecretFriendState
 import com.Johnny.wcx.features.items.contacts.hidecontacts.installListHooks
 import com.Johnny.wcx.features.items.contacts.hidecontacts.installMomentsHooks
 import com.Johnny.wcx.features.items.contacts.hidecontacts.installSchedules
@@ -48,7 +50,6 @@ import com.Johnny.wcx.features.items.contacts.hidecontacts.installSearchHooks
 import com.Johnny.wcx.features.items.contacts.hidecontacts.installSqlHooks
 import com.Johnny.wcx.features.items.contacts.hidecontacts.installVoipHooks
 import com.Johnny.wcx.features.items.contacts.hidecontacts.rewriteMomentsFeedSql
-import com.Johnny.wcx.features.items.contacts.hidecontacts.showSchedulesDialog
 import com.Johnny.wcx.features.items.contacts.hidecontacts.uninstallSchedules
 import com.Johnny.wcx.preferences.WePrefs
 import com.Johnny.wcx.preferences.WePrefs.Companion.prefOption
@@ -61,6 +62,7 @@ import com.Johnny.wcx.utils.WeLogger
 import com.Johnny.wcx.utils.android.getSystemService
 import com.Johnny.wcx.utils.android.showToast
 import com.Johnny.wcx.utils.now
+import org.luckypray.dexkit.DexKitBridge
 import org.luckypray.dexkit.query.enums.MatchType
 import java.lang.ref.WeakReference
 import kotlin.math.sqrt
@@ -70,7 +72,7 @@ import java.lang.reflect.Modifier as JavaModifier
 
 
 @Feature(
-    name = "隐藏联系人", categories = ["联系人与群组"], description =
+    name = "隐藏联系人", categories = ["密友功能"], description =
 //        """隐藏指定的联系人
 //隐藏位置:
 //1. 首页对话列表
@@ -99,34 +101,93 @@ import java.lang.reflect.Modifier as JavaModifier
 //注 1: 临时显示 (#show / 三击标题 / 定时任务) 只恢复界面上的显示, 不恢复通知
 //注 2: 除拍一拍外, 以上均为「不显示」而非「删除」, 取消隐藏后内容会原样回来
 //注 3: 拍一拍是唯一的破坏性隐藏 — 消息在写入数据库前就被取消, 取消隐藏也无法找回;
-//      是否被抑制取决于消息到达那一刻的临时显示状态"""
-"隐藏指定的联系人"
+//      是否被抑制取决于消息到达那一刻的临时显示状态
+//
+//【与密友功能的关系】本功能与「密友功能」共用同一份名单（见 hiddenContacts 的 KDoc），
+// 归入同一分类。两者的分工：密友侧提供名单管理、身份伪装、锁屏/离开自动恢复等通用能力；
+// 本功能提供上列 22 个隐藏面中密友侧未覆盖的部分（通话、摇一摇、角标计数、拍一拍、
+// 收藏、视频号点赞、群成员列表、微信运动等），这些实现全部保留，未做删减。"""
+"隐藏指定的联系人（与密友名单共用，提供通话/拍一拍/角标计数等隐藏面）"
 )
 object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputBarListener,
     WeDatabaseListenerApi.IQueryListener {
 
     private const val TAG = "HideContacts"
 
-    private const val KEY_CONTACTS = "hidden_contacts"
+    /**
+     * 主控 [com.Johnny.wcx.features.items.secret_friend.SecretFriendManager] 的开关存储键
+     * ——即它的 `@Feature(name)`，`SwitchFeature` 用 `name` 作 pref 键，其 `defaultEnabled = true`。
+     */
+    private const val MASTER_FEATURE_NAME = "密友名单管理"
+
+    /**
+     * 启用状态跟随密友主控 [com.Johnny.wcx.features.items.secret_friend.SecretFriendManager]。
+     *
+     * ## 为什么不直接返回 false
+     *
+     * 曾经的写法是 `shouldEnableOnStartup = false`，指望主控在 `onEnable` 里把它推成 true。
+     * **那是错的**，两端会同时失效：
+     * 1. [SwitchFeature.startup] 已把 `_isEnabled` 读成 pref 值（历史/默认均为 true），
+     *    而 `isEnabled` 的 setter 有 `if (_isEnabled == value) return` 短路——
+     *    主控再赋 true 时值相同，**不会**触发 `enable()`，`onEnable()` 永不执行；
+     * 2. 于是本类安装的全部 hook（**命令解析、长按手势、SQL 过滤**）根本没装上，
+     *    表现为「长按 / 点按 / 命令」三个解锁入口同时失效。
+     *
+     * ## 为什么读 pref 而不是读 SecretFriendManager.isEnabled
+     *
+     * 特性加载顺序不保证本类晚于主控，读对方的 `isEnabled` 可能拿到尚未初始化的 false。
+     * 直接读**同一个存储键**（主控的 pref 键 = 它的 `@Feature(name)`，兜底 defaultEnabled=true），
+     * 结果与主控一致且与加载顺序无关。
+     *
+     * 运行期切换仍由 [com.Johnny.wcx.features.items.secret_friend.SecretFriendManager] 的
+     * onEnable/onDisable 驱动 isEnabled。
+     */
+    override val shouldEnableOnStartup: Boolean
+        get() = WePrefs.getBoolOrDef(MASTER_FEATURE_NAME, true)
+
+    // 名单存储键已移至 SecretFriendState.KEY_LEGACY_HIDDEN_CONTACTS（"hidden_contacts"）。
+    // 该键现在只在首次读取时用于一次性迁移进 maskList，不再是数据源；保留旧键以便回滚。
 
     // One-time flag: older versions hid chats by writing parentRef='hidden_conv_parent'. Once we've
     // cleared that stale marker for the current hidden set (so #show / un-hide work again), we never
     // need to re-check. New hides rely purely on the query-time filter and never set the marker.
     private const val KEY_LEGACY_MIGRATED = "hidden_parentref_migrated"
 
+    /**
+     * 隐藏名单。**已与「密友功能」合并**，本属性只是密友 [SecretFriendState] 名单的视图：
+     * 读写都转发过去，不再有自己的存储。
+     *
+     * 合并原因：两者语义本就是包含关系——本类原有的 setter 已经会对新隐藏的联系人调
+     * [WeConversationApi.setDnd]，那正是密友 `MaskItem.tipMode` 的语义；密友侧还额外
+     * 支持身份伪装与「时间戳式」临时显示（可自动到期，且跨进程可读）。保留两套只会
+     * 让同一份意图在两条名单里各存一半（即「两个列表不同步」）。
+     *
+     * 旧键 `hidden_contacts` 的数据由 [SecretFriendState.getMaskItems] 在首次读取时
+     * 自动并入 maskList，旧键本身保留不删，便于回滚排查。
+     *
+     * 一个有意保留的语义差别：本属性用 [SecretFriendState.getStoredWxIds]（**不受**密友
+     * 主控开关「密友名单管理」约束），而不是密友各隐藏开关用的 [SecretFriendState.getWxIds]。
+     * 原因是本功能有自己的开关，用户关掉密友主控、但没关「隐藏联系人」时，
+     * 隐藏联系人理应继续按名单生效；若跟随主控，就会出现「关了一个开关，另一个也跟着失效」。
+     * 反过来，要停用隐藏联系人就用它自己的开关。这一点在合并后需要保持，不要「顺手对齐」。
+     */
+    @Deprecated("已合并进密友名单，请直接用 SecretFriendState", ReplaceWith("SecretFriendState"))
     var hiddenContacts
-        get() = WePrefs.getStringSetOrDef(KEY_CONTACTS, emptySet())
+        get() = SecretFriendState.getStoredWxIds()
         set(value) {
             // Muting is a server-synced oplog (OpenImOpLogLogic), so only send it for contacts that
             // were just added — the previous version re-sent it for the entire set on every save.
             // NB: un-hiding deliberately does NOT restore the prior mute state; doing so would
             // overwrite a mute the user set themselves. See the design doc.
-            val newlyHidden = value - WePrefs.getStringSetOrDef(KEY_CONTACTS, emptySet())
-            WePrefs.putStringSet(KEY_CONTACTS, value)
+            val newlyHidden = value - SecretFriendState.getStoredWxIds()
+            SecretFriendState.setWxIds(value)
             for (convId in newlyHidden) {
                 WeConversationApi.setDnd(convId, true)
             }
-            WeConversationApi.reloadConversations()
+            // 名单变动后必须对账，否则「取消勾选」只改了名单、不会把已删除的会话行重建回来，
+            // 主页上的那个人要等到他再发消息才重新出现。密友自己的写路径
+            // (SecretFriendManager) 同样在 setWxIds 之后调用本方法。
+            HideConversations.reconcileOnListChange()
         }
 
     private object ScreenOffReceiver : BroadcastReceiver() {
@@ -226,6 +287,12 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
     }
 
     override fun onEnable() {
+        // 与主控状态对齐。旧 pref 键「隐藏联系人」可能残留 false（用户在本项被隐藏前进过设置关掉它），
+        // 而 startup() 已据此把 _isEnabled 置为 false；shouldEnableOnStartup 走的是主控 pref（true），
+        // 于是会出现「_isEnabled=false 但 hook 已装」的矛盾状态——界面显示关、功能却生效，
+        // 且用户下次点开关会走向 disable（而它本来就没启用）。这里一次性纠正。
+        if (!_isEnabled) _isEnabled = true
+
         // --- home screen conversation list ---
 
         // Hide at query time: inject `username NOT IN (...)` into WeChat's list queries so hidden
@@ -252,21 +319,8 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
 
             registerScreenOffReceiver()
 
-            // Triple-click on the main-screen title to toggle temporary show/hide.
-            val titleView = context.window?.decorView
-                ?.findViewById<TextView>(android.R.id.text1) ?: return@hookAfter
-            var clickCount = 0
-            var lastClickTime = Instant.DISTANT_PAST
-            titleView.setOnClickListener {
-                if (!tripleClickTitle) return@setOnClickListener
-                val now = now()
-                if (now - lastClickTime > TRIPLE_TAP_WINDOW) clickCount = 1 else clickCount++
-                lastClickTime = now
-                if (clickCount >= 3) {
-                    clickCount = 0
-                    toggleTemporarilyShown(context)
-                }
-            }
+            // 标题手势（「多击标题解除」/「长按标题解除」）由各自的开关负责装配，
+            // 本功能不再参与——原「三击标题」与前者重复，已删除。
         }
 
         // --- shake to leave ---
@@ -357,13 +411,25 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
         chattingUi = null
         WeChatInputBarApi.removeListener(this)
         WeDatabaseListenerApi.removeListener(this)
-        temporarilyShown = false
+        // 不调用 SecretFriendTitleGesture.reset()：本功能已不注册任何手势源，
+        // reset 会连带拆掉密友「多击标题解除」的监听器——关一个功能不该让另一个失效。
+        // 各源在各自 onDisable 里 unregister，分发点自行收敛。
+        // 关闭功能时**只能**清临时显示标记，绝不能走 [SecretFriendState.tempOff]：
+        // tempOff 会执行 HideConversations.removeSecretRows()（逐条删除主页会话行），
+        // 那是「隐藏」语义。用户关掉本功能的本意是「不要隐藏了」，此时再删一遍会话行
+        // 会让主页直接少掉这些聊天（记录还在，但要等对方再发消息才重新出现）——
+        // 功能关闭反而不比开着更容易理解。故此处用 clearTemporarilyShown()。
+        SecretFriendState.clearTemporarilyShown()
         WeConversationApi.reloadConversations()
     }
 
     /**
      * Toggles the temporary-show state. Mirrors the `#show` / `#hide` input-bar commands for
      * use by gesture-based triggers (e.g. triple-clicking the main-screen title).
+     *
+     * 不在此处自行 `reloadConversations()`：临时显示的开关两个方向都涉及会话行的重建/删除，
+     * 那两步已由 [SecretFriendState] 的对应方法内部完成（且必须先于刷新发生），
+     * 在这里再刷一次只会用到尚未修正的行状态。
      */
     internal fun toggleTemporarilyShown(context: Context) {
         if (temporarilyShown) {
@@ -373,7 +439,6 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
             temporarilyShown = true
             showToast(context, "已临时显示所有隐藏的联系人")
         }
-        WeConversationApi.reloadConversations()
     }
 
     /**
@@ -381,16 +446,13 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
      * 定时显示/隐藏 scheduler, whose startup catch-up runs at process attach where no Activity (and
      * therefore no Toast) exists.
      *
-     * Goes through the same refresh path as [toggleTemporarilyShown] and the `#show` / `#hide`
-     * commands: `WeConversationApi.reloadConversations()` is what makes the query-time SQL filter
-     * re-run, so skipping it would leave the list showing the previous state until the next full
-     * re-query. It does **not** lock the flag — a manual toggle afterwards wins until the next
-     * scheduled fire time.
+     * 注意这里**不能**用 `if (temporarilyShown == shown) return` 提前返回：该读取的是
+     * 「当前时间 < 到期时间戳」，定时器补跑时时间戳往往已经过期，于是 `shown=false` 会命中
+     * 这个守卫而整体跳过 —— 时间戳不归零、临时显示期间产生的会话行也清不掉。
+     * 交给 setter 与 [SecretFriendState.tempOff] 无条件收敛即可（幂等）。
      */
     internal fun setTemporarilyShown(shown: Boolean) {
-        if (temporarilyShown == shown) return
         temporarilyShown = shown
-        WeConversationApi.reloadConversations()
     }
 
     override fun onTextChanged(chatFooter: ChatFooter, text: String) {
@@ -403,18 +465,14 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
                 }
                 temporarilyShown = true
                 showToast(chatFooter.context, "已临时显示所有隐藏的联系人, 输入 #hide 恢复隐藏")
-                WeConversationApi.reloadConversations()
             }
 
             "#hide" -> {
                 chatFooter.lastText = ""
-                if (!temporarilyShown) {
-                    showToast(chatFooter.context, "没有需要恢复的隐藏联系人")
-                    return
-                }
+                // 不按 temporarilyShown 提前返回：到期后它已是 false，但那正是需要执行
+                // tempOff 收敛（清零时间戳 + 清理临时显示期间新产生的行）的时刻。
                 temporarilyShown = false
-                showToast(chatFooter.context, "已恢复隐藏联系人")
-                WeConversationApi.reloadConversations()
+                showToast(chatFooter.context, "已恢复隐藏所有联系人")
             }
         }
     }
@@ -456,7 +514,37 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
         }
     }
 
-    private var temporarilyShown = false
+    /**
+     * 临时显示标记。**已与密友合并**，转发到 [SecretFriendState] 的时间戳语义。
+     *
+     * 旧实现是主进程内的 `var temporarilyShown = false`，有两个实际缺陷：
+     * 1. 进程重启即丢失——临时显示中杀进程再回来，隐藏会「自己恢复」，用户无从预期；
+     * 2. 跨进程不可见——通知进程读不到它（见 HideContactsNotifications 的 KDoc 说明），
+     *    于是「临时显示期间仍按隐藏处理」，通知被错误抑制。
+     * 密友用 prefs 里的到期时间戳，两个问题一并解决，还额外获得「到期自动恢复」。
+     *
+     * 读取：纯查时间戳，不触发任何副作用（hook 路径上会被高频调用）。
+     * 写入：转调 [SecretFriendState] 的完整语义——true 走 [SecretFriendState.tempShowForMinutes]
+     * 以保证「为隐藏而删掉的会话行被重建」，false 走 [SecretFriendState.tempOff] 以保证
+     * 「临时显示期间新产生的行被清掉」。只改标记而不做这两步，界面会看起来没反应。
+     */
+    private var temporarilyShown: Boolean
+        get() = SecretFriendState.isTemporarilyShown()
+        set(value) {
+            val was = SecretFriendState.isTemporarilyShown()
+            if (value == was) return
+            if (value) {
+                // 走「长期」而非默认 30 分钟：本属性的调用方有两类，
+                // - 交互式 (#show / 三击标题)：用户随后会手动 #hide；
+                // - 定时任务 (HideContactsSchedule)：语义是「显示到下次定时触发」。
+                // 两者都不是「30 分钟后自动收回」。若这里用 tempShowForMinutes，
+                // 定时显示会在半小时后被到期定时器悄悄撤回，与用户配置的
+                // 「08:00 显示 / 20:00 隐藏」不符。
+                SecretFriendState.tempShowUntil(SecretFriendState.TEMP_SHOW_FOREVER)
+            } else {
+                SecretFriendState.tempOff()
+            }
+        }
 
     /**
      * The predicate every hook should use: a contact counts as hidden only while the temporary-show
@@ -469,13 +557,11 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
 
     internal val autoRejectVoipEnabled: Boolean get() = autoRejectVoip
 
+    /** 自动拒接开关，键与 [com.Johnny.wcx.features.items.secret_friend.AutoRejectVoip] 共用。 */
     private var autoRejectVoip by prefOption("hide_auto_reject", false)
-    private var tripleClickTitle by prefOption("hide_triple_click_title", false)
 
-    // Three taps within this window on the main-screen title register as a triple-click.
-    // Matches WeChat's own double-tap detection threshold (f8/r8 tab listener, 300 ms),
-    // with a slightly wider window so the gesture stays comfortable.
-    private val TRIPLE_TAP_WINDOW = 500L.milliseconds
+    // 「三击标题切换显隐」（hide_triple_click_title）已删除：与密友「多击标题解除」是同一
+    // 手势，且其触发次数可调，能力完全覆盖固定三击。旧 pref 键留存但不再读取。
 
     // Hooks the ConversationStorage notify dispatcher to cancel per-row update events (type 3)
     // for hidden contacts before they reach list adapters. WeChat fires b(3, storage, talker)
@@ -573,68 +659,23 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
         }
     }
 
+    /**
+     * 「隐藏联系人」的点击入口。
+     *
+     * 原先这里承载四个子项（配置隐藏列表 / 自动拒接 / 定时显示隐藏 / 三击标题），
+     * 现已按职责拆开：
+     * - **配置隐藏列表** → 委托给 [SecretFriendManager] 的名单编辑。名单自合并起
+     *   就与密友共用一份（见 [hiddenContacts]），这里再放一个并列的编辑器只会
+     *   让用户以为存在两份名单；直接复用密友那一份，行为与它完全一致。
+     * - **自动拒绝音视频通话** → [com.Johnny.wcx.features.items.secret_friend.AutoRejectVoip]
+     *   （pref 键沿用 `hide_auto_reject`，用户设置不丢）。
+     * - **定时显示/隐藏** → [com.Johnny.wcx.features.items.secret_friend.HideSchedules]。
+     * - **三击标题切换显隐** → 删除。与密友「多击标题解除」是同一手势（点标题 N 次
+     *   切换显隐），且两者现已共用 [SecretFriendTitleGesture] 分发点；
+     *   「多击标题解除」的触发次数可调，能力完全覆盖固定三击。
+     */
     override fun onClick(context: ComponentActivity) {
-        val regularContacts = WeDatabaseApi.getFriends() + WeDatabaseApi.getGroups()
-
-        showComposeDialog(context) {
-            AlertDialogContent(
-                title = { Text("隐藏联系人") },
-                text = {
-                    DefaultColumn {
-                        var autoRejectVoipInput by remember { mutableStateOf(autoRejectVoip) }
-                        var tripleClickTitleInput by remember { mutableStateOf(tripleClickTitle) }
-
-                        ListItem(
-                            modifier = Modifier.clickable {
-                                showComposeDialog(context) {
-                                    ContactsSelector(
-                                        title = "选择要隐藏的联系人",
-                                        contacts = regularContacts,
-                                        initialSelectedWxIds = hiddenContacts,
-                                        onDismiss = onDismiss
-                                    ) {
-                                        showToast("已保存 ${it.size} 个联系人")
-                                        hiddenContacts = it
-                                        onDismiss()
-                                    }
-                                }
-                            },
-                            supportingContent = { Text("点击配置联系人隐藏列表") },
-                            headlineContent = { Text("配置隐藏列表") },
-                        )
-
-                        ListItem(
-                            modifier = Modifier.clickable {
-                                autoRejectVoipInput = !autoRejectVoipInput
-                                autoRejectVoip = autoRejectVoipInput
-                            },
-                            trailingContent = {
-                                Switch(checked = autoRejectVoipInput, onCheckedChange = null)
-                            },
-                            supportingContent = { Text("关闭时仅隐藏来电, 对方会一直响到超时; 开启后立即向对方发送拒接") },
-                            headlineContent = { Text("自动拒绝音视频通话") },
-                        )
-
-                        ListItem(
-                            modifier = Modifier.clickable { showSchedulesDialog(context) },
-                            supportingContent = { Text("到点自动临时显示或恢复隐藏, 不会改动隐藏列表") },
-                            headlineContent = { Text("定时显示/隐藏") },
-                        )
-
-                        ListItem(
-                            modifier = Modifier.clickable {
-                                tripleClickTitleInput = !tripleClickTitleInput
-                                tripleClickTitle = tripleClickTitleInput
-                            },
-                            trailingContent = {
-                                Switch(checked = tripleClickTitleInput, onCheckedChange = null)
-                            },
-                            supportingContent = { Text("连续三击主页顶部标题栏, 可临时显示或恢复隐藏联系人") },
-                            headlineContent = { Text("三击标题切换显隐") },
-                        )
-                    }
-                })
-        }
+        SecretFriendManager.onClick(context)
     }
 
     //    private val methodMainAdapterPerformSearch by dexMethod()
@@ -775,12 +816,21 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
     }
 
     /**
-     * `fts.logic.q0.p(FTSResult)` — SearchChatroomMemberTask's body, the 群聊内搜索成员 task.
+     * SearchChatroomMemberTask 的任务体 — 群聊内搜索成员（搜索结果里「群名(N)包含:某人」）。
      *
-     * `"SearchChatroomMemberTask"` is its `getName()` return value and occurs in exactly one class
-     * app-wide on both trees (8.0.76 `plugin/fts/logic/q0.java:25`, 8.0.69 same path `:25`). That
-     * class declares only `<init>(l, FTSRequest)`, `getName()` and `p(FTSResult)`, so class anchor +
-     * one parameter + `void` resolves to `p` alone. See hidecontacts/HideContactsSearch.kt.
+     * ## 8.0.78 实测（`classes12.dex`）
+     *
+     * `"SearchChatroomMemberTask"` 全 dex 只出现一次，在 **`com.tencent.mm.plugin.fts.logic.s0`**
+     * 的 `getName()` 里。旧注释写的 `fts.logic.q0` 在 8.0.78 只是个
+     * `implements Comparator` 的成员排序器（`s0` 构造 `q0` 来给 `memberlist` 排序），
+     * 挂在它上面等于完全没生效 —— 这正是「群里的人还能被搜到」的直接原因之一。
+     *
+     * ## 任务体形态
+     *
+     * 8.0.78 为 `public void r(u73.v vVar)`；`u73.v` 即 FTSResult 持有者。成员来源分两段：
+     * ① 一条 `MATCH ... AND type = 131075 AND subtype = 38 AND aux_index = ?`（? = 群 id，即群成员卡片）；
+     * ② 读 `chatroom.memberlist`（`;` 分隔文本列）后按 `;` 切分，逐个用 `y3.e0/f0` 解析出显示名。
+     * 成员不在 SQL 行内，只能在任务体出口过滤 —— 见 HideContactsSearch.kt。
      */
     internal val methodFtsSearchChatroomMemberTask by dexMethod(allowFailure = true) {
         matcher {
@@ -793,13 +843,24 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
     }
 
     /**
-     * `fts.logic.h.p(FTSResult)` — SearchCommonChatroomUserTask, the 共同群聊好友建议 task.
+     * SearchCommonChatroomUserTask 的任务体 — 共同群聊好友建议（「群名包含:某人」那类结果行）。
      *
-     * Same shape argument as [methodFtsSearchChatroomMemberTask]:
-     * `"SearchCommonChatroomUserTask"` occurs in one class only (8.0.76
-     * `plugin/fts/logic/h.java:30`, 8.0.69 same path `:30`), which declares `<init>(k, FTSRequest)`,
-     * `getName()` and `p(FTSResult)`. NB: the neighbouring tasks `g` and `s0` both report
-     * `"SearchCommonChatroomTask"` — the `User` suffix is what makes this one unambiguous.
+     * ## 8.0.78 实测（`classes12.dex`）
+     *
+     * `"SearchCommonChatroomUserTask"` 全 dex 只出现一次，在 **`com.tencent.mm.plugin.fts.logic.j`**
+     * 的 `getName()` 里 —— 旧注释锚定的 `fts.logic.h` 在 8.0.78 已是
+     * `BuildSingleChatroomMemberTask`（FTS 索引构建器），挂在它上面等于完全没生效。
+     *
+     * ## 为什么改挂「类 + 单参数返回 void」而不是继续写死任务体名
+     *
+     * 8.0.78 的任务体是 `public void r(u73.v vVar)`（`u73.v` 即 FTSResult 持有者），而旧注释写的是
+     * `p(FTSResult)` —— 方法名在版本间会漂移（`q0`/`s0`/`j`/`h` 各自的任务体名并不统一）。
+     * 因此这里定位「该类里唯一的 1 参数 void 方法」，不依赖具体方法名；
+     * 该类除 `<init>(m, FTSRequest)`（2 参数）与 `getName()`（返回 String）外只有任务体一个候选。
+     *
+     * 任务体内 SQL（`SELECT content FROM <meta> NOT INDEXED JOIN <index> ... MATCH '...' AND
+     * entity_id <= 50 ... LIMIT 10`）不在 [rewriteFtsSql] 的任何规则内，且成员名是从 `content`
+     * 里按 `c.c` 正则切出来的，所以只能在任务体出口过滤 —— 见 HideContactsSearch.kt。
      */
     internal val methodFtsSearchCommonChatroomUserTask by dexMethod(allowFailure = true) {
         matcher {
@@ -1030,19 +1091,26 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
     }
 
     /**
-     * `b2.d(String talker, String, int, int, String, boolean, k0, f16.l)` — legacy call-record
+     * `b2.d(String talker, String, int, int, String, boolean, k0, r96.l)` — legacy call-record
      * insertion.
      *
      * NB: do NOT match on "insertMsg() called with: voipInfo = " — those strings live in the
      * synthetic Runnable `b2$$a.run()`, which takes ZERO parameters, so the previous matcher made
-     * `args[0]` throw on every legacy call record. The callagain URL is unique to b2 itself, and
-     * `d` is the only 8-parameter method it declares.
+     * `args[0]` throw on every legacy call record.
+     *
+     * 匹配方式（8.0.78 修正）：原先用 `declaredClass { usingEqStrings(TAG, callagainUrl) }`，
+     * 但 DexKit 在该块内判定的是「**方法自身**是否引用这些串」，而这两个串只出现在 b2 的
+     * `a`/`b`/`i` 里，`d` 本身一条都不含（它把工作委托给 `b2$$a` Runnable），因此永不命中。
+     * 改为：先在整包内按「类中含 callagain URL」框定宿主类，再在该类内用签名（8 参数、
+     * 返回 void）唯一确定 `d`——`b2` 只有这一个 8 参数 void 方法。
+     *
+     * `usingEqStrings` 放在类级 matcher 时按「类（含其所有方法）引用该串」判定，故此处
+     * 不再嵌套 declaredClass，而是直接以类名锚定：`com.tencent.mm.plugin.voip.model.b2`
+     * 是 8.0.78 的实测位置（classes16.dex）。
      */
     internal val methodVoipLegacyInsertMsg by dexMethod(allowFailure = true) {
         matcher {
-            declaredClass {
-                usingEqStrings("MicroMsg.VoipPluginManager", "weixin://voip/callagain/?username=")
-            }
+            declaredClass = "com.tencent.mm.plugin.voip.model.b2"
             paramCount = 8
             returnType("void")
         }
@@ -1056,4 +1124,27 @@ object HideContacts : ClickableFeature(), IResolveDex, WeChatInputBarApi.IInputB
 //    private val classVoipFloatCard by dexClass()
 //    private val classRecentForwardInfoHelperV3 by dexClass()
 //    private val classContactRecommendHelperV3 by dexClass()
+
+    /**
+     * 与 [SplitGroupCall.resolveDex] 同一套思路：先探测 legacy MultiTalk 架构是否还在，
+     * 不在就把相关锚点标记为「主动缺席」，而不是让它们以「找不到」的形态挂进自检报告。
+     *
+     * 实测 8.0.78（classes16.dex 等全量 dex）已彻底移除该架构：
+     * - TAG `MicroMsg.MT.MultiTalkManager`、日志串 `onInviteMultiTalk All Var Value` /
+     *   `exitCurrentMultiTalk: isReject`、以及类 `Lcom/tencent/mm/modeltalkroom/MultiTalkGroup;`
+     *   全部为空命中；这不是特征串漂移，是代码本身不存在。
+     * - 因此 [methodMultiTalkOnInvite] / [methodExitMultiTalk] 在这版微信上永远不会命中，
+     *   继续按「锚点失效」上报只会长期挂着一个修不好的假故障。
+     *
+     * 注意：只标这两个。`methodVoipLegacyInsertMsg` 对应的 v2protocal 栈仍存在
+     * （`MicroMsg.VoipPluginManager` 与 callagain URL 均在 classes16 命中），必须照常解析。
+     */
+    override fun resolveDex(dexKit: DexKitBridge) {
+        if (methodMultiTalkOnInvite.isPlaceholder || methodExitMultiTalk.isPlaceholder) {
+            val reason = "legacy MultiTalk architecture is absent in this WeChat version"
+            WeLogger.w(TAG, "legacy MultiTalk absent; marking its anchors intentionally absent")
+            methodMultiTalkOnInvite.setPlaceholderDescriptor(reason)
+            methodExitMultiTalk.setPlaceholderDescriptor(reason)
+        }
+    }
 }
