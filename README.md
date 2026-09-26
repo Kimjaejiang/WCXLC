@@ -20,6 +20,42 @@
 
 ---
 
+## 🚨 升级必读（从 2026-09-26 之前的版本升级）
+
+> **若你的微信「主页会话列表」出现过反复崩溃，升级本模块后仍可能继续崩 —— 这不是代码没修好，而是库里已有坏行，需要清库。**
+
+### 背景
+
+2026-09-26 之前的版本里，**密友「主页会话隐藏」**用「`delChatContact` 物理删行 + 快照 INSERT 重建」实现隐藏。该实现会往微信核心表 `rconversation` 写入**字段残缺的行**，从而在**微信自己的存储层/UI 层**爆出崩溃 —— 崩溃栈里**没有任何模块帧**，极易被误认为微信自身的 bug。详见 [当日条目](#2026-09-26)。
+
+### 修复与残留
+
+- **代码侧（`2abf9aa` 起）**：整套写 `rconversation` 的路径已**全部移除**，隐藏改为**纯查询过滤**（只读 `SQL NOT IN` / 钩子拦截）。**已不会再产生新的坏行。**
+- **数据侧（需手动处理）**：**已写坏的存量行不会自动修复。** 只要坏行还在库里，崩溃就会持续。判断与处理：
+
+| 现象 | 结论 |
+| --- | --- |
+| 关闭模块后**仍然崩** | 坏行在数据里，**不是模块的锅**，必须清库 |
+| 微信分身**不崩**、主微信崩 | 主微信库有坏行，分身库干净 |
+| 升级微信版本后**仍然崩** | 同上，升级不解决存量数据问题 |
+
+**清库步骤（会清空微信本地聊天记录，请先备份或确认可接受）：**
+
+```bash
+# 需 root。务必确认微信已停止
+adb shell su -c 'am force-stop com.tencent.mm'
+adb shell su -c 'rm -rf /data/data/com.tencent.mm'
+# 之后重新打开微信并登录
+```
+
+> 清库后微信会重建干净的数据库，崩溃根治（本机实测删 42GB 后不再崩）。
+
+### 教训
+
+> **往微信核心表（`rconversation` / `rcontact`）做「删行 + 重建」「部分列 INSERT」是高风险操作。** 重建字段一旦残缺，崩溃会出现在微信自己的代码里、栈中无模块帧，排查成本极高。**能只读过滤（SQL `NOT IN` / 钩子拦截）就绝不物理删行重建。**
+
+---
+
 ## 🛠️ 下游修改项（本仓库优化/修复，均同步上游）
 
 > 以下条目均注明**涉及文件**与**实现细节**，便于回溯代码与同步上游。按日期倒序排列。
@@ -46,6 +82,38 @@
   - 涉及文件：`features/items/chat/ConversationAggregation.kt`（**未修改**）
   - 排查：崩根因明确后，审查归拢是否同样写坏 rconversation。核实其写入均为**显式 SQL**（`INSERT OR IGNORE` 部分列建行、`UPDATE` 显式列名赋值），值类型正确（`''`/`0`/`flag` 位运算保留原高位），与密友「删行+ContentValues 快照重建」的坏行机制**不同**——归拢不会把已有行写残缺，且其 `wekit_folder_*` 行微信按特殊行处理、不走联系人 `m2()` 逻辑。
   - 结论：归拢**保持现状不动**（避免为不存在的隐患去动一个复杂且当前功能正常的模块）。已实机确认归拢正常。
+
+- **🔔 通知 · 自定义表情改读 `rconversation.digest` 真实表情还原**
+  - 涉及文件：`features/items/notifications/NotificationsEvolved.kt`（新增 `replaceStickerPlaceholdersFromDigest` / `splitGraphemes`）
+  - 现象：通知栏里**所有自定义表情都显示成同一个 `🤪`**（做鬼脸），而**归拢摘要却显示正确**（如 👨‍🏫 / 💵）。同一表情在两处表现不一致。
+  - 根因（两层叠加）：
+    1. 微信在 `Notification.EXTRA_TEXT` 里给自定义表情**只写统称占位符**（`[表情]`），"具体是哪一个"的信息不在通知里；
+    2. 而 `MessageTextUtils` 的映射表把 `[表情]`/`[动画表情]`/`[贴纸表情]`/`[搜狗表情]` **全部硬编码指向同一个兜底图案 `🤪`** → 所有自定义表情长得一模一样。
+    - 归拢摘要之所以正确，是因为它读的是 `rconversation.digest`，那里存的是**真实 emoji 本体**。
+  - 关键实测（8.0.78，logcat 抓取 `raw notif text` 与 digest 对照）——**两者逐项一一对应**：
+    ```
+    notif  = [表情][表情][牛][表情][表情][表情][表情]
+    digest = 🙈💵🐮👨🏼‍🏫🙁❗️🉐
+    ```
+  - 修复：通知构建时，从 `WeDatabaseApi.rawQuery("SELECT digest FROM rconversation WHERE username=?")` 取该会话 digest，**按位置**替换正文里的方括号占位符：
+    - digest 按**字素簇**切分（`java.text.BreakIterator.getCharacterInstance()`）——ZWJ 组合（`👩‍❤️‍💋‍👨`）与变体选择符（`⬆️`）各算**一个**整体，**不能按 codePoint 切**，否则会拆成多段、与占位符对不齐；
+    - **仅在 `digest 字素数 == 正文方括号项数` 时替换**，对不齐则整体放弃，绝不猜、不错位、不增删正文；
+    - 替换失败维持原有映射兜底，行为向后兼容（`MessageTextUtils` 的 `🤪` 保留为兜底，不再作为主路径）。
+  - 验证：`dumpsys notification --noredact` 确认 `android.text` 由 `[表情][表情][牛]…` 变为 `🙈💵🐮👨🏼‍🏫🙁❗️🉐`；`tickerText` 仍是微信原始占位符（未被改动，符合预期）。
+  - 备注：诊断日志保留 `sticker digest applied / mismatch / miss` 三档，若日后某条通知仍显示兜底图案，可据此判断是"digest 对不齐"而非映射表问题。
+
+- **⚙️ 设置界面重构 · 功能分组 + 模块自检页**
+  - 涉及文件：`activity/settings/FeatureGroups.kt`（新增）、`SelfCheckPager.kt`（新增）、`FeaturesPager.kt`、`HomePager.kt`、`LogsPager.kt`、`features/core/FeatureHealth.kt`、`FeaturesLoader.kt`、`BaseFeature.kt`、`ui/content/DexResolver.kt`、`dexkit/dsl/DexDelegates.kt`
+  - **功能分组**：密友分类下平铺着 **28 个开关**，其中不少是同一件事的不同侧面（「三击/多击/长按标题」都是临时显示；「朋友圈隐藏」与「朋友圈互动隐藏」是包含关系），平铺既看不出层次、也让用户以为每个开关同等独立。新增 `FeatureGroups` 在 **UI 层**登记展示分组（`GROUP_ORDER`：名单与总控 / 隐藏：会话与通讯录 / 隐藏：朋友圈 / 隐藏：其他界面 / 显示与恢复 / 提醒与提示），**未登记的功能自动归入「其他」排在末尾**，不影响任何启用逻辑。
+  - **模块自检页**：新增 `SelfCheckPager`，把 `FeatureHealth` 的内部状态翻译成用户可读的「一行结论 + 状态档位色」，不暴露 `SKIPPED_INCOMPLETE_CACHE` 这类术语。「**已挂钩但未被调用**」单独标为灰色「待验证」——它既可能是微信改了调用路径，也可能只是本次还没用到，与真正故障区分开。**手动触发**检测（进页面就跑会遍历全部功能实例、拖慢设置页）。
+  - 框架侧：`FeatureHealth` / `FeaturesLoader` / `BaseFeature` / `DexResolver` / `DexDelegates` 配套调整，用于提供上述自检数据与锚点状态口径。
+
+- **🧩 功能优化 · 通讯录隐藏 SQL、外部分享、通话限制、会话列表锚点**
+  - 涉及文件：`features/items/contacts/HideContacts.kt`、`hidecontacts/HideContactsSql.kt`（新增）、`hidecontacts/HideContactsSearch.kt`、`features/api/ui/WeConversationListViewApi.kt`、`features/items/chat/ExternalSharingEvolved.kt`、`RemoveMessageSelectionLimit.kt`、`features/items/voip/RemoveLimitsDuringCalls.kt`、`features/items/contacts/AutoAcceptFriendRequests.kt`、`SplitGroupCall.kt`、`NotificationsEvolved.kt`、`utils/strings/MessageTextUtils.kt`
+  - **通讯录隐藏 · 查询期过滤抽成独立模块**：新增 `HideContactsSql.kt` 集中维护 `WRAPPER_RULES`。依据是**微信几乎所有显示内容都出自 SQLite，且几乎全部读操作都汇流到同一个 wrapper** —— `ka5.b0.g(String sql, String[] args, int) -> Cursor`（`ka5/b0.java:1009`；`b0.B(sql,args)` 只是 `g(sql,args,0)`），`com.tencent.mm.storage.*` 全部 storage 类都走它。因此**增加一个隐藏面通常只需多认一种 SQL 形态，而不是找新锚点**。另有两条绕过 wrapper 的路径单独处理。搜索侧同步调整（`HideContactsSearch.kt`）。
+  - **外部分享 · 移除「桌面好友直达分享」快捷方式注册**：旧实现取「消息互动量前 3 的好友」，用 `ShortcutManager.dynamicShortcuts` 注册成 `sharing_target_<wxid>` 动态快捷方式，后果是**用户桌面长按微信图标会凭空多出三个好友名字**，与微信自己注册的「收付款/扫一扫/我的二维码」并列，用户无法分辨来源也无处关闭；且该实现**并未对分享流程做任何改动**（原描述「让系统分享菜单更易用 (没写完)」属实）。现将注册行为**整体移除**，功能只保留「**清理老版本已写入的遗留项**」这一件事，升级后点一次即可收回。
+  - **会话列表锚点 · 确认 legacy 适配器 `getView` 已随 mvvm 重构移除**：`WeConversationListViewApi` 补 `resolveDex`。实机核对全部 17 个 dex：完整 dup 日志 `Get Item duplicated: positionMaps: %s username [%s, %d] Map: %s datas: %d` **全包只出现在 `jo5.y0.getView` 一处**，而它持有 `MvvmConversationAdapter` 标签（已由 mvvm 锚点命中）；持 `MicroMsg.ConversationWithCacheAdapter` 标签的 `jo5.e` 是 abstract 基类、**没有 `getView`**。故 legacy matcher 在当前版本下**无解 —— 不是写错，是目标已被移除**，标为**刻意缺席**，仅影响上报口径。功能不受影响：mvvm 锚点已覆盖唯一的 `getView`，`hookBinding` 两个入口命中一个即可。
+  - 其余：`RemoveLimitsDuringCalls` / `AutoAcceptFriendRequests` / `SplitGroupCall` / `RemoveMessageSelectionLimit` / `NotificationsEvolved` / `MessageTextUtils` 的配套调整。
 
 ### 2026-09-25
 
