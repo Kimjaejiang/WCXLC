@@ -263,18 +263,15 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
                     text = match.groupValues[3]
                 }
 
-                // 诊断：替换前的通知原文。表情类占位符的真实形态只能靠实测确定——
-                // 微信的表情名表既不在 dex（UTF-8 精确字节搜索 0 命中）也不在
-                // files/public/emoji 的 xml 里，无法离线取得权威映射，故先记录原文。
-                // 若正文含 [xxx]，把 xxx 补进 MessageTextUtils 的对应映射表即可。
-                runCatching {
-                    val raw = text
-                    val tags = Regex("\\[[^]]+]").findAll(raw).map { it.value }.toList()
-                    WeLogger.i(
-                        TAG,
-                        "raw notif text=[$raw] tags=${if (tags.isEmpty()) "none" else tags.joinToString(" ")}"
-                    )
-                }
+                // 表情类消息：微信在通知正文里只写占位符，自定义表情一律写成统称的
+                // 「[表情]」，具体是哪一个的信息并不在通知里 —— 映射表只能给出同一个
+                // 兜底图案，于是所有自定义表情在通知栏长得一模一样（归拢摘要却正常，
+                // 因为它读的是 rconversation.digest，那里存的是真实 emoji 本体）。
+                //
+                // 实测 8.0.78：notif=[表情][表情][表情][表情][表情][牛]
+                //              digest=🙈👩‍❤️‍💋‍👨⬆️👨🏼‍🏫💵🐮      ← 逐项一一对应
+                // 所以先用 digest 还原真实表情，再走下面的通用映射兜底。
+                text = replaceStickerPlaceholdersFromDigest(text, convWxId)
 
                 text = text
                     .replaceRichContent()
@@ -522,6 +519,90 @@ object NotificationsEvolved : SwitchFeature(), IResolveDex {
             if (notifyIdMap.size >= 128) notifyIdMap.clear()
             notifyIdMap[origId] = convWxId
         }
+    }
+
+    // ==================== 表情占位符还原：通知统称 → digest 真实表情 ====================
+
+    /**
+     * 把通知正文里的表情占位符，按位置替换成 [convWxId] 会话在 rconversation.digest
+     * 里记录的真实表情。
+     *
+     * 实测（8.0.78）：微信在通知正文里给自定义表情只写一个统称占位符，而 digest
+     * 存的是**真实 emoji 本体**，两者逐项一一对应：
+     *
+     *   notif  = [表情][表情][表情][表情][表情][牛]
+     *   digest = 🙈👩‍❤️‍💋‍👨⬆️👨🏼‍🏫💵🐮
+     *
+     * 所以只要按字素把 digest 切开、与正文里的方括号项按顺序对齐，就能把通知还原成
+     * 和归拢摘要一致的真实表情。注意 digest 里没有方括号，且含 ZWJ 组合序列
+     * （👩‍❤️‍💋‍👨）与变体选择符（⬆️），必须按**字素簇**切分，不能按 UTF-16 码元。
+     *
+     * 保守起见只在**数量完全相等**时替换：对不齐就整体放弃，绝不猜、绝不错位，
+     * 也不会凭空增删正文内容。
+     */
+    private fun replaceStickerPlaceholdersFromDigest(text: String, convWxId: String): String {
+        // 正文里所有方括号项（[表情]、[牛]…），这些就是要被替换的位置。
+        val placeholders = Regex("\\[[^]]+]").findAll(text).toList()
+        if (placeholders.isEmpty()) return text
+
+        val digest = runCatching {
+            WeDatabaseApi.rawQuery(
+                "SELECT digest FROM rconversation WHERE username=?",
+                arrayOf(convWxId)
+            ).use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull()
+
+        if (digest.isNullOrEmpty()) {
+            WeLogger.i(TAG, "sticker digest miss for $convWxId, keep placeholders")
+            return text
+        }
+
+        // digest 按字素簇切分，得到每个表情本体。
+        val digestGraphemes = splitGraphemes(digest)
+        if (digestGraphemes.size != placeholders.size) {
+            WeLogger.i(
+                TAG,
+                "sticker digest mismatch for $convWxId: notif=${placeholders.size} digest=${digestGraphemes.size} digest=[$digest]"
+            )
+            return text
+        }
+
+        // 仅替换那些「统称占位符」或与 digest 不同的项：[牛]↔🐮 这类微信自带表情，
+        // digest 给的 emoji 更精确，一并采用；数量已保证一致，直接按序重建。
+        val sb = StringBuilder()
+        var cursor = 0
+        placeholders.forEachIndexed { index, match ->
+            sb.append(text, cursor, match.range.first)
+            sb.append(digestGraphemes[index])
+            cursor = match.range.last + 1
+        }
+        sb.append(text, cursor, text.length)
+
+        WeLogger.i(
+            TAG,
+            "sticker digest applied for $convWxId: ${placeholders.joinToString("") { it.value }} → ${digestGraphemes.joinToString("")}"
+        )
+        return sb.toString()
+    }
+
+    /**
+     * 按**字素簇**切分字符串（ZWJ 组合、变体选择符、肤色修饰符都算一个整体）。
+     * 不能直接用 codePoint 切 —— 那样「👩‍❤️‍💋‍👨」会被拆成 6 段，与通知占位符对不上。
+     */
+    private fun splitGraphemes(s: String): List<String> {
+        val iterator = java.text.BreakIterator.getCharacterInstance()
+        iterator.setText(s)
+        val out = ArrayList<String>()
+        var start = iterator.first()
+        var end = iterator.next()
+        while (end != java.text.BreakIterator.DONE) {
+            out.add(s.substring(start, end))
+            start = end
+            end = iterator.next()
+        }
+        return out
     }
 
     // ==================== 发送者头像：异步预取 + 缓存 ====================
