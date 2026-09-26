@@ -89,7 +89,12 @@ object AntiMessageRecall : ClickableFeature(), WeXmlParserApi.IAfterParseListene
     private const val TAG_RECALLED = 0x7E000002
     private const val TAG_WATCHER = 0x7E000003
 
-    private var recallOutgoing by prefOption("recall_outgoing", false)
+    // 「防撤回自己的消息」选项已移除：自己撤回的消息一律放行（交给微信原生处理）。
+    //
+    // 原因：微信对「自己撤回」是**原地改写**那一行（真机实测 type→285222674、
+    // content→「你撤回了一条消息」），原文在撤回事件到达前就已被抹掉，
+    // 模块无法保留。与其留一个做不到的开关，不如去掉。
+    // 别人撤回的消息不受影响（微信另插系统提示、原行不动）。
 
     /** 0 = 旧样式（插入「已阻止」提示消息）；1 = 新样式（原消息保留 + 昵称后标签） */
     private var styleMode by prefOption("recall_style_mode", STYLE_BADGE)
@@ -212,8 +217,8 @@ object AntiMessageRecall : ClickableFeature(), WeXmlParserApi.IAfterParseListene
             if (!c.moveToFirst()) return
             val msgInfo = MessageInfo(WeMessageApi.convertMsgInfoInstanceFromCursor(c))
 
-            // 自己发的消息且未开启「防撤回自己的消息」时，一律放行
-            if (msgInfo.isSelfSender && !recallOutgoing) return
+            // 自己发的消息一律放行：微信已把该行原地改写成撤回提示，原文无从保留。
+            if (msgInfo.isSelfSender) return
 
             // 清空撤回事件：屏蔽微信原生「xx 撤回了一条消息」提示
             result[TYPE_KEY] = null
@@ -229,8 +234,8 @@ object AntiMessageRecall : ClickableFeature(), WeXmlParserApi.IAfterParseListene
                 // 旧样式：额外插入一条系统消息作为拦截提示
                 val replaceMsg = result[".sysmsg.revokemsg.replacemsg"] as? String ?: return
                 val match = NAME_REGEX.find(replaceMsg)
-                val senderName = match?.groupValues?.get(2)
-                    ?: if (recallOutgoing) "自己" else return
+                // 取不到发送者名就放弃（自己发的消息在上面已放行，走不到这里）
+                val senderName = match?.groupValues?.get(2) ?: return
 
                 val interceptNotice = pattern
                     .replace($$"$sender", senderName)
@@ -505,7 +510,6 @@ object AntiMessageRecall : ClickableFeature(), WeXmlParserApi.IAfterParseListene
     override fun onClick(context: ComponentActivity) {
         showComposeDialog(context) {
             var styleInput by remember { mutableStateOf(styleMode) }
-            var recallOutgoingInput by remember { mutableStateOf(recallOutgoing) }
             var patternInput by remember { mutableStateOf(pattern) }
             var timeFormatInput by remember { mutableStateOf(timeFormat) }
             var badgeTextInput by remember { mutableStateOf(badgeText) }
@@ -522,13 +526,8 @@ object AntiMessageRecall : ClickableFeature(), WeXmlParserApi.IAfterParseListene
                     // 不滚动就会被底部「确认/取消」按钮栏盖住 —— 表现为最后两个颜色框
                     // 被遮住、看不清。用户实测反馈过。
                     DefaultColumn(scrollable = true) {
-                        ListItem(
-                            modifier = Modifier.clickable { recallOutgoingInput = !recallOutgoingInput },
-                            trailingContent = { Switch(checked = recallOutgoingInput, onCheckedChange = null) },
-                            supportingContent = { Text("是否对自己发出的消息也生效") },
-                            headlineContent = { Text("防撤回自己的消息") },
-                        )
-
+                        // 注：「防撤回自己的消息」开关已移除（微信会原地改写原文，做不到）。
+                        // 自己撤回的消息一律放行，交给微信原生处理。
                         ListItem(
                             modifier = Modifier.clickable {
                                 styleInput = if (badgeMode) STYLE_NOTICE else STYLE_BADGE
@@ -580,7 +579,6 @@ object AntiMessageRecall : ClickableFeature(), WeXmlParserApi.IAfterParseListene
                 confirmButton = {
                     Button({
                         styleMode = styleInput
-                        recallOutgoing = recallOutgoingInput
                         pattern = patternInput
                         timeFormat = timeFormatInput
                         badgeText = badgeTextInput

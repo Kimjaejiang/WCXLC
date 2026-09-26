@@ -73,7 +73,11 @@ object WeContactPrefsScreenApi : ApiFeature() {
                                     setKeyMethod.invoke(pref, item.key)
                                     setTitleMethod.invoke(pref, item.title)
                                     item.summary?.let { summary -> setSummaryMethod.invoke(pref, summary) }
-                                    addPreferenceMethod.invoke(adapterInstance, pref, item.position)
+                                    addPreferenceMethod.invoke(
+                                        adapterInstance,
+                                        pref,
+                                        item.position.coerceIn(0, adapterItemCount(adapterInstance))
+                                    )
                                 }
                             } catch (ex: Exception) {
                                 WeLogger.e(
@@ -153,4 +157,17 @@ object WeContactPrefsScreenApi : ApiFeature() {
         setSummaryMethod = charSeqMethods.getOrElse(0) { error("setSummary method not found") }
         setTitleMethod = charSeqMethods.getOrElse(1) { error("setTitle method not found") }
     }
+
+    /**
+     * 取适配器当前条目数，用于把 provider 给的 position 钳到合法范围。
+     *
+     * 适配器底层是 LinkedList，`add(index, ...)` 会 checkPositionIndex，
+     * `index > size` 时抛 IndexOutOfBoundsException。实测从某些入口
+     * （微信尚未填入原生条目、列表为空）进详情页时，provider 的 position=1
+     * 直接越界，该 provider 的条目整批加不上（异常被外层 catch 吞掉，
+     * 表现为「功能看着正常、日志里报错」）。
+     * 取不到条数时返回 0 —— 追加到末尾总是安全的。
+     */
+    private fun adapterItemCount(adapter: Any?): Int =
+        runCatching { (adapter as? android.widget.Adapter)?.count ?: 0 }.getOrDefault(0)
 }
